@@ -13,12 +13,15 @@ on dtoa-benchmark.
 
 | Function       | Time (ns) | Speedup  |
 |----------------|----------:|---------:|
-| ostringstream  | 875.978   | 1.00x    |
-| sprintf        | 746.631   | 1.17x    |
-| doubleconv     | 89.011    | 9.84x    |
-| to_chars       | 43.916    | 19.95x   |
-| ryu            | 37.249    | 23.52x   |
-| schubfach      | 24.822    | 35.29x   |
-| fmt            | 22.302    | 39.28x   |
-| zmij           | 16.648    | 52.62x   |
-| null           | 0.931     | 941.32x  |
+| ostringstream  | 892.448   | 1.00x    |
+| sprintf        | 751.571   | 1.19x    |
+| doubleconv     | 84.961    | 10.50x   |
+| to_chars       | 42.921    | 20.79x   |
+| ryu            | 37.102    | 24.05x   |
+| schubfach      | 25.346    | 35.21x   |
+| fmt            | 22.374    | 39.89x   |
+| dragonbox      | 20.681    | 43.15x   |
+| zmij           | 16.219    | 55.02x   |
+| null           | 0.932     | 957.80x  |
+
+<img width="769" height="347" alt="image" src="https://github.com/user-attachments/assets/d3cc3e54-a70e-45a1-997e-ed86181dde87" />
