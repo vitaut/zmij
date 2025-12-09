@@ -705,14 +705,6 @@ inline auto digits2(size_t value) noexcept -> const char* {
   return &data[value * 2];
 }
 
-// The idea of branchless trailing zero removal is by Alexander Bolz.
-const char num_trailing_zeros[] =
-    "\2\0\0\0\0\0\0\0\0\0\1\0\0\0\0\0\0\0\0\0"
-    "\1\0\0\0\0\0\0\0\0\0\1\0\0\0\0\0\0\0\0\0"
-    "\1\0\0\0\0\0\0\0\0\0\1\0\0\0\0\0\0\0\0\0"
-    "\1\0\0\0\0\0\0\0\0\0\1\0\0\0\0\0\0\0\0\0"
-    "\1\0\0\0\0\0\0\0\0\0\1\0\0\0\0\0\0\0\0\0";
-
 struct div_mod_result {
   uint32_t div;
   uint32_t mod;
@@ -730,13 +722,22 @@ inline auto divmod100(uint32_t value) noexcept -> div_mod_result {
   return {div, value - div * 100};
 }
 
+// Advance p to one past the last non-zero digit in the four-digit string pointed to by p.
+// Assumes little-endian.
+inline auto advance_by_trailing_nonzeros(char *p) noexcept -> char* {
+#ifdef _MSC_VER
+  return p + 4 - _lzcnt_u32(*(uint32_t*)p ^ 0x30303030) / 8;
+#else
+  return p + 4 - __builtin_clz(*(uint32_t*)p ^ 0x30303030) / 8;
+#endif
+}
+
 // Writes 4 digits and removes trailing zeros.
 auto write4digits(char* buffer, uint32_t value) noexcept -> char* {
   auto [aa, bb] = divmod100<4>(value);
   memcpy(buffer + 0, digits2(aa), 2);
   memcpy(buffer + 2, digits2(bb), 2);
-  return buffer + 4 - num_trailing_zeros[bb] -
-         (bb == 0) * num_trailing_zeros[aa];
+  return advance_by_trailing_nonzeros(buffer);
 }
 
 // Writes a significand consisting of 16 or 17 decimal digits and removes
@@ -756,12 +757,13 @@ auto write_significand(char* buffer, uint64_t value) noexcept -> char* {
   buffer += a != 0;
   memcpy(buffer + 0, digits2(bb), 2);
   memcpy(buffer + 2, digits2(cc), 2);
+  
+  if (ffgghhii == 0) {
+    if (ddee != 0) return write4digits(buffer + 4, ddee);
+    return advance_by_trailing_nonzeros(buffer);
+  }
   buffer += 4;
 
-  if (ffgghhii == 0) {
-    if (ddee != 0) return write4digits(buffer, ddee);
-    return buffer - num_trailing_zeros[cc] - (cc == 0) * num_trailing_zeros[bb];
-  }
   auto [dd, ee] = divmod100<4>(ddee);
   uint32_t ffgg = ffgghhii / 10'000;
   uint32_t hhii = ffgghhii % 10'000;
@@ -771,8 +773,7 @@ auto write_significand(char* buffer, uint64_t value) noexcept -> char* {
   memcpy(buffer + 4, digits2(ff), 2);
   memcpy(buffer + 6, digits2(gg), 2);
   if (hhii != 0) return write4digits(buffer + 8, hhii);
-  return buffer + 8 - num_trailing_zeros[gg] -
-         (gg == 0) * num_trailing_zeros[ff];
+  return advance_by_trailing_nonzeros(buffer + 4);
 }
 
 // Writes the decimal FP number dec_sig * 10**dec_exp to buffer.
