@@ -10,9 +10,15 @@ auto dtoa(double value) -> std::string {
 
 TEST(zmij_test, zero) {
   EXPECT_EQ(dtoa(0), "0");
+  EXPECT_EQ(dtoa(-0.0), "-0");
 }
 
-int main(int argc, char** argv) {
+TEST(zmij_test, inf) {
+  EXPECT_EQ(dtoa(std::numeric_limits<double>::infinity()), "inf");
+  EXPECT_EQ(dtoa(-std::numeric_limits<double>::infinity()), "-inf");
+}
+
+auto main(int argc, char** argv) -> int {
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
