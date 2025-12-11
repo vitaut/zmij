@@ -902,7 +902,7 @@ void dtoa(double value, char* buffer) noexcept {
   }
 
   // Both dec_sig_under and dec_sig_over are in the interval - pick the closest.
-  int cmp = scaled_sig - ((dec_sig_under + dec_sig_over) << 1);
+  int64_t cmp = int64_t(scaled_sig - ((dec_sig_under + dec_sig_over) << 1));
   bool under_closer = cmp < 0 || (cmp == 0 && (dec_sig_under & 1) == 0);
   return write(buffer, under_closer ? dec_sig_under : dec_sig_over, dec_exp);
 }
