@@ -7,7 +7,7 @@ A double-to-string conversion algorithm based on [Schubfach](https://fmt.dev/pap
 * Round trip guarantee
 * Shortest decimal representation
 * Correct rounding
-* High performance
+* High [performance](#performance)
 * Fast compile time
 * Zero dependencies
 * Small, clean codebase consisting of one source file and one header
