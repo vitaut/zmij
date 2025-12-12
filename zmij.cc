@@ -684,7 +684,7 @@ auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 auto umul192_upper64_modified(uint64_t pow10_hi, uint64_t pow10_lo,
                               uint64_t scaled_sig) noexcept -> uint64_t {
   uint128_t result = umul128(pow10_hi, scaled_sig) +
-                     uint64_t(umul128(pow10_lo, scaled_sig) >> 64);
+                     (umul128(pow10_lo, scaled_sig) >> 64);
   uint64_t z = uint64_t(result >> 1);
   constexpr uint64_t mask = (uint64_t(1) << 63) - 1;
   // OR with 1 if z is not divisible by 2**63.
