@@ -32,7 +32,7 @@ int main() {
 More than 3x faster than [Ryu](https://github.com/ulfjack/ryu) used by multiple
 C++ standard library implementations and ~2x faster than
 [Schubfach](https://github.com/vitaut/schubfach)
-on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark).
+on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark) run on Apple M1.
 
 | Function      | Time (ns) | Speedup |
 |---------------|----------:|--------:|
