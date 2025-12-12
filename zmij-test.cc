@@ -12,12 +12,12 @@ auto dtoa(double value) -> std::string {
 
 TEST(zmij_test, umul192_upper64_modified) {
   auto pow10 = pow10_significands[0];
-  EXPECT_EQ(umul192_upper64_modified(pow10.hi, pow10.lo,
-                                     0x1234567890abcdef << 2),
-            0x24554a3ce60a45f5);
-  EXPECT_EQ(umul192_upper64_modified(pow10.hi, pow10.lo,
-                                     0x1234567890abce16 << 2),
-            0x24554a3ce60a4643);
+  EXPECT_EQ(
+      umul192_upper64_modified(pow10.hi, pow10.lo, 0x1234567890abcdef << 1),
+      0x24554a3ce60a45f5);
+  EXPECT_EQ(
+      umul192_upper64_modified(pow10.hi, pow10.lo, 0x1234567890abce16 << 1),
+      0x24554a3ce60a4643);
 }
 
 TEST(zmij_test, normal) { EXPECT_EQ(dtoa(6.62607015e-34), "6.62607015e-34"); }
