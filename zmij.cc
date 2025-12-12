@@ -683,13 +683,12 @@ auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 // where pow10 = (pow10_hi << 64) | pow10_lo.
 auto umul192_upper64_modified(uint64_t pow10_hi, uint64_t pow10_lo,
                               uint64_t scaled_sig) noexcept -> uint64_t {
-  uint64_t x_hi = uint64_t(umul128(pow10_lo, scaled_sig) >> 65);
-  uint128_t y = umul128(pow10_hi, scaled_sig);
-  uint64_t z = (uint64_t(y) >> 1) + x_hi;
-  uint64_t result = uint64_t(y >> 64) + (z >> 63);
+  uint64_t x_hi = uint64_t(umul128(pow10_lo, scaled_sig) >> 64);
+  uint128_t y = umul128(pow10_hi, scaled_sig) + x_hi;
+  uint64_t z = uint64_t(y >> 1);
   constexpr uint64_t mask = (uint64_t(1) << 63) - 1;
   // OR with 1 if z is not divisible by 2**63.
-  return result | (((z & mask) + mask) >> 63);
+  return uint64_t(y >> 64) | (((z & mask) + mask) >> 63);
 }
 
 // Converts value in the range [0, 100) to a string. GCC generates a bit better
