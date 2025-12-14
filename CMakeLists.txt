@@ -12,5 +12,6 @@ enable_testing()
 add_subdirectory(gtest)
 
 add_executable(zmij-test zmij-test.cc)
+target_compile_features(zmij-test PRIVATE cxx_std_20)
 target_link_libraries(zmij-test gtest)
 add_test(NAME zmij-test COMMAND zmij-test)
