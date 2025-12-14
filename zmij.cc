@@ -14,6 +14,15 @@
 
 namespace {
 
+inline auto is_big_endian() -> bool {
+  struct bytes {
+    char data[sizeof(int)];
+  } b;
+  int n = 1;
+  memcpy(&b, &n, sizeof(int));
+  return b.data[0] == 0;
+}
+
 struct uint128 {
   uint64_t hi;
   uint64_t lo;
@@ -747,6 +756,7 @@ inline auto count_trailing_nonzeros(uint64_t x) noexcept -> size_t {
   // high bit is never set we can avoid the zero check by shifting the
   // datum left by one and using XOR to both remove the 0x30s and insert
   // a sentinel bit at the end.
+  assert(!is_big_endian());
   return size_t(70 - lzcntl(x << 1 ^ (0x30303030'30303030ull << 1 | 1))) / 8;
 }
 
