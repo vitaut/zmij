@@ -765,6 +765,8 @@ inline void write2digits(void* buffer, uint32_t value) noexcept {
   memcpy(buffer, digits2(value), 2);
 }
 
+// Converts an integer consisting of 4 base 100 digits to a string stored
+// in a 64-bit integer.
 auto digits8(uint32_t aa, uint32_t bb, uint32_t cc, uint32_t dd) noexcept
     -> uint64_t {
   uint16_t aa_digits;
