@@ -15,12 +15,10 @@
 namespace {
 
 inline auto is_big_endian() -> bool {
-  struct bytes {
-    char data[sizeof(int)];
-  } b;
+  char bytes[sizeof(int)];
   int n = 1;
-  memcpy(&b, &n, sizeof(int));
-  return b.data[0] == 0;
+  memcpy(&bytes, &n, sizeof(int));
+  return bytes[0] == 0;
 }
 
 struct uint128 {
