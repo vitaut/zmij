@@ -14,13 +14,6 @@
 
 namespace {
 
-inline auto is_big_endian() -> bool {
-  char bytes[sizeof(int)];
-  int n = 1;
-  memcpy(&bytes, &n, sizeof(int));
-  return bytes[0] == 0;
-}
-
 struct uint128 {
   uint64_t hi;
   uint64_t lo;
@@ -706,6 +699,13 @@ inline auto divmod100(uint32_t value) noexcept -> divmod_result {
   constexpr int sig = (1 << exp) / 100 + 1;
   uint32_t div = (value * sig) >> exp;  // value / 100
   return {div, value - div * 100};
+}
+
+inline auto is_big_endian() -> bool {
+  char bytes[sizeof(int)];
+  int n = 1;
+  memcpy(&bytes, &n, sizeof(int));
+  return bytes[0] == 0;
 }
 
 inline auto count_lzero(uint64_t x) noexcept -> int {
