@@ -890,7 +890,7 @@ void dtoa(double value, char* buffer) noexcept {
   // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127)
 
   // Shift to ensure the intermediate result in umul192_upper64_inexact_to_odd
-  // has a fixed 128-bit fractional width. For example, 3 * 2**59 and 3 * 2**60
+  // has a fixed 128-bit fractional part. For example, 3 * 2**59 and 3 * 2**60
   // both have dec_exp = 2 and dividing them by 10**dec_exp would have the
   // decimal point in different (bit) positions without the shift:
   //   3 * 2**59 / 100 = 1.72...e+16 (shift = 1 + 1)
