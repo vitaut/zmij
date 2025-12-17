@@ -707,7 +707,7 @@ inline auto divmod100(uint32_t value) noexcept -> divmod_result {
   return {div, value - div * 100};
 }
 
-inline auto is_big_endian() -> bool {
+inline auto is_big_endian() noexcept -> bool {
   char bytes[sizeof(int)];
   int n = 1;
   memcpy(&bytes, &n, sizeof(int));
