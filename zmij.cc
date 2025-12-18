@@ -1,6 +1,7 @@
 // A double-to-string conversion algorithm based on Schubfach.
 // Copyright (c) 2025 - present, Victor Zverovich
 // Distributed under the MIT license (see LICENSE).
+// https://github.com/vitaut/zmij/
 
 #if __has_include("zmij.h")
 #  include "zmij.h"
