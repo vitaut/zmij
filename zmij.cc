@@ -43,11 +43,19 @@ struct uint128 {
 #endif
 }
 
-#ifdef __SIZEOF_INT128__
+#ifdef ZMIJ_USE_INT128
+// Use the provided definition.
+#elif defined(__SIZEOF_INT128__)
+#  define ZMIJ_USE_INT128 1
+#else
+#  define ZMIJ_USE_INT128 0
+#endif
+
+#if ZMIJ_USE_INT128
 using uint128_t = unsigned __int128;
 #else
 using uint128_t = uint128;
-#endif  // __SIZEOF_INT128__
+#endif  // ZMIJ_USE_INT128
 
 // 128-bit significands of powers of 10 rounded down.
 // Generated with gen-pow10.py.
@@ -673,7 +681,7 @@ const uint128 pow10_significands[] = {
 
 // Computes 128-bit result of multiplication of two 64-bit unsigned integers.
 inline auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
-#ifdef __SIZEOF_INT128__
+#if ZMIJ_USE_INT128
   return uint128_t(x) * y;
 #elif defined(_MSC_VER) && defined(_M_AMD64)
   uint64_t hi;
@@ -696,7 +704,7 @@ inline auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 
   uint64_t cs = (bd >> 32) + uint32_t(ad) + uint32_t(bc);  // cross sum
   return {ac + (ad >> 32) + (bc >> 32) + (cs >> 32), (cs << 32) + uint32_t(bd)};
-#endif  // __SIZEOF_INT128__
+#endif  // ZMIJ_USE_INT128
 }
 
 inline auto umul192_upper128(uint64_t x_hi, uint64_t x_lo, uint64_t y) noexcept
