@@ -688,9 +688,7 @@ inline auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
   uint64_t lo = _umul128(x, y, &hi);
   return {hi, lo};
 #elif defined(_MSC_VER) && defined(_M_ARM64)
-  uint64_t hi = __umulh(x, y);
-  uint64_t lo = x * y;
-  return {hi, lo};
+  return {__umulh(x, y), x * y};
 #else
   uint64_t a = x >> 32;
   uint64_t b = uint32_t(x);
