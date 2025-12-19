@@ -723,8 +723,8 @@ auto umul192_upper64_inexact_to_odd(uint64_t x_hi, uint64_t x_lo,
 }
 
 struct divmod_result {
-  uint32_t div;
-  uint32_t mod;
+  uint32_t quo;
+  uint32_t rem;
 };
 
 // Returns {value / 100, value % 100} correct for values of up to 4 digits.
