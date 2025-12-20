@@ -2,6 +2,9 @@
 
 #include <gtest/gtest.h>
 
+#include <math.h>
+#include <stdio.h>
+#include <limits>
 #include <string>
 
 auto dtoa(double value) -> std::string {
@@ -65,6 +68,16 @@ TEST(zmij_test, single_candidate) {
 
   // Only an overestimate is in the rounding region (w in Schubfach).
   EXPECT_EQ(dtoa(6.079537928711555e+61), "6.079537928711555e+61");
+}
+
+TEST(zmij_test, all_exponents) {
+  using limits = std::numeric_limits<double>;
+  for (int exp = limits::min_exponent; exp < limits::max_exponent; ++exp) {
+    double expected = ldexp(1, exp);
+    double actual = 0;
+    sscanf(dtoa(expected).c_str(), "%lg", &actual);
+    EXPECT_EQ(actual, expected);
+  }
 }
 
 auto main(int argc, char** argv) -> int {
