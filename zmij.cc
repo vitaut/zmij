@@ -14,6 +14,9 @@
 
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
+#if __cplusplus >= 202002l || (defined(__cpp_lib_endian) && __cpp_lib_endian >= 201907l)
+#include <bit> // std::endian
+#endif
 
 #ifdef _MSC_VER
 #  include <intrin.h>  // lzcnt/adc/umul128/umulh
@@ -741,8 +744,12 @@ inline auto divmod100(uint32_t value) noexcept -> divmod_result {
 }
 
 inline auto is_big_endian() noexcept -> bool {
+#if __cplusplus >= 202002l || (defined(__cpp_lib_endian) && __cpp_lib_endian >= 201907l)
+  return std::endian::native == std::endian::big;
+#else
   int n = 1;
   return *reinterpret_cast<char*>(&n) != 1;
+#endif
 }
 
 inline auto countl_zero(uint64_t x) noexcept -> int {
