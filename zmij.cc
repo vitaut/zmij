@@ -1011,7 +1011,7 @@ void dtoa(double value, char* buffer) noexcept {
     int num_zeros = p - (start + 1);
     memcpy(start + 1, p, num_digits - num_zeros + 1);
     dec_exp -= num_zeros;
-    buffer -= num_zeros + (num_digits - num_zeros == 1);
+    buffer -= num_zeros;
   }
   start[0] = start[1];
   start[1] = '.';
