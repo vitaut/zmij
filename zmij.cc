@@ -12,7 +12,8 @@
 #include <stdint.h>  // uint64_t
 #include <string.h>  // memcpy
 
-#include <limits>  // std::numeric_limits
+#include <limits>       // std::numeric_limits
+#include <type_traits>  // std::conditional
 
 #ifdef _MSC_VER
 #  include <intrin.h>  // lzcnt/adc/umul128/umulh
@@ -917,14 +918,14 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
     // An optimization from yy by Yaoyuan Guo:
     if (
         // Exact half-ulp tie when rounding to nearest integer.
-        fractional != (UInt(1) << 63) &&
+        fractional != (UInt(1) << (num_bits - 1)) &&
         // Exact half-ulp tie when rounding to nearest 10.
         rem10 != half_ulp10 &&
         // Near-boundary case for rounding to nearest 10.
         ten - upper > UInt(1)) [[likely]] {
       bool round = (upper >> num_fractional_bits) >= 10;
       UInt shorter = integral - digit + round * 10;
-      UInt longer = integral + (fractional >= (UInt(1) << 63));
+      UInt longer = integral + (fractional >= (UInt(1) << (num_bits - 1)));
       return {((rem10 <= half_ulp10) + round != 0) ? shorter : longer, dec_exp};
     }
   }
@@ -967,10 +968,10 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
 
 namespace zmij::detail {
 
-template <typename Float>
-void to_string(Float value, char* buffer) noexcept {
+template <typename Float> void to_string(Float value, char* buffer) noexcept {
   static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
-  using uint = uint64_t;
+  using uint =
+      std::conditional_t<std::is_same<Float, double>{}, uint64_t, uint32_t>;
   uint bits = 0;
   memcpy(&bits, &value, sizeof(value));
 
@@ -1002,7 +1003,7 @@ void to_string(Float value, char* buffer) noexcept {
   bin_exp -= num_sig_bits + exp_bias;
 
   auto [dec_sig, dec_exp] = to_decimal(bin_sig, bin_exp, regular);
-  int num_digits = 15 + (dec_sig >= uint(1e16));
+  int num_digits = 15 + (dec_sig >= uint(num_bits == 64 ? 1e16 : 1e8));
   dec_exp += num_digits;
 
   char* start = buffer;
@@ -1029,6 +1030,7 @@ void to_string(Float value, char* buffer) noexcept {
   buffer[2] = '\0';
 }
 
+template void to_string<float>(float value, char* buffer) noexcept;
 template void to_string<double>(double value, char* buffer) noexcept;
 
 }  // namespace zmij::detail
