@@ -922,7 +922,8 @@ auto to_decimal(uint64_t bin_sig, int bin_exp, bool regular) -> fp {
     }
   }
 
-  // Fallback to Schubfach to guarantee correctness and switch to overestimates.
+  // Fallback to Schubfach to guarantee correctness in boundary cases and
+  // switch to overestimates.
   ++pow10_lo;
 
   // Shift the significand so that boundaries are integer.
