@@ -805,7 +805,7 @@ inline auto digits2(size_t value) noexcept -> const char* {
   return &data[value * 2];
 }
 
-uint64_t to_bcd8(uint64_t abcdefgh) {
+auto to_bcd8(uint64_t abcdefgh) -> uint64_t {
   // An optimization from Xiang JunBo.
   // Three steps BCD.  Base 10000 -> base 100 -> base 10.
   // div and mod are evaluated simultaneously as, e.g.
@@ -824,8 +824,8 @@ uint64_t to_bcd8(uint64_t abcdefgh) {
   return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
-// Writes a significand consisting of 16 or 17 decimal digits and removes
-// trailing zeros.
+// Writes a significand consisting of up to 17 decimal digits (16-17 for
+// normals) and removes trailing zeros.
 auto write_significand(char* buffer, uint64_t value) noexcept -> char* {
   // Each digits is denoted by a letter so value is abbccddeeffgghhii where
   // digit a can be zero.
@@ -968,15 +968,16 @@ namespace zmij {
 
 void dtoa(double value, char* buffer) noexcept {
   static_assert(std::numeric_limits<double>::is_iec559, "IEEE 754 required");
-  uint64_t bits = 0;
+  using uint = uint64_t;
+  uint bits = 0;
   memcpy(&bits, &value, sizeof(value));
 
   *buffer = '-';
   buffer += bits >> (num_bits - 1);
 
   constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
-  constexpr uint64_t implicit_bit = uint64_t(1) << num_sig_bits;
-  uint64_t bin_sig = bits & (implicit_bit - 1);  // binary significand
+  constexpr uint implicit_bit = uint(1) << num_sig_bits;
+  uint bin_sig = bits & (implicit_bit - 1);  // binary significand
   bool regular = bin_sig != 0;
 
   constexpr int num_exp_bits = num_bits - num_sig_bits - 1;
@@ -998,7 +999,7 @@ void dtoa(double value, char* buffer) noexcept {
   bin_exp -= num_sig_bits + exp_bias;
 
   auto [dec_sig, dec_exp] = to_decimal(bin_sig, bin_exp, regular);
-  int num_digits = 15 + (dec_sig >= uint64_t(1e16));
+  int num_digits = 15 + (dec_sig >= uint(1e16));
   dec_exp += num_digits;
 
   char* start = buffer;
