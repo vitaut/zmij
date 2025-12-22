@@ -6,8 +6,7 @@
 namespace zmij {
 namespace detail {
 
-template <typename Float>
-void to_string(Float value, char* buffer) noexcept;
+template <typename Float> void to_string(Float value, char* buffer) noexcept;
 
 }  // namespace detail
 
