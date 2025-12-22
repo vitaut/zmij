@@ -967,17 +967,18 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
 
 namespace zmij::detail {
 
-void to_string(double value, char* buffer) noexcept {
-  static_assert(std::numeric_limits<double>::is_iec559, "IEEE 754 required");
+template <typename Float>
+void to_string(Float value, char* buffer) noexcept {
+  static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
   using uint = uint64_t;
   uint bits = 0;
   memcpy(&bits, &value, sizeof(value));
 
-  constexpr int num_bits = sizeof(double) * CHAR_BIT;
+  constexpr int num_bits = sizeof(Float) * CHAR_BIT;
   *buffer = '-';
   buffer += bits >> (num_bits - 1);
 
-  constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
+  constexpr int num_sig_bits = std::numeric_limits<Float>::digits - 1;
   constexpr uint implicit_bit = uint(1) << num_sig_bits;
   uint bin_sig = bits & (implicit_bit - 1);  // binary significand
   bool regular = bin_sig != 0;
@@ -1027,5 +1028,7 @@ void to_string(double value, char* buffer) noexcept {
   memcpy(buffer, digits2(bb), 2);
   buffer[2] = '\0';
 }
+
+template void to_string<double>(double value, char* buffer) noexcept;
 
 }  // namespace zmij::detail

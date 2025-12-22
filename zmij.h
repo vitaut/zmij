@@ -5,7 +5,10 @@
 
 namespace zmij {
 namespace detail {
-void to_string(double value, char* buffer) noexcept;
+
+template <typename Float>
+void to_string(Float value, char* buffer) noexcept;
+
 }  // namespace detail
 
 constexpr int buffer_size = 25;
