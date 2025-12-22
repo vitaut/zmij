@@ -845,8 +845,7 @@ auto write_significand(char* buffer, uint64_t value) noexcept -> char* {
   memcpy(buffer, &bits, 8);
   if (ffgghhii == 0) {
     buffer += count_trailing_nonzeros(bcd);
-    buffer -= (buffer - start == 1) ? 1 : 0;
-    return buffer;
+    return buffer - int(buffer - start == 1);
   }
   buffer += 8;
   bcd = to_bcd8(ffgghhii);
