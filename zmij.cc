@@ -769,7 +769,7 @@ inline auto countl_zero(uint64_t x) noexcept -> int {
   // target (lzcnt or bsr + zero handling).
   int n = 64;
   for (; x > 0; x >>= 1) --n;
-  return n; 
+  return n;
 #endif
 }
 
