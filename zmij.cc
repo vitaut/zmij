@@ -762,12 +762,7 @@ inline auto countl_zero(uint64_t x) noexcept -> int {
   _BitScanReverse64(&idx, x);
   return 63 - idx;
 #else
-  // Unlike MSVC, clang and gcc recognize this implementation and replace
-  // it with the assembly instructions which are appropriate for the
-  // target (lzcnt or bsr + zero handling).
-  int n = 64;
-  for (; x > 0; x >>= 1) --n;
-  return n;
+  return __builtin_clzll(x);
 #endif
 }
 
