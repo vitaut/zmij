@@ -3,6 +3,9 @@
 // Distributed under the MIT license (see LICENSE) or alternatively
 // the Boost Software License, Version 1.0.
 
+#ifndef ZMIJ_H_
+#define ZMIJ_H_
+
 namespace zmij {
 namespace detail {
 template <typename Float> void to_string(Float value, char* buffer) noexcept;
@@ -20,3 +23,5 @@ inline void to_string(float value, char* buffer) noexcept {
 }
 
 }  // namespace zmij
+
+#endif  // ZMIJ_H_
