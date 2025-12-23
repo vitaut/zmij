@@ -1056,9 +1056,9 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
   // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
   // the rounding interval.
   int64_t cmp = int64_t(scaled_sig - ((dec_sig_below + dec_sig_above) << 1));
-  bool under_closer = cmp < 0 || (cmp == 0 && (dec_sig_below & 1) == 0);
-  bool under_in = (dec_sig_below << bound_shift) >= lower;
-  return {(under_closer & under_in) ? dec_sig_below : dec_sig_above, dec_exp};
+  bool below_closer = cmp < 0 || (cmp == 0 && (dec_sig_below & 1) == 0);
+  bool below_in = (dec_sig_below << bound_shift) >= lower;
+  return {(below_closer & below_in) ? dec_sig_below : dec_sig_above, dec_exp};
 }
 
 }  // namespace
