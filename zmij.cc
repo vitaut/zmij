@@ -770,8 +770,18 @@ inline auto countl_zero(uint64_t x) noexcept -> int {
 inline auto bswap64(uint64_t x) noexcept -> uint64_t {
 #if defined(__has_builtin) && __has_builtin(__builtin_bswap64)
   return __builtin_bswap64(x);
-#else
+#elif defined(_MSC_VER)
   return _byteswap_uint64(x);
+#else
+  return 
+    ((x & 0xff00000000000000) >> 56) |
+    ((x & 0x00ff000000000000) >> 40) |
+    ((x & 0x0000ff0000000000) >> 24) |
+    ((x & 0x000000ff00000000) >> 8) |
+    ((x & 0x00000000ff000000) << 8) |
+    ((x & 0x0000000000ff0000) << 24) |
+    ((x & 0x000000000000ff00) << 40) |
+    ((x & 0x00000000000000ff) << 56);
 #endif
 }
 
