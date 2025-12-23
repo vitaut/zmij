@@ -970,34 +970,35 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
   if (regular) [[likely]] {
     auto [integral, fractional] =
         umul192_upper128(pow10_hi, pow10_lo, bin_sig << exp_shift);
-    UInt digit = integral % 10;
+    uint64_t digit = integral % 10;
 
     // Switch to a fixed-point representation with the integral part in the
     // upper 4 bits and the rest being the fractional part.
-    constexpr int num_bits = sizeof(UInt) * CHAR_BIT;
+    constexpr int num_bits = sizeof(uint64_t) * CHAR_BIT;
     constexpr int num_integral_bits = 4;
     constexpr int num_fractional_bits = num_bits - num_integral_bits;
-    constexpr UInt ten = UInt(10) << num_fractional_bits;
+    constexpr uint64_t ten = uint64_t(10) << num_fractional_bits;
     // Fixed-point remainder of the scaled significand modulo 10.
-    UInt rem10 =
+    uint64_t rem10 =
         (digit << num_fractional_bits) | (fractional >> num_integral_bits);
     // dec_exp is chosen so that 10**dec_exp <= 2**bin_exp < 10**(dec_exp + 1).
     // Since 1ulp == 2**bin_exp it will be in the range [1, 10) after scaling by
     // 10**dec_exp. Add 1 to combine the shift with division by two.
-    UInt half_ulp10 = pow10_hi >> (num_integral_bits - exp_shift + 1);
-    UInt upper = rem10 + half_ulp10;
+    uint64_t half_ulp10 = pow10_hi >> (num_integral_bits - exp_shift + 1);
+    uint64_t upper = rem10 + half_ulp10;
 
     // An optimization from yy by Yaoyuan Guo:
     if (
         // Exact half-ulp tie when rounding to nearest integer.
-        fractional != (UInt(1) << (num_bits - 1)) &&
+        fractional != (uint64_t(1) << (num_bits - 1)) &&
         // Exact half-ulp tie when rounding to nearest 10.
         rem10 != half_ulp10 &&
         // Near-boundary case for rounding to nearest 10.
-        ten - upper > UInt(1)) [[likely]] {
+        ten - upper > uint64_t(1)) [[likely]] {
       bool round = (upper >> num_fractional_bits) >= 10;
-      UInt shorter = integral - digit + round * 10;
-      UInt longer = integral + (fractional >= (UInt(1) << (num_bits - 1)));
+      uint64_t shorter = integral - digit + round * 10;
+      uint64_t longer =
+          integral + (fractional >= (uint64_t(1) << (num_bits - 1)));
       return {((rem10 <= half_ulp10) + round != 0) ? shorter : longer, dec_exp};
     }
   }
@@ -1008,25 +1009,25 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
 
   // Shift the significand so that boundaries are integer.
   constexpr int bound_shift = 2;
-  UInt bin_sig_shifted = bin_sig << bound_shift;
+  uint64_t bin_sig_shifted = bin_sig << bound_shift;
 
   // Compute the estimates of lower and upper bounds of the rounding interval
   // by multiplying them by the power of 10 and applying modified rounding.
-  UInt lsb = bin_sig & 1;
-  UInt lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
+  uint64_t lsb = bin_sig & 1;
+  uint64_t lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
   lower = umul192_upper64_inexact_to_odd(pow10_hi, pow10_lo, lower) + lsb;
-  UInt upper = (bin_sig_shifted + 2) << exp_shift;
+  uint64_t upper = (bin_sig_shifted + 2) << exp_shift;
   upper = umul192_upper64_inexact_to_odd(pow10_hi, pow10_lo, upper) - lsb;
 
   // The idea of using a single shorter candidate is by Cassio Neri.
   // It is less or equal to the upper bound by construction.
-  UInt shorter = 10 * ((upper >> bound_shift) / 10);
+  uint64_t shorter = 10 * ((upper >> bound_shift) / 10);
   if ((shorter << bound_shift) >= lower) return {shorter, dec_exp};
 
-  UInt scaled_sig = umul192_upper64_inexact_to_odd(
+  uint64_t scaled_sig = umul192_upper64_inexact_to_odd(
       pow10_hi, pow10_lo, bin_sig_shifted << exp_shift);
-  UInt dec_sig_under = scaled_sig >> bound_shift;
-  UInt dec_sig_over = dec_sig_under + 1;
+  uint64_t dec_sig_under = scaled_sig >> bound_shift;
+  uint64_t dec_sig_over = dec_sig_under + 1;
 
   // Pick the closest of dec_sig_under and dec_sig_over and check if it's in
   // the rounding interval.
@@ -1074,24 +1075,25 @@ template <typename Float> void to_string(Float value, char* buffer) noexcept {
   bin_exp -= num_sig_bits + exp_bias;
 
   auto [dec_sig, dec_exp] = to_decimal(bin_sig, bin_exp, regular);
-  if constexpr (num_bits == 32) {
-    dec_sig *= 100000000;
-    dec_exp -= 8;
-  }
-  int num_digits = 15 + (dec_sig >= uint(1e16));
-  dec_exp += num_digits;
-
   char* start = buffer;
-  buffer = write_significand(buffer + 1, dec_sig);
-  if (subnormal) [[unlikely]] {
-    char* p = start + 1;
-    while (*p == '0') ++p;
-    int num_zeros = int(p - (start + 1));
-    memcpy(start + 1, p, unsigned(num_digits - num_zeros + 1));
-    dec_exp -= num_zeros;
-    buffer -= num_zeros;
-    buffer -= buffer == start + 2;
+  if (num_bits == 64) {
+    int num_digits = 15 + (dec_sig >= uint(1e16));
+    dec_exp += num_digits;
+    buffer = write_significand(buffer + 1, dec_sig);
+    if (subnormal) [[unlikely]] {
+      char* p = start + 1;
+      while (*p == '0') ++p;
+      int num_zeros = int(p - (start + 1));
+      memcpy(start + 1, p, unsigned(num_digits - num_zeros + 1));
+      dec_exp -= num_zeros;
+      buffer -= num_zeros;
+      buffer -= buffer == start + 2;
+    }
+  } else {
+    dec_exp += 15 + (dec_sig >= uint(1e8));
+    buffer = write_significand(buffer + 1, dec_sig);
   }
+
   start[0] = start[1];
   start[1] = '.';
 

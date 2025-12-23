@@ -13,6 +13,12 @@ auto dtoa(double value) -> std::string {
   return buffer;
 }
 
+auto ftoa(float value) -> std::string {
+  char buffer[zmij::buffer_size];
+  zmij::detail::to_string<float>(value, buffer);
+  return buffer;
+}
+
 TEST(zmij_test, utilities) {
   EXPECT_EQ(countl_zero(1), 63);
   EXPECT_EQ(countl_zero(~0ull), 0);
@@ -35,9 +41,9 @@ TEST(zmij_test, umul192_upper64_inexact_to_odd) {
             0x24554a3ce60a4643);
 }
 
-TEST(zmij_test, normal) { EXPECT_EQ(dtoa(6.62607015e-34), "6.62607015e-34"); }
+TEST(dtoa_test, normal) { EXPECT_EQ(dtoa(6.62607015e-34), "6.62607015e-34"); }
 
-TEST(zmij_test, subnormal) {
+TEST(dtoa_test, subnormal) {
   EXPECT_EQ(dtoa(1e-323), "1e-323");
   EXPECT_EQ(dtoa(1.2e-322), "1.2e-322");
   EXPECT_EQ(dtoa(1.5e-323), "1.5e-323");
@@ -45,24 +51,24 @@ TEST(zmij_test, subnormal) {
   EXPECT_EQ(dtoa(1.234e-320), "1.234e-320");
 }
 
-TEST(zmij_test, small_int) { EXPECT_EQ(dtoa(1), "1e+00"); }
+TEST(dtoa_test, small_int) { EXPECT_EQ(dtoa(1), "1e+00"); }
 
-TEST(zmij_test, zero) {
+TEST(dtoa_test, zero) {
   EXPECT_EQ(dtoa(0), "0");
   EXPECT_EQ(dtoa(-0.0), "-0");
 }
 
-TEST(zmij_test, inf) {
+TEST(dtoa_test, inf) {
   EXPECT_EQ(dtoa(std::numeric_limits<double>::infinity()), "inf");
   EXPECT_EQ(dtoa(-std::numeric_limits<double>::infinity()), "-inf");
 }
 
-TEST(zmij_test, nan) {
+TEST(dtoa_test, nan) {
   EXPECT_EQ(dtoa(std::numeric_limits<double>::quiet_NaN()), "nan");
   EXPECT_EQ(dtoa(-std::numeric_limits<double>::quiet_NaN()), "-nan");
 }
 
-TEST(zmij_test, shorter) {
+TEST(dtoa_test, shorter) {
   // A possibly shorter underestimate is picked (u' in Schubfach).
   EXPECT_EQ(dtoa(-4.932096661796888e-226), "-4.932096661796888e-226");
 
@@ -70,7 +76,7 @@ TEST(zmij_test, shorter) {
   EXPECT_EQ(dtoa(3.439070283483335e+35), "3.439070283483335e+35");
 }
 
-TEST(zmij_test, single_candidate) {
+TEST(dtoa_test, single_candidate) {
   // Only an underestimate is in the rounding region (u in Schubfach).
   EXPECT_EQ(dtoa(6.606854224493745e-17), "6.606854224493745e-17");
 
@@ -78,7 +84,7 @@ TEST(zmij_test, single_candidate) {
   EXPECT_EQ(dtoa(6.079537928711555e+61), "6.079537928711555e+61");
 }
 
-TEST(zmij_test, all_exponents) {
+TEST(dtoa_test, all_exponents) {
   using limits = std::numeric_limits<double>;
   for (int exp = limits::min_exponent; exp < limits::max_exponent; ++exp) {
     double expected = ldexp(1, exp);
@@ -87,6 +93,8 @@ TEST(zmij_test, all_exponents) {
     EXPECT_EQ(actual, expected);
   }
 }
+
+TEST(ftoa_test, normal) { EXPECT_EQ(ftoa(6.62607e-34f), "0.0000000662607e-26"); }
 
 auto main(int argc, char** argv) -> int {
   testing::InitGoogleTest(&argc, argv);
