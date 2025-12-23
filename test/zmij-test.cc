@@ -1,9 +1,9 @@
 #include "../zmij.cc"
 
 #include <gtest/gtest.h>
-
 #include <math.h>
 #include <stdio.h>
+
 #include <limits>
 #include <string>
 
@@ -94,7 +94,9 @@ TEST(dtoa_test, all_exponents) {
   }
 }
 
-TEST(ftoa_test, normal) { EXPECT_EQ(ftoa(6.62607e-34f), "0.0000000662607e-26"); }
+TEST(ftoa_test, normal) {
+  EXPECT_EQ(ftoa(6.62607e-34f), "0.0000000662607e-26");
+}
 
 auto main(int argc, char** argv) -> int {
   testing::InitGoogleTest(&argc, argv);
