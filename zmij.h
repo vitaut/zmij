@@ -9,10 +9,16 @@
 #include <stddef.h>  // size_t
 #include <string.h>  // memcpy
 
+#ifdef ZMIJ_ENABLE_COMPILETIME_EVALUATION
+#  define ZMEJ_AUTO constexpr auto
+#else
+#  define ZMEJ_AUTO auto
+#endif
+
 namespace zmij {
 namespace detail {
 template <typename Float>
-auto write(Float value, char* buffer) noexcept -> char*;
+ZMEJ_AUTO write(Float value, char* buffer) noexcept -> char*;
 }  // namespace detail
 
 enum {
@@ -29,7 +35,7 @@ struct dec_fp {
 /// Converts `value` into the shortest correctly rounded decimal representation.
 /// Usage:
 ///   auto [sig, exp] = to_decimal(6.62607015e-34);
-auto to_decimal(double value) noexcept -> dec_fp;
+ZMEJ_AUTO to_decimal(double value) noexcept -> dec_fp;
 
 enum {
   double_buffer_size = 25,
@@ -58,4 +64,13 @@ inline auto write(char* out, size_t n, float value) noexcept -> size_t {
 
 }  // namespace zmij
 
+#if defined(ZMIJ_HEADER_ONLY) || defined(ZMIJ_ENABLE_COMPILETIME_EVALUATION)
+#  if __has_include("zmij.cc")
+#    include "zmij.cc"
+#  elif __has_include(<zmij.cc>)
+#    include <zmij.cc>
+#  endif
+#endif
+
+#undef ZMEJ_AUTO
 #endif  // ZMIJ_H_
