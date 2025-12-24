@@ -1100,7 +1100,7 @@ template <typename Float> void to_string(Float value, char* buffer) noexcept {
     char* p = start + 1;
     while (*p == '0') ++p;
     int num_zeros = int(p - (start + 1));
-    memcpy(start + 1, p, unsigned(num_digits - num_zeros + 1));
+    memmove(start + 1, p, unsigned(num_digits - num_zeros + 1));
     dec_exp -= num_zeros;
     buffer -= num_zeros;
     buffer -= buffer == start + 2;
