@@ -1098,7 +1098,7 @@ template <typename Float> void to_string(Float value, char* buffer) noexcept {
     buffer = write_significand9(buffer + 1, dec_sig);
   }
   dec_exp += num_digits;
-  if (subnormal) [[unlikely]] {
+  if (subnormal || num_bits == 32) [[unlikely]] {
     char* p = start + 1;
     while (*p == '0') ++p;
     int num_zeros = int(p - (start + 1));
