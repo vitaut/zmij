@@ -295,16 +295,16 @@ namespace JKJ_NAMESPACE {
 
                 // Print exponent and return
                 if (exponent < 0) {
-                    stdr::memcpy(buffer, "E-", 2);
+                    stdr::memcpy(buffer, "e-", 2);
                     buffer += 2;
                     exponent = -exponent;
                 }
                 else {
-                    buffer[0] = 'E';
-                    buffer += 1;
+                    stdr::memcpy(buffer, "e+", 2);
+                    buffer += 2;
                 }
 
-                if (exponent >= 10) {
+                if (exponent >= 10 || true) {
                     print_2_digits(exponent, buffer);
                     buffer += 2;
                 }

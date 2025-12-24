@@ -212,7 +212,7 @@ namespace JKJ_NAMESPACE {
                 }
 
                 // Print exponent.
-                *buffer = 'E';
+                *buffer = 'e';
                 ++buffer;
                 if (exponent < 0) {
                     *buffer = '-';
@@ -313,17 +313,17 @@ namespace JKJ_NAMESPACE {
                     }
                     else {
                         buffer[0] = '0';
-                        buffer[1] = 'E';
+                        buffer[1] = 'e';
                         buffer[2] = '0';
                         return buffer + 3;
                     }
                 }
                 else {
+                    if (s.is_negative()) {
+                        *buffer = '-';
+                        ++buffer;
+                    }
                     if (s.has_all_zero_significand_bits()) {
-                        if (s.is_negative()) {
-                            *buffer = '-';
-                            ++buffer;
-                        }
                         // MSVC generates two mov's for the below, so we guard it inside
                         // JKJ_IF_CONSTEVAL.
                         JKJ_IF_CONSTEVAL {
@@ -337,14 +337,14 @@ namespace JKJ_NAMESPACE {
                             buffer[7] = 'y';
                         }
                         else {
-                            stdr::memcpy(buffer, "Infinity", 8);
+                            stdr::memcpy(buffer, "inf", 3);
                         }
-                        return buffer + 8;
+                        return buffer + 3;
                     }
                     else {
-                        buffer[0] = 'N';
+                        buffer[0] = 'n';
                         buffer[1] = 'a';
-                        buffer[2] = 'N';
+                        buffer[2] = 'n';
                         return buffer + 3;
                     }
                 }
