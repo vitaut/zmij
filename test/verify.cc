@@ -33,7 +33,7 @@ int main() {
     if (strcmp(actual, "-nan") == 0 && strncmp(expected, "-nan", 4) == 0)
       continue;
 
-    printf("Roundtrip failure: %s != %s\n", actual, expected);
+    printf("Output mismatch: %s != %s\n", actual, expected);
     return 1;
   }
   printf("Tested %lld values\n", i);
