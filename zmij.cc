@@ -759,7 +759,7 @@ inline auto is_big_endian() noexcept -> bool {
   return *reinterpret_cast<char*>(&n) != 1;
 }
 
-inline auto countl_zero(uint64_t x) noexcept -> int {
+inline auto clz(uint64_t x) noexcept -> int {
   assert(x != 0);
 #if defined(__has_builtin) && __has_builtin(__builtin_clzll)
   return __builtin_clzll(x);
@@ -793,7 +793,7 @@ inline auto bswap64(uint64_t x) noexcept -> uint64_t {
 inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // We count the number of bytes until there are only zeros left.
   // The code is equivalent to
-  //   return 8 - count_lzero(x) / 8
+  //   return 8 - clz(x) / 8
   // but if the BSR instruction is emitted (as gcc on x64 does with
   // default settings), subtracting the constant before dividing allows
   // the compiler to combine it with the subtraction which it inserts
@@ -804,7 +804,7 @@ inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // datum left by one and inserting a sentinel bit at the end. This can
   // be faster than the automatically inserted range check.
   if (is_big_endian()) x = bswap64(x);
-  return (70 - countl_zero((x << 1) | 1)) / 8;
+  return (70 - clz((x << 1) | 1)) / 8;
 }
 
 // Converts value in the range [0, 100) to a string. GCC generates a bit better
@@ -933,7 +933,7 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   uint64_t zeroes =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_zero, 4)), 0);
 
-  buffer += 16 - (__builtin_clzll(~zeroes) >> 2);
+  buffer += 16 - (clz(~zeroes) >> 2);
   return buffer - int(buffer - start == 1);
 #endif  // __ARM_NEON__
 }

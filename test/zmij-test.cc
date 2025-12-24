@@ -20,8 +20,8 @@ auto ftoa(float value) -> std::string {
 }
 
 TEST(zmij_test, utilities) {
-  EXPECT_EQ(countl_zero(1), 63);
-  EXPECT_EQ(countl_zero(~0ull), 0);
+  EXPECT_EQ(clz(1), 63);
+  EXPECT_EQ(clz(~0ull), 0);
 
   EXPECT_EQ(count_trailing_nonzeros(0x00000000'00000000ull), 0);
   EXPECT_EQ(count_trailing_nonzeros(0x00000000'00000001ull), 1);
