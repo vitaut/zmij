@@ -31,13 +31,13 @@ TEST(zmij_test, utilities) {
   EXPECT_EQ(count_trailing_nonzeros(0x09000000'00000000ull), 8);
 }
 
-TEST(zmij_test, umul192_upper64_inexact_to_odd) {
+TEST(zmij_test, umul_upper_inexact_to_odd) {
   auto pow10 = pow10_significands[0];
-  EXPECT_EQ(umul192_upper64_inexact_to_odd(pow10.hi, pow10.lo,
-                                           0x1234567890abcdef << 1),
+  EXPECT_EQ(umul_upper_inexact_to_odd(pow10.hi, pow10.lo,
+                                           uint64_t(0x1234567890abcdef << 1)),
             0x24554a3ce60a45f5);
-  EXPECT_EQ(umul192_upper64_inexact_to_odd(pow10.hi, pow10.lo,
-                                           0x1234567890abce16 << 1),
+  EXPECT_EQ(umul_upper_inexact_to_odd(pow10.hi, pow10.lo,
+                                           uint64_t(0x1234567890abce16 << 1)),
             0x24554a3ce60a4643);
 }
 

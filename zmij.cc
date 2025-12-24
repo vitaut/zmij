@@ -37,6 +37,10 @@ struct uint128 {
   [[maybe_unused]] explicit operator uint64_t() const noexcept { return lo; }
 
   [[maybe_unused]] auto operator>>(int shift) const noexcept -> uint128 {
+    if (shift == 32) {
+      uint64_t hilo = uint32_t(hi);
+      return {hi >> 32, (hilo << 32) | (lo >> 32)};
+    }
     assert(shift >= 64 && shift < 128);
     return {0, hi >> (shift - 64)};
   }
@@ -725,10 +729,15 @@ inline auto umul192_upper128(uint64_t x_hi, uint64_t x_lo, uint64_t y) noexcept
 
 // Computes upper 64 bits of multiplication of x and y, discards the least
 // significant bit and rounds to odd, where x = uint128_t(x_hi << 64) | x_lo.
-auto umul192_upper64_inexact_to_odd(uint64_t x_hi, uint64_t x_lo,
-                                    uint64_t y) noexcept -> uint64_t {
+auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t x_lo,
+                               uint64_t y) noexcept -> uint64_t {
   auto [hi, lo] = umul192_upper128(x_hi, x_lo, y);
   return hi | ((lo >> 1) != 0);
+}
+auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t, uint32_t y) noexcept
+    -> uint32_t {
+  uint64_t result = uint64_t(umul128(x_hi, y) >> 32);
+  return uint32_t(result >> 32) | ((uint32_t(result) >> 1) != 0);
 }
 
 struct divmod_result {
@@ -977,9 +986,10 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
   //   3 * 2**60 / 100 = 3.45...e+16 (exp_shift = 2 + 1)
   int exp_shift = bin_exp + pow10_bin_exp + 1;
 
+  constexpr int num_bits = sizeof(UInt) * CHAR_BIT;
   if (regular) [[likely]] {
-    constexpr int num_bits = sizeof(UInt) * CHAR_BIT;
-    uint64_t integral = 0, fractional = 0;
+    UInt integral = 0;
+    uint64_t fractional = 0;
     if (num_bits == 64) {
       auto [i, f] = umul192_upper128(pow10_hi, pow10_lo, bin_sig << exp_shift);
       integral = i;
@@ -987,7 +997,7 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
     } else {
       uint128_t result = umul128(pow10_hi, bin_sig << exp_shift);
       integral = uint64_t(result >> 64);
-      fractional = uint64_t(result) & ~uint64_t{0xffffffff};
+      fractional = uint64_t(result);
     }
     uint64_t digit = integral % 10;
 
@@ -1015,35 +1025,34 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular) noexcept -> fp {
         ten - upper > uint64_t(1)) [[likely]] {
       bool round = (upper >> num_fractional_bits) >= 10;
       uint64_t shorter = integral - digit + round * 10;
-      uint64_t longer =
-          integral + (fractional >= (uint64_t(1) << 63));
+      uint64_t longer = integral + (fractional >= (uint64_t(1) << 63));
       return {((rem10 <= half_ulp10) + round != 0) ? shorter : longer, dec_exp};
     }
   }
 
   // Fallback to Schubfach to guarantee correctness in boundary cases and
-  // switch to overestimates.
-  ++pow10_lo;
+  // switch to strict overestimates of powers of 10.
+  ++(num_bits == 64 ? pow10_lo : pow10_hi);
 
   // Shift the significand so that boundaries are integer.
   constexpr int bound_shift = 2;
-  uint64_t bin_sig_shifted = bin_sig << bound_shift;
+  UInt bin_sig_shifted = bin_sig << bound_shift;
 
   // Compute the estimates of lower and upper bounds of the rounding interval
   // by multiplying them by the power of 10 and applying modified rounding.
-  uint64_t lsb = bin_sig & 1;
-  uint64_t lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
-  lower = umul192_upper64_inexact_to_odd(pow10_hi, pow10_lo, lower) + lsb;
-  uint64_t upper = (bin_sig_shifted + 2) << exp_shift;
-  upper = umul192_upper64_inexact_to_odd(pow10_hi, pow10_lo, upper) - lsb;
+  UInt lsb = bin_sig & 1;
+  UInt lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
+  lower = umul_upper_inexact_to_odd(pow10_hi, pow10_lo, lower) + lsb;
+  UInt upper = (bin_sig_shifted + 2) << exp_shift;
+  upper = umul_upper_inexact_to_odd(pow10_hi, pow10_lo, upper) - lsb;
 
   // The idea of using a single shorter candidate is by Cassio Neri.
   // It is less or equal to the upper bound by construction.
   uint64_t shorter = 10 * ((upper >> bound_shift) / 10);
   if ((shorter << bound_shift) >= lower) return {shorter, dec_exp};
 
-  uint64_t scaled_sig = umul192_upper64_inexact_to_odd(
-      pow10_hi, pow10_lo, bin_sig_shifted << exp_shift);
+  uint64_t scaled_sig = umul_upper_inexact_to_odd(pow10_hi, pow10_lo,
+                                                  bin_sig_shifted << exp_shift);
   uint64_t dec_sig_below = scaled_sig >> bound_shift;
   uint64_t dec_sig_above = dec_sig_below + 1;
 
