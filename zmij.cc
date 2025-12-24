@@ -868,14 +868,14 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
     int16x8_t multipliers16;
   };
 
-  static const struct to_string_constants constants = {
+  static const to_string_constants constants = {
       .mul_const = 0xabcc77118461cefd,
       .hundred_million = 100000000,
       .multipliers32 = {0x68db8bb, -10000 + 0x10000, 0x147b000, -100 + 0x10000},
       .multipliers16 = {0xce0, -10 + 0x100},
   };
 
-  const struct to_string_constants* c = &constants;
+  const to_string_constants* c = &constants;
 
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
   // instructions
@@ -887,19 +887,18 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   asm("" : "+r"(hundred_million));
 
   // Equivalent to hi = value / 100000000, lo = value % 100000000.
-  uint64_t hi = ((__uint128_t)value * c->mul_const) >> 90;
+  uint64_t hi = (__uint128_t(value) * c->mul_const) >> 90;
   uint64_t lo = value - hi * hundred_million;
 
   // We could probably make this bit faster, but we're preferring to
   // reuse the constants for now.
-  uint64_t top = ((__uint128_t)hi * c->mul_const) >> 90;
+  uint64_t top = (__uint128_t(hi) * c->mul_const) >> 90;
   hi -= top * hundred_million;
 
   char* start = buffer;
-  *buffer = char('0' + top);
-  buffer += top != 0;
+  buffer = write_if_nonzero(buffer, top);
 
-  uint64x1_t hundredmillions = {hi | ((uint64_t)lo << 32)};
+  uint64x1_t hundredmillions = {hi | (uint64_t(lo) << 32)};
 
   int32x2_t high_10000 =
       vshr_n_u32(vqdmulh_n_s32(hundredmillions, c->multipliers32[0]), 9);
@@ -925,9 +924,7 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_zero, 4)), 0);
 
   buffer += 16 - (__builtin_clzll(~zeroes) >> 2);
-  buffer -= (buffer - start == 1) ? 1 : 0;
-
-  return buffer;
+  return buffer - int(buffer - start == 1);
 #endif  // __ARM_NEON__
 }
 
