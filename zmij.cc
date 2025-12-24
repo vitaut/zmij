@@ -751,6 +751,7 @@ inline auto is_big_endian() noexcept -> bool {
 }
 
 inline auto countl_zero(uint64_t x) noexcept -> int {
+  assert(x != 0);
 #if defined(__has_builtin) && __has_builtin(__builtin_clzll)
   return __builtin_clzll(x);
 #elif defined(_MSC_VER) && defined(__AVX2__)
