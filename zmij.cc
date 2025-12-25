@@ -1109,7 +1109,6 @@ template <typename Float> void write(Float value, char* buffer) noexcept {
     // Handle subnormals.
     bin_sig |= implicit_bit;
     bin_exp = 1;
-    regular = true;
     subnormal = true;
   }
   bin_sig ^= implicit_bit;
