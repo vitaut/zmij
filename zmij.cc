@@ -765,7 +765,7 @@ inline auto clz(uint64_t x) noexcept -> int {
 #elif defined(_MSC_VER) && defined(__AVX2__) && defined(_M_AMD64)
   // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
   return __lzcnt64(x);
-#elif defined(_MSC_VER) && defined(_M_AMD64)
+#elif defined(_MSC_VER) && (defined(_M_AMD64) || defined(_M_ARM64))
   unsigned long idx;
   _BitScanReverse64(&idx, x);  // Fallback to the BSR instruction.
   return 63 - idx;
