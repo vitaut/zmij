@@ -9,7 +9,6 @@
 #endif
 
 #include <assert.h>  // assert
-#include <limits.h>  // CHAR_BIT
 #include <stdint.h>  // uint64_t
 #include <string.h>  // memcpy
 
@@ -998,7 +997,7 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
   //   3 * 2**60 / 100 = 3.45...e+16 (exp_shift = 2 + 1)
   int exp_shift = bin_exp + pow10_bin_exp + 1;
 
-  constexpr int num_bits = sizeof(UInt) * CHAR_BIT;
+  constexpr int num_bits = std::numeric_limits<UInt>::digits;
   if (regular & !subnormal) [[likely]] {
     UInt integral = 0;
     uint64_t fractional = 0;
@@ -1084,7 +1083,7 @@ namespace zmij::detail {
 
 template <typename Float> void to_string(Float value, char* buffer) noexcept {
   static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
-  constexpr int num_bits = sizeof(Float) * CHAR_BIT;
+  constexpr int num_bits = std::numeric_limits<Float>::digits == 53 ? 64 : 32;
   using uint = std::conditional_t<num_bits == 64, uint64_t, uint32_t>;
   uint bits = 0;
   memcpy(&bits, &value, sizeof(value));
