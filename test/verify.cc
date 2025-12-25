@@ -22,7 +22,7 @@ int main() {
     float value = 0;
     memcpy(&value, &bits, sizeof(float));
 
-    zmij::to_string(value, actual);
+    zmij::write(actual, sizeof(actual), value);
     *jkj::dragonbox::to_chars(value, expected) = '\0';
 
     if (strcmp(actual, expected) == 0) continue;
