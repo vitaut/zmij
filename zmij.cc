@@ -32,6 +32,25 @@
 #  define ZMIJ_USE_SIMD 1
 #endif
 
+#ifdef __has_builtin
+#  define ZMIJ_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#  define ZMIJ_HAS_BUILTIN(x) 0
+#endif
+#ifdef __has_cpp_attribute
+#  define ZMIJ_HAS_CPP_ATTRIBUTE(x) __has_cpp_attribute(x)
+#else
+#  define ZMIJ_HAS_CPP_ATTRIBUTE(x) 0
+#endif
+
+#if ZMIJ_HAS_CPP_ATTRIBUTE(likely) && ZMIJ_HAS_CPP_ATTRIBUTE(unlikely)
+#  define ZMIJ_LIKELY likely
+#  define ZMIJ_UNLIKELY unlikely
+#else
+#  define ZMIJ_LIKELY
+#  define ZMIJ_UNLIKELY
+#endif
+
 namespace {
 
 struct uint128 {
@@ -765,7 +784,7 @@ inline auto is_big_endian() noexcept -> bool {
 
 inline auto clz(uint64_t x) noexcept -> int {
   assert(x != 0);
-#if defined(__has_builtin) && __has_builtin(__builtin_clzll)
+#if ZMIJ_HAS_BUILTIN(__builtin_clzll)
   return __builtin_clzll(x);
 #elif defined(_MSC_VER) && defined(__AVX2__) && defined(_M_AMD64)
   // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
@@ -788,7 +807,7 @@ inline auto clz(uint64_t x) noexcept -> int {
 }
 
 inline auto bswap64(uint64_t x) noexcept -> uint64_t {
-#if defined(__has_builtin) && __has_builtin(__builtin_bswap64)
+#if ZMIJ_HAS_BUILTIN(__builtin_bswap64)
   return __builtin_bswap64(x);
 #elif defined(_MSC_VER)
   return _byteswap_uint64(x);
@@ -965,7 +984,7 @@ struct fp {
 };
 
 template <int num_bits> auto normalize(fp dec, bool subnormal) noexcept -> fp {
-  if (!subnormal) [[likely]]
+  if (!subnormal) [[ZMIJ_LIKELY]]
     return dec;
   while (dec.sig < (num_bits == 64 ? uint64_t(1e16) : uint64_t(1e8))) {
     dec.sig *= 10;
@@ -1009,7 +1028,7 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
   int exp_shift = bin_exp + pow10_bin_exp + 1;
 
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
-  if (regular & !subnormal) [[likely]] {
+  if (regular & !subnormal) [[ZMIJ_LIKELY]] {
     UInt integral = 0;
     uint64_t fractional = 0;
     if (num_bits == 64) {
@@ -1044,7 +1063,7 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
         // Exact half-ulp tie when rounding to nearest 10.
         rem10 != half_ulp10 &&
         // Near-boundary case for rounding to nearest 10.
-        ten - upper > uint64_t(1)) [[likely]] {
+        ten - upper > uint64_t(1)) [[ZMIJ_LIKELY]] {
       bool round = (upper >> num_fractional_bits) >= 10;
       uint64_t shorter = integral - digit + round * 10;
       uint64_t longer = integral + (fractional >= (uint64_t(1) << 63));
@@ -1116,7 +1135,7 @@ auto write(Float value, char* buffer) noexcept -> size_t {
   int bin_exp = int(bits >> num_sig_bits) & exp_mask;  // binary exponent
 
   bool subnormal = false;
-  if (((bin_exp + 1) & exp_mask) <= 1) [[unlikely]] {
+  if (((bin_exp + 1) & exp_mask) <= 1) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return 3;
@@ -1140,7 +1159,7 @@ auto write(Float value, char* buffer) noexcept -> size_t {
     dec_exp += num_digits + (dec_sig >= uint(1e16));
     buffer = write_significand17(buffer + 1, dec_sig);
   } else {
-    if (dec_sig < uint(1e7)) [[unlikely]] {
+    if (dec_sig < uint(1e7)) [[ZMIJ_UNLIKELY]] {
       dec_sig *= 10;
       --dec_exp;
     }
