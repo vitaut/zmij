@@ -9,6 +9,7 @@
 #endif
 
 #include <assert.h>  // assert
+#include <stddef.h>  // size_t
 #include <stdint.h>  // uint64_t
 #include <string.h>  // memcpy
 
@@ -1081,13 +1082,14 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
 
 namespace zmij::detail {
 
-template <typename Float> void write(Float value, char* buffer) noexcept {
+template <typename Float> size_t write(Float value, char* buffer) noexcept {
   static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
   constexpr int num_bits = std::numeric_limits<Float>::digits == 53 ? 64 : 32;
   using uint = std::conditional_t<num_bits == 64, uint64_t, uint32_t>;
   uint bits = 0;
   memcpy(&bits, &value, sizeof(value));
 
+  char* buffer_start = buffer;
   *buffer = '-';
   buffer += bits >> (num_bits - 1);
 
@@ -1103,8 +1105,8 @@ template <typename Float> void write(Float value, char* buffer) noexcept {
 
   bool subnormal = false;
   if (((bin_exp + 1) & exp_mask) <= 1) [[unlikely]] {
-    if (bin_exp != 0) return void(memcpy(buffer, !bin_sig ? "inf" : "nan", 4));
-    if (bin_sig == 0) return void(memcpy(buffer, "0", 2));
+    if (bin_exp != 0) return void(memcpy(buffer, !bin_sig ? "inf" : "nan", 4)), 3;
+    if (bin_sig == 0) return void(memcpy(buffer, "0", 2)), 1;
     // Handle subnormals.
     bin_sig |= implicit_bit;
     bin_exp = 1;
@@ -1115,7 +1117,7 @@ template <typename Float> void write(Float value, char* buffer) noexcept {
   bin_exp -= num_sig_bits + exp_bias;
 
   auto [dec_sig, dec_exp] = to_decimal(bin_sig, bin_exp, regular, subnormal);
-  char* start = buffer;
+  char* digits_start = buffer;
   int num_digits = std::numeric_limits<Float>::max_digits10 - 2;
   if (num_bits == 64) {
     dec_exp += num_digits + (dec_sig >= uint(1e16));
@@ -1128,8 +1130,8 @@ template <typename Float> void write(Float value, char* buffer) noexcept {
     dec_exp += num_digits + (dec_sig >= uint(1e8));
     buffer = write_significand9(buffer + 1, dec_sig);
   }
-  start[0] = start[1];
-  start[1] = '.';
+  digits_start[0] = digits_start[1];
+  digits_start[1] = '.';
 
   *buffer++ = 'e';
   *buffer++ = '-' + (dec_exp >= 0) * ('+' - '-');
@@ -1139,10 +1141,12 @@ template <typename Float> void write(Float value, char* buffer) noexcept {
   *buffer = char('0' + a);
   buffer += dec_exp >= 100;
   memcpy(buffer, digits2(bb), 2);
-  buffer[2] = '\0';
+  buffer += 2;
+  *buffer = '\0';
+  return buffer - buffer_start;
 }
 
-template void write(double value, char* buffer) noexcept;
-template void write(float value, char* buffer) noexcept;
+template size_t write(double value, char* buffer) noexcept;
+template size_t write(float value, char* buffer) noexcept;
 
 }  // namespace zmij::detail
