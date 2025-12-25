@@ -762,12 +762,18 @@ inline auto clz(uint64_t x) noexcept -> int {
   assert(x != 0);
 #if defined(__has_builtin) && __has_builtin(__builtin_clzll)
   return __builtin_clzll(x);
-#elif defined(_MSC_VER) && defined(__AVX2__)
+#elif defined(_MSC_VER) && defined(__AVX2__) && defined(_M_AMD64)
   // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
   return __lzcnt64(x);
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && defined(_M_AMD64)
   unsigned long idx;
   _BitScanReverse64(&idx, x);  // Fallback to the BSR instruction.
+  return 63 - idx;
+#elif defined(_MSC_VER)
+  // Fallback to the 32-bit BSR instruction.
+  unsigned long idx;
+  if (_BitScanReverse(&idx, uint32_t(x >> 32))) return 31 - idx;
+  _BitScanReverse(&idx, uint32_t(x));
   return 63 - idx;
 #else
   int n = 64;
