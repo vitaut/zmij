@@ -6,7 +6,6 @@
 #include <stdio.h>   // printf
 #include <string.h>  // memcpy
 
-#include <bitset>
 #include <limits>
 #include <thread>
 #include <vector>
