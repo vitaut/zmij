@@ -29,7 +29,7 @@ inline void write(char* out, size_t n, double value) noexcept {
 }
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
-/// `buffer`. `buffer` should point to a buffer of size `n` or larger.
+/// `out`. `out` should point to a buffer of size `n` or larger.
 inline void write(char* out, size_t n, float value) noexcept {
   if (n >= float_buffer_size) return detail::to_string(value, out);
   char buffer[float_buffer_size];
