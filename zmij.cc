@@ -1115,9 +1115,9 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
 
 namespace zmij::detail {
 
+// It is slightly faster to return a pointer to the end than the size.
 template <typename Float>
 auto write(Float value, char* buffer) noexcept -> char* {
-  // It is slightly faster to return a pointer to the end than the size.
   static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
   constexpr int num_bits = std::numeric_limits<Float>::digits == 53 ? 64 : 32;
   using uint = std::conditional_t<num_bits == 64, uint64_t, uint32_t>;
