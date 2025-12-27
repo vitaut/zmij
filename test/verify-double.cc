@@ -97,7 +97,7 @@ int main() {
 
   unsigned num_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(num_threads);
-  std::atomic<uint64_t> num_processed_doubles(0);
+  std::atomic<unsigned long long> num_processed_doubles(0);
   printf("Using %u threads\n", num_threads);
 
   auto start = std::chrono::steady_clock::now();
@@ -110,11 +110,17 @@ int main() {
              begin + n - 1);
       constexpr uint32_t update_size = 1 << 21;
       constexpr double percent = 100.0 / num_significands;
+      auto last_update_time = std::chrono::steady_clock::now();
       for (uint64_t j = 0; j < n; ++j) {
-        if (j % update_size == 0 && j != 0) {
+        if (j % update_size == update_size - 1) {
           num_processed_doubles += update_size;
-          if (i == 0 && j % (1 << 23) == 0)
-            printf("Progress: %7.4f%%\n", num_processed_doubles * percent);
+          if (i == 0) {
+            auto now = std::chrono::steady_clock::now();
+            if (now - last_update_time >= std::chrono::seconds(1)) {
+              last_update_time = now;
+              printf("Progress: %7.4f%%\n", num_processed_doubles * percent);
+            }
+          }
         }
         verify(begin + j, j, n);
       }
@@ -124,6 +130,6 @@ int main() {
   auto finish = std::chrono::steady_clock::now();
 
   using seconds = std::chrono::duration<double>;
-  printf("%g seconds\n",
+  printf("Tested %llu values in %.2f seconds\n", num_processed_doubles.load(),
          std::chrono::duration_cast<seconds>(finish - start).count());
 }

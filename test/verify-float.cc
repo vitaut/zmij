@@ -16,16 +16,15 @@
 #include "zmij.h"
 
 int main() {
-  constexpr unsigned long long num_floats = 1ULL << 32;
-
   unsigned num_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(num_threads);
-  std::atomic<uint32_t> num_processed_floats(0);
+  std::atomic<unsigned long long> num_processed_floats(0);
   std::atomic<uint32_t> num_errors(0);
   printf("Using %u threads\n", num_threads);
 
   auto start = std::chrono::steady_clock::now();
   for (uint32_t i = 0; i < num_threads; ++i) {
+    constexpr unsigned long long num_floats = 1ULL << 32;
     uint32_t begin = static_cast<uint32_t>(num_floats * i / num_threads);
     uint32_t end = static_cast<uint32_t>(num_floats * (i + 1) / num_threads);
     uint32_t n = end - begin;
@@ -37,7 +36,7 @@ int main() {
       auto last_update_time = std::chrono::steady_clock::now();
       bool has_errors = false;
       for (uint32_t j = 0; j < n; ++j) {
-        if (j % update_size == 0 && j != 0) {
+        if (j % update_size == update_size - 1) {
           num_processed_floats += update_size;
           auto now = std::chrono::steady_clock::now();
           if (i == 0 && now - last_update_time >= std::chrono::seconds(1)) {
@@ -71,7 +70,7 @@ int main() {
   auto finish = std::chrono::steady_clock::now();
 
   using seconds = std::chrono::duration<double>;
-  printf("Tested %llu values in %.2f seconds\n", num_floats,
+  printf("Tested %llu values in %.2f seconds\n", num_processed_floats.load(),
          std::chrono::duration_cast<seconds>(finish - start).count());
   return num_errors != 0 ? 1 : 0;
 }
