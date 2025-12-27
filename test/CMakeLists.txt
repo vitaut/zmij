@@ -20,4 +20,5 @@ target_include_directories(verify-float PRIVATE .)
 target_link_libraries(verify-float zmij)
 
 add_executable(verify-double verify-double.cc)
+target_compile_features(verify-double PRIVATE ${ZMIJ_STANDARD})
 target_include_directories(verify-double PRIVATE .)

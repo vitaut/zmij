@@ -75,7 +75,7 @@ auto main() -> int {
   // Verify correctness for doubles with a given binary exponent.
   constexpr int bin_exp_biased = 1;
   constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
-  constexpr uint64_t num_significands = uint64_t(1) << 32;  // test a subset
+  static constexpr uint64_t num_significands = uint64_t(1) << 32;  // test a subset
   uint64_t bits = uint64_t(bin_exp_biased) << num_sig_bits;
 
   constexpr int num_exp_bits = 64 - num_sig_bits - 1;
