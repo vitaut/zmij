@@ -10,7 +10,7 @@
 #include <string.h>
 
 #ifdef _MSC_VER
-#include <intrin.h> // lzcnt/adc/umul128/umulh
+#  include <intrin.h>  // lzcnt/adc/umul128/umulh
 #endif
 
 typedef struct {
@@ -794,9 +794,152 @@ static inline uint64_t digits8_u64(uint32_t aa, uint32_t bb, uint32_t cc,
          (digits2_u64(bb) << 16) | digits2_u64(aa);
 }
 
+typedef struct {
+  uint64_t sig;
+  int exp;
+} fp;
+
+static inline fp normalize64(fp dec, int subnormal) {
+  if (!subnormal)  // [[ZMIJ_LIKELY]]
+    return dec;
+
+  while (dec.sig < 10000000000000000ULL) {
+    dec.sig *= 10;
+    --dec.exp;
+  }
+  return dec;
+}
+
+// Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
+// representation.
+static fp to_decimal64(uint64_t bin_sig, int bin_exp, int regular,
+                       int subnormal) {
+  // Compute the decimal exponent as floor(log10(2**bin_exp)) if regular or
+  // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
+  // log10_3_over_4_sig = round(log10(3/4) * 2**log10_2_exp)
+  const int log10_3_over_4_sig = -131008;
+  // log10_2_sig = round(log10(2) * 2**log10_2_exp)
+  const int log10_2_sig = 315653;
+  const int log10_2_exp = 20;
+  assert(bin_exp >= -1334 && bin_exp <= 2620);
+  int dec_exp =
+      (bin_exp * log10_2_sig + !regular * log10_3_over_4_sig) >> log10_2_exp;
+
+  const int dec_exp_min = -292;
+  uint128 pow10 = pow10_significands[-dec_exp - dec_exp_min];
+  uint64_t pow10_hi = pow10.hi;
+  uint64_t pow10_lo = pow10.lo;
+
+  // log2_pow10_sig = round(log2(10) * 2**log2_pow10_exp) + 1
+  const int log2_pow10_sig = 217707;
+  const int log2_pow10_exp = 16;
+  assert(dec_exp >= -350 && dec_exp <= 350);
+  // pow10_bin_exp = floor(log2(10**-dec_exp))
+  int pow10_bin_exp = (-dec_exp * log2_pow10_sig) >> log2_pow10_exp;
+  // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127)
+
+  // Shift to ensure the intermediate result of multiplying by a power of 10
+  // has a fixed 128-bit fractional part. For example, 3 * 2**59 and 3 * 2**60
+  // both have dec_exp = 2 and dividing them by 10**dec_exp would have the
+  // decimal point in different (bit) positions without the shift:
+  //   3 * 2**59 / 100 = 1.72...e+16 (exp_shift = 1 + 1)
+  //   3 * 2**60 / 100 = 3.45...e+16 (exp_shift = 2 + 1)
+  int exp_shift = bin_exp + pow10_bin_exp + 1;
+
+  const int num_bits = 64;
+  if (regular & !subnormal) {  // [[ZMIJ_LIKELY]]
+    uint64_t integral = 0;     // integral part of bin_sig * pow10
+    uint64_t fractional = 0;   // fractional part of bin_sig * pow10
+
+    uint128 p = umul192_upper128(pow10_hi, pow10_lo, bin_sig << exp_shift);
+    integral = p.hi;
+    fractional = p.lo;
+
+    uint64_t digit = integral % 10;
+
+    // Switch to a fixed-point representation with the least significant
+    // integral digit in the upper bits and fractional digits in the lower bits.
+    const int num_integral_bits = 4;
+    const int num_fractional_bits = 64 - num_integral_bits;
+    const uint64_t ten = (uint64_t)10 << num_fractional_bits;
+    // Fixed-point remainder of the scaled significand modulo 10.
+    uint64_t scaled_sig_mod10 =
+        (digit << num_fractional_bits) | (fractional >> num_integral_bits);
+
+    // scaled_half_ulp = 1 * pow10 in the fixed-point format.
+    // dec_exp is chosen so that 10**dec_exp <= 2**bin_exp < 10**(dec_exp + 1).
+    // Since 1ulp == 2**bin_exp it will be in the range [1, 10) after scaling
+    // by 10**dec_exp. Add 1 to combine the shift with division by two.
+    uint64_t scaled_half_ulp = pow10_hi >> (num_integral_bits - exp_shift + 1);
+    uint64_t upper = scaled_sig_mod10 + scaled_half_ulp;
+
+    // An optimization from yy by Yaoyuan Guo:
+    int64_t cmp = (int64_t)(fractional - (1ULL << 63));
+    if (
+        // Exact half-ulp tie when rounding to nearest integer.
+        cmp != 0 &&
+        // Exact half-ulp tie when rounding to nearest 10.
+        scaled_sig_mod10 != scaled_half_ulp &&
+        // Near-boundary case for rounding to nearest 10.
+        ten - upper > (uint64_t)1) {  // [[ZMIJ_LIKELY]]
+      int round_up = (int)((upper >> num_fractional_bits) >= 10);
+      uint64_t shorter = integral - digit + (uint64_t)round_up * 10;
+      uint64_t longer = integral + (uint64_t)(cmp >= 0);
+      int use_shorter = ((scaled_sig_mod10 <= scaled_half_ulp) + round_up) != 0;
+      fp r;
+      r.sig = use_shorter ? shorter : longer;
+      r.exp = dec_exp;
+      return r;
+    }
+  }
+
+  // Fallback to Schubfach to guarantee correctness in boundary cases and
+  // switch to strict overestimates of powers of 10.
+  ++pow10_lo;
+
+  // Shift the significand so that boundaries are integer.
+  const int bound_shift = 2;
+  uint64_t bin_sig_shifted = bin_sig << bound_shift;
+
+  // Compute the estimates of lower and upper bounds of the rounding interval
+  // by multiplying them by the power of 10 and applying modified rounding.
+  uint64_t lsb = bin_sig & 1;
+  uint64_t lower = (bin_sig_shifted - (uint64_t)(regular + 1)) << exp_shift;
+  lower = umul192_upper64_inexact_to_odd(pow10_hi, pow10_lo, lower) + lsb;
+  uint64_t upper = (bin_sig_shifted + 2) << exp_shift;
+  upper = umul192_upper64_inexact_to_odd(pow10_hi, pow10_lo, upper) - lsb;
+
+  // The idea of using a single shorter candidate is by Cassio Neri.
+  // It is less or equal to the upper bound by construction.
+  uint64_t shorter = 10 * ((upper >> bound_shift) / 10);
+  if ((shorter << bound_shift) >= lower) {
+    fp r;
+    r.sig = shorter;
+    r.exp = dec_exp;
+    return normalize64(r, subnormal);
+  }
+
+  uint64_t scaled_sig = umul192_upper64_inexact_to_odd(
+      pow10_hi, pow10_lo, bin_sig_shifted << exp_shift);
+  uint64_t dec_sig_below = scaled_sig >> bound_shift;
+  uint64_t dec_sig_above = dec_sig_below + 1;
+
+  // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
+  // the rounding interval.
+  int64_t cmp = (int64_t)(scaled_sig - ((dec_sig_below + dec_sig_above) << 1));
+  int below_closer = (cmp < 0) || (cmp == 0 && (dec_sig_below & 1) == 0);
+  int below_in = (dec_sig_below << bound_shift) >= lower;
+  uint64_t dec_sig = (below_closer & below_in) ? dec_sig_below : dec_sig_above;
+
+  fp r;
+  r.sig = dec_sig;
+  r.exp = dec_exp;
+  return normalize64(r, subnormal);
+}
+
 // Writes a significand consisting of 16 or 17 decimal digits and removes
 // trailing zeros.
-static char* write_significand(char* buffer, uint64_t value) {
+static char* write_significand17(char* buffer, uint64_t value) {
   uint32_t abbccddee = (uint32_t)(value / 100000000ULL);
   uint32_t ffgghhii = (uint32_t)(value % 100000000ULL);
 
@@ -830,152 +973,70 @@ static char* write_significand(char* buffer, uint64_t value) {
   return buffer + count_trailing_nonzeros(digits);
 }
 
-// Writes the decimal FP number dec_sig * 10**dec_exp to buffer.
-static void write(char* buffer, uint64_t dec_sig, int dec_exp) {
-  dec_exp += 15 + (dec_sig >= 10000000000000000ULL);
+// It is slightly faster to return a pointer to the end than the size.
+static inline char* zmij_dtoa(double value, char* buffer) {
+  // IEEE 754 binary64
+  const int num_bits = 64;
 
-  char* start = buffer;
-  buffer = write_significand(buffer + 1, dec_sig);
-  start[0] = start[1];
-  start[1] = '.';
-
-  *buffer++ = 'e';
-
-  char sign = '+';
-  if (dec_exp < 0) {
-    sign = '-';
-    dec_exp = -dec_exp;
-  }
-  *buffer++ = sign;
-
-  divmod_result r = divmod100((uint32_t)dec_exp);
-  *buffer = (char)('0' + r.div);
-  buffer += (dec_exp >= 100);
-
-  memcpy(buffer, digits2(r.mod), 2);
-  buffer[2] = '\0';
-}
-
-void zmij_dtoa(double value, char* buffer) {
-  static_assert(sizeof(double) == 8, "IEEE-754 double required");
-
-  uint64_t bits;
-  memcpy(&bits, &value, sizeof(bits));
+  uint64_t bits = 0;
+  memcpy(&bits, &value, sizeof(value));
 
   *buffer = '-';
-  buffer += bits >> 63;
+  buffer += bits >> (num_bits - 1);
 
   const int num_sig_bits = 52;
-  const uint64_t implicit_bit = (uint64_t)1 << num_sig_bits;
+  const uint64_t implicit_bit = 1ULL << num_sig_bits;
+  uint64_t bin_sig = bits & (implicit_bit - 1);  // binary significand
+  int regular = bin_sig != 0;
 
-  uint64_t bin_sig = bits & (implicit_bit - 1);  // binary_significand
-  bool regular = (bin_sig != 0);
-
-  const int num_exp_bits = 11;
+  const int num_exp_bits = num_bits - num_sig_bits - 1;
   const int exp_mask = (1 << num_exp_bits) - 1;
   const int exp_bias = (1 << (num_exp_bits - 1)) - 1;
+  int bin_exp = (int)(bits >> num_sig_bits) & exp_mask;  // binary exponent
 
-  int bin_exp = (int)((bits >> num_sig_bits) & exp_mask);  // binary exponent
-
-  if (((bin_exp + 1) & exp_mask) <= 1) {
+  int subnormal = 0;
+  if (((bin_exp + 1) & exp_mask) <= 1) {  // [[ZMIJ_UNLIKELY]]
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
-      return;
+      return buffer + 3;
     }
     if (bin_sig == 0) {
       memcpy(buffer, "0", 2);
-      return;
+      return buffer + 1;
     }
     // Handle subnormals.
+    // Setting regular is not redundant: it avoids extra data dependencies
+    // and register pressure on the hot path (measurable perf impact).
+    regular = 1;
     bin_sig |= implicit_bit;
     bin_exp = 1;
-    regular = true;
+    subnormal = 1;
   }
 
   bin_sig ^= implicit_bit;
   bin_exp -= num_sig_bits + exp_bias;
 
-  // Compute the decimal exponent as floor(log10(2**bin_exp)) if regular or
-  // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
-  // log10_3_over_4_sig = round(log10(3/4) * 2**log10_2_exp)
-  const int log10_3_over_4_sig = -131008;
-  // log10_2_sig = round(log10(2) * 2**log10_2_exp)
-  const int log10_2_sig = 315653;
-  const int log10_2_exp = 20;
-  int dec_exp =
-      (bin_exp * log10_2_sig + (!regular) * log10_3_over_4_sig) >> log10_2_exp;
+  fp dec = to_decimal64(bin_sig, bin_exp, regular, subnormal);
 
-  const int dec_exp_min = -292;
-  uint128 pow10 = pow10_significands[-dec_exp - dec_exp_min];
+  char* start = buffer;
+  int num_digits = 17 - 2;
 
-  // log2_pow10_sig = round(log2(10) * 2**log2_pow10_exp) + 1
-  const int log2_pow10_sig = 217707;
-  const int log2_pow10_exp = 16;
-  // pow10_bin_exp = floor(log2(10**-dec_exp))
-  int pow10_bin_exp = (-dec_exp * log2_pow10_sig) >> log2_pow10_exp;
-  // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127)
+  dec.exp += num_digits + (dec.sig >= 10000000000000000ULL);
+  buffer = write_significand17(buffer + 1, dec.sig);
 
-  // Shift to ensure the intermediate result of multiplying by a power of 10
-  // has a fixed 128-bit fractional part. For example, 3 * 2**59 and 3 * 2**60
-  // both have dec_exp = 2 and dividing them by 10**dec_exp would have the
-  // decimal point in different (bit) positions without the shift:
-  //   3 * 2**59 / 100 = 1.72...e+16 (shift = 1 + 1)
-  //   3 * 2**60 / 100 = 3.45...e+16 (shift = 2 + 1)
-  int shift = bin_exp + pow10_bin_exp + 1;
+  start[0] = start[1];
+  start[1] = '.';
 
-  if (regular) {
-    uint128 r = umul192_upper128(pow10.hi, pow10.lo - 1, bin_sig << shift);
-    uint64_t digit = r.hi % 10;
+  *buffer++ = 'e';
+  *buffer++ = '-' + (dec.exp >= 0) * ('+' - '-');
+  int mask = (dec.exp >= 0) - 1;
+  dec.exp = (dec.exp + mask) ^ mask;  // absolute value
 
-    const int num_fractional_bits = 60;
-    const uint64_t ten = (uint64_t)10 << num_fractional_bits;
-    // Fixed-point remainder of the scaled significand modulo 10.
-    uint64_t rem10 = (digit << num_fractional_bits) | (r.lo >> 4);
-    uint64_t half_ulp = pow10.hi >> (5 - shift);
-    uint64_t upper = rem10 + half_ulp;
-
-    // An optimization from yy_double by Yaoyuan Guo:
-    if (r.lo != ((uint64_t)1 << 63) && rem10 != half_ulp && ten - upper > 1) {
-      bool round = (upper >> num_fractional_bits) >= 10;
-      uint64_t shorter = r.hi - digit + round * 10;
-      uint64_t longer = r.hi + (r.lo >= ((uint64_t)1 << 63));
-
-      write(buffer, ((half_ulp >= rem10) + round) ? shorter : longer, dec_exp);
-      return;
-    }
-  }
-
-  // Shift the significand so that boundaries are integer.
-  uint64_t bin_sig_shifted = bin_sig << 2;
-
-  // Compute the estimates of lower and upper bounds of the rounding interval
-  // by multiplying them by the power of 10 and applying modified rounding.
-  uint64_t lsb = bin_sig & 1;
-  uint64_t lower =
-      umul192_upper64_inexact_to_odd(
-          pow10.hi, pow10.lo, (bin_sig_shifted - (regular + 1)) << shift) +
-      lsb;
-  uint64_t upper = umul192_upper64_inexact_to_odd(
-                       pow10.hi, pow10.lo, (bin_sig_shifted + 2) << shift) -
-                   lsb;
-
-  // The idea of using a single shorter candidate is by Cassio Neri.
-  // It is less or equal to the upper bound by construction.
-  uint64_t shorter = 10 * ((upper >> 2) / 10);
-  if ((shorter << 2) >= lower) {
-    write(buffer, shorter, dec_exp);
-    return;
-  }
-
-  uint64_t scaled_sig = umul192_upper64_inexact_to_odd(
-      pow10.hi, pow10.lo, bin_sig_shifted << shift);
-  uint64_t under = scaled_sig >> 2;
-  uint64_t over = under + 1;
-
-  // Pick the closest of dec_sig_under and dec_sig_over and check if it's in
-  // the rounding interval.
-  int64_t cmp = (int64_t)(scaled_sig - ((under + over) << 1));
-  bool under_closer = cmp < 0 || (cmp == 0 && !(under & 1));
-  bool under_in = (under << 2) >= lower;
-  write(buffer, (under_closer && under_in) ? under : over, dec_exp);
+  divmod_result r = divmod100((uint32_t)dec.exp);
+  uint32_t a = r.div, bb = r.mod;
+  *buffer = (char)('0' + a);
+  buffer += dec.exp >= 100;
+  memcpy(buffer, digits2(bb), 2);
+  buffer[2] = '\0';
+  return buffer + 2;
 }
