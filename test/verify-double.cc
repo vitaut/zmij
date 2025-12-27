@@ -122,8 +122,7 @@ int main() {
   for (int i = 0; i < num_threads; ++i) threads[i].join();
   auto finish = std::chrono::steady_clock::now();
 
-  printf(
-      "%g seconds\n",
-      std::chrono::duration_cast<std::chrono::duration<double>>(finish - start)
-          .count());
+  using seconds = std::chrono::duration<double>;
+  printf("%g seconds\n",
+         std::chrono::duration_cast<seconds>(finish - start).count());
 }
