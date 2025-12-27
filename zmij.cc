@@ -1059,16 +1059,17 @@ auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
     uint64_t upper = rem10 + scaled_half_ulp;
 
     // An optimization from yy by Yaoyuan Guo:
+    int64_t cmp = int64_t(fractional - (uint64_t(1) << 63));
     if (
         // Exact half-ulp tie when rounding to nearest integer.
-        fractional != (uint64_t(1) << 63) &&
+        cmp != 0 &&
         // Exact half-ulp tie when rounding to nearest 10.
         rem10 != scaled_half_ulp &&
         // Near-boundary case for rounding to nearest 10.
         ten - upper > uint64_t(1)) [[ZMIJ_LIKELY]] {
       bool round_up = (upper >> num_fractional_bits) >= 10;
       uint64_t shorter = integral - digit + round_up * 10;
-      uint64_t longer = integral + (fractional >= (uint64_t(1) << 63));
+      uint64_t longer = integral + (cmp >= 0);
       return {((rem10 <= scaled_half_ulp) + round_up != 0) ? shorter : longer,
               dec_exp};
     }
@@ -1183,9 +1184,8 @@ auto write(Float value, char* buffer) noexcept -> char* {
   *buffer = char('0' + a);
   buffer += dec_exp >= 100;
   memcpy(buffer, digits2(bb), 2);
-  buffer += 2;
-  *buffer = '\0';
-  return buffer;
+  buffer[2] = '\0';
+  return buffer + 2;
 }
 
 template auto write(double value, char* buffer) noexcept -> char*;
