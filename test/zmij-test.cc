@@ -9,14 +9,40 @@
 
 auto dtoa(double value) -> std::string {
   char buffer[zmij::double_buffer_size] = {};
-  zmij::write(buffer, sizeof(buffer), value);
-  return buffer;
+  auto n = zmij::write(buffer, sizeof(buffer), value);
+  return {buffer, n};
 }
 
 auto ftoa(float value) -> std::string {
   char buffer[zmij::float_buffer_size] = {};
+  auto n = zmij::write(buffer, sizeof(buffer), value);
+  return {buffer, n};
+}
+
+auto dtoa_imply_len(double value) -> std::string {
+  char buffer[zmij::double_buffer_size] = {};
   zmij::write(buffer, sizeof(buffer), value);
   return buffer;
+}
+
+auto ftoa_imply_len(float value) -> std::string {
+  char buffer[zmij::float_buffer_size] = {};
+  zmij::write(buffer, sizeof(buffer), value);
+  return buffer;
+}
+
+auto dtoa_no_buffer(double value) -> std::string {
+  auto n = zmij::write(nullptr, 0, value);
+  std::string result(n, '\0');
+  zmij::write(result.data(), n, value);
+  return result;
+}
+
+auto ftoa_no_buffer(float value) -> std::string {
+  auto n = zmij::write(nullptr, 0, value);
+  std::string result(n, '\0');
+  zmij::write(result.data(), n, value);
+  return result;
 }
 
 TEST(zmij_test, utilities) {
@@ -42,7 +68,7 @@ TEST(zmij_test, umul_upper_inexact_to_odd) {
 }
 
 TEST(dtoa_test, normal) {
-  EXPECT_EQ(dtoa(6.62607015e-34), "6.62607015e-34");
+  EXPECT_EQ(dtoa_no_buffer(6.62607015e-34), "6.62607015e-34");
 
   // Exact half-ulp tie when rounding to nearest integer.
   EXPECT_EQ(dtoa(5.444310685350916e+14), "5.444310685350916e+14");
@@ -66,11 +92,11 @@ TEST(dtoa_test, zero) {
 
 TEST(dtoa_test, inf) {
   EXPECT_EQ(dtoa(std::numeric_limits<double>::infinity()), "inf");
-  EXPECT_EQ(dtoa(-std::numeric_limits<double>::infinity()), "-inf");
+  EXPECT_EQ(dtoa_no_buffer(-std::numeric_limits<double>::infinity()), "-inf");
 }
 
 TEST(dtoa_test, nan) {
-  EXPECT_EQ(dtoa(std::numeric_limits<double>::quiet_NaN()), "nan");
+  EXPECT_EQ(dtoa_imply_len(std::numeric_limits<double>::quiet_NaN()), "nan");
   EXPECT_EQ(dtoa(-std::numeric_limits<double>::quiet_NaN()), "-nan");
 }
 
@@ -101,8 +127,8 @@ TEST(dtoa_test, all_exponents) {
 }
 
 TEST(ftoa_test, normal) {
-  EXPECT_EQ(ftoa(6.62607e-34f), "6.62607e-34");
-  EXPECT_EQ(ftoa(9.061488e15f), "9.061488e+15");
+  EXPECT_EQ(ftoa_no_buffer(6.62607e-34f), "6.62607e-34");
+  EXPECT_EQ(ftoa_imply_len(9.061488e15f), "9.061488e+15");
   EXPECT_EQ(ftoa(1.342178e+08f), "1.342178e+08");
   EXPECT_EQ(ftoa(1.3421781e+08f), "1.3421781e+08");
 }
