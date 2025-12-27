@@ -6,6 +6,7 @@
 #include <stdio.h>   // printf
 #include <string.h>  // memcpy
 
+#include <atomic>
 #include <limits>
 #include <thread>
 #include <vector>
@@ -22,12 +23,13 @@ int main() {
     return 1;
   }
 
+  std::atomic<bool> has_error = false;
   std::vector<std::thread> threads(concurrency);
   for (uint32_t i = 0; i < concurrency; ++i) {
     uint32_t start = static_cast<uint32_t>(num_floats * i / concurrency);
     uint32_t end = static_cast<uint32_t>(num_floats * (i + 1) / concurrency);
     uint32_t n = end - start;
-    threads[i] = std::thread([i, start, n] {
+    threads[i] = std::thread([i, start, n, &has_error] {
       char actual[zmij::float_buffer_size] = {};
       char expected[32] = {};
       double percent = 100.0 / n;
@@ -48,6 +50,7 @@ int main() {
         if (strcmp(actual, "-0") == 0 && strcmp(expected, "-0e0") == 0)
           continue;
 
+        has_error.store(true);
         printf("Output mismatch: %s != %s\n", actual, expected);
         return;
       }
@@ -56,4 +59,5 @@ int main() {
 
   for (int i = 0; i < concurrency; ++i) threads[i].join();
   printf("Tested %llu values\n", num_floats);
+  return has_error.load();
 }
