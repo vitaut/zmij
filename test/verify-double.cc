@@ -35,7 +35,7 @@ const uint64_t pow10[] = {
     10000000000000000,
 };
 
-void verify(uint64_t bits, uint64_t iteration, uint64_t num_iterations) {
+void verify(uint64_t bits) {
   double value = 0;
   memcpy(&value, &bits, sizeof(double));
 
@@ -88,7 +88,7 @@ void verify(uint64_t bits, uint64_t iteration, uint64_t num_iterations) {
 
 }  // namespace
 
-int main() {
+auto main() -> int {
   // Verify correctness for doubles with a given binary exponent.
   constexpr int bin_exp_biased = 1;
   constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
@@ -108,12 +108,14 @@ int main() {
     threads[i] = std::thread([i, begin, n, &num_processed_doubles] {
       printf("Thread %d processing 0x%013llx - 0x%013llx\n", i, begin,
              begin + n - 1);
-      constexpr uint32_t update_size = 1 << 21;
       constexpr double percent = 100.0 / num_significands;
+      uint64_t last_processed_count = 0;
       auto last_update_time = std::chrono::steady_clock::now();
       for (uint64_t j = 0; j < n; ++j) {
-        if (j % update_size == update_size - 1) {
-          num_processed_doubles += update_size;
+        uint64_t num_doubles = j - last_processed_count + 1;
+        if (num_doubles >= (1 << 21) || j == n - 1) {
+          num_processed_doubles += num_doubles;
+          last_processed_count += num_doubles;
           if (i == 0) {
             auto now = std::chrono::steady_clock::now();
             if (now - last_update_time >= std::chrono::seconds(1)) {
@@ -122,7 +124,7 @@ int main() {
             }
           }
         }
-        verify(begin + j, j, n);
+        verify(begin + j);
       }
     });
   }

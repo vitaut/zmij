@@ -15,7 +15,7 @@
 #include "dragonbox/dragonbox_to_chars.h"
 #include "zmij.h"
 
-int main() {
+auto main() -> int {
   unsigned num_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(num_threads);
   std::atomic<unsigned long long> num_processed_floats(0);
@@ -32,12 +32,14 @@ int main() {
       char actual[zmij::float_buffer_size] = {};
       char expected[32] = {};
       constexpr double percent = 100.0 / num_floats;
-      constexpr uint32_t update_size = 1 << 21;
+      uint64_t last_processed_count = 0;
       auto last_update_time = std::chrono::steady_clock::now();
       bool has_errors = false;
       for (uint32_t j = 0; j < n; ++j) {
-        if (j % update_size == update_size - 1) {
-          num_processed_floats += update_size;
+        uint64_t num_doubles = j - last_processed_count + 1;
+        if (num_doubles >= (1 << 21) || j == n - 1) {
+          num_processed_floats += num_doubles;
+          last_processed_count += num_doubles;
           auto now = std::chrono::steady_clock::now();
           if (i == 0 && now - last_update_time >= std::chrono::seconds(1)) {
             last_update_time = now;
