@@ -49,11 +49,10 @@ inline auto verify(uint64_t bits, int bin_exp) -> bool {
   uint32_t abbccddee = uint32_t(actual.sig / 100'000'000);
   uint32_t ffgghhii = uint32_t(actual.sig % 100'000'000);
   int num_zeros = 0;
-  if (ffgghhii == 0) {
+  if (ffgghhii == 0)
     num_zeros = 16 - count_trailing_nonzeros(to_bcd8(abbccddee % 100'000'000));
-  } else {
+  else
     num_zeros = 8 - count_trailing_nonzeros(to_bcd8(ffgghhii));
-  }
   if (num_zeros != 0) {
     expected.significand *= pow10[num_zeros];
     expected.exponent -= num_zeros;
