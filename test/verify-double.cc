@@ -35,33 +35,15 @@ const uint64_t pow10[] = {
     10000000000000000,
 };
 
-auto verify(uint64_t bits) -> bool {
-  double value = 0;
+constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
+constexpr uint64_t implicit_bit = uint64_t(1) << num_sig_bits;
+
+inline auto verify(uint64_t bits, int bin_exp) -> bool {
+  uint64_t bin_sig = bits & (implicit_bit - 1);
+  fp actual = to_decimal(bin_sig, bin_exp, true, false);
+
+  double value;
   memcpy(&value, &bits, sizeof(double));
-
-  constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
-  constexpr uint64_t implicit_bit = uint64_t(1) << num_sig_bits;
-  uint64_t bin_sig = bits & (implicit_bit - 1);  // binary significand
-  bool regular = bin_sig != 0;
-
-  constexpr int num_exp_bits = 64 - num_sig_bits - 1;
-  constexpr int exp_mask = (1 << num_exp_bits) - 1;
-  constexpr int exp_bias = (1 << (num_exp_bits - 1)) - 1;
-  int bin_exp = int(bits >> num_sig_bits) & exp_mask;  // binary exponent
-
-  bool subnormal = false;
-  if (((bin_exp + 1) & exp_mask) <= 1) [[unlikely]] {
-    if (bin_exp != 0) return false;
-    if (bin_sig == 0) return false;
-    // Handle subnormals.
-    bin_sig |= implicit_bit;
-    bin_exp = 1;
-    subnormal = true;
-  }
-  bin_sig ^= implicit_bit;
-  bin_exp -= num_sig_bits + exp_bias;
-
-  fp actual = to_decimal(bin_sig, bin_exp, regular, subnormal);
   auto expected = jkj::dragonbox::to_decimal(value);
 
   uint32_t abbccddee = uint32_t(actual.sig / 100'000'000);
@@ -93,8 +75,19 @@ auto main() -> int {
   // Verify correctness for doubles with a given binary exponent.
   constexpr int bin_exp_biased = 1;
   constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
-  constexpr uint64_t bits = uint64_t(bin_exp_biased) << num_sig_bits;
   static constexpr uint64_t num_significands = uint64_t(1) << 32;  // test a subset
+  uint64_t bits = uint64_t(bin_exp_biased) << num_sig_bits;
+
+  constexpr int num_exp_bits = 64 - num_sig_bits - 1;
+  constexpr int exp_mask = (1 << num_exp_bits) - 1;
+  constexpr int exp_bias = (1 << (num_exp_bits - 1)) - 1;
+  int bin_exp = bin_exp_biased;
+
+  if (((bin_exp + 1) & exp_mask) <= 1) {
+    printf("Unsupported exponent\n");
+  }
+  bits ^= implicit_bit;
+  bin_exp -= num_sig_bits + exp_bias;
 
   unsigned num_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(num_threads);
@@ -106,11 +99,15 @@ auto main() -> int {
   for (unsigned i = 0; i < num_threads; ++i) {
     uint64_t begin = bits | (num_significands * i / num_threads);
     uint64_t end = bits | (num_significands * (i + 1) / num_threads);
+
+    // Skip irregular because those are tested elsewhere.
+    if (begin == 0) ++begin;
     uint64_t n = end - begin;
-    threads[i] = std::thread([i, begin, n, &num_processed_doubles,
+    threads[i] = std::thread([i, begin, n, bin_exp, &num_processed_doubles,
                               &num_errors] {
       printf("Thread %d processing 0x%013llx - 0x%013llx\n", i, begin,
              begin + n - 1);
+
       constexpr double percent = 100.0 / num_significands;
       uint64_t last_processed_count = 0;
       auto last_update_time = std::chrono::steady_clock::now();
@@ -127,7 +124,7 @@ auto main() -> int {
             }
           }
         }
-        if (!verify(begin + j)) ++num_errors;
+        if (!verify(begin + j, bin_exp)) ++num_errors;
       }
     });
   }
