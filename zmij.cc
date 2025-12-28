@@ -103,6 +103,7 @@ using uint128_t = uint128;
 
 // 128-bit significands of powers of 10 rounded down.
 // Generated with gen-pow10.py.
+constexpr int dec_exp_min = -292;
 const uint128 pow10_significands[] = {
     {0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a},  // -292
     {0x9faacf3df73609b1, 0x77b191618c54e9ac},  // -291
@@ -1001,7 +1002,7 @@ template <int num_bits> auto normalize(fp dec, bool subnormal) noexcept -> fp {
 
 // Computes the decimal exponent as floor(log10(2**bin_exp)) if regular or
 // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
-inline auto compute_dec_exp(int bin_exp, bool regular) noexcept -> int {
+constexpr auto compute_dec_exp(int bin_exp, bool regular) noexcept -> int {
   assert(bin_exp >= -1334 && bin_exp <= 2620);
   // log10_3_over_4_sig = round(log10(3/4) * 2**log10_2_exp)
   constexpr int log10_3_over_4_sig = -131'008;
@@ -1021,7 +1022,8 @@ inline auto compute_dec_exp(int bin_exp, bool regular) noexcept -> int {
 // 10^dec_exp puts the decimal point in different bit positions:
 //   3 * 2**59 / 100 = 1.72...e+16  (needs shift = 1 + 1)
 //   3 * 2**60 / 100 = 3.45...e+16  (needs shift = 2 + 1)
-ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept -> int {
+constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
+    -> int {
   // log2_pow10_sig = round(log2(10) * 2**log2_pow10_exp) + 1
   constexpr int log2_pow10_sig = 217'707, log2_pow10_exp = 16;
   assert(dec_exp >= -350 && dec_exp <= 350);

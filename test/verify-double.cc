@@ -38,20 +38,8 @@ const uint64_t pow10[] = {
 constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
 constexpr uint64_t implicit_bit = uint64_t(1) << num_sig_bits;
 
-inline auto verify(uint64_t bits, int bin_exp) -> bool {
-  int dec_exp = compute_dec_exp(bin_exp, true);
-  int exp_shift = compute_exp_shift(bin_exp, dec_exp);
-
-  constexpr int dec_exp_min = -292;
-  int pow10_index = -dec_exp - dec_exp_min;
-  int exact_begin = 292, exact_end = 347;
-  if (pow10_index >= exact_begin && pow10_index <= exact_end) {
-    assert(pow10_significands[exact_begin].hi == 0x8000000000000000);
-    assert(pow10_significands[exact_end].hi == 0xd0cf4b50cfe20765);
-    // Power of 10 is exact.
-    return true;
-  }
-
+inline auto verify(uint64_t bits, int bin_exp, int dec_exp, int exp_shift)
+    -> bool {
   auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp - dec_exp_min];
   // The real power of 10 is in the range [pow10, pow10 + 1), where
   // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127).
@@ -101,7 +89,7 @@ auto main() -> int {
   constexpr int bin_exp_biased = 1;
   constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
   static constexpr uint64_t num_significands = uint64_t(1)
-                                               << 32;  // test a subset
+                                               << 33;  // test a subset
 
   constexpr int num_exp_bits = 64 - num_sig_bits - 1;
   constexpr int exp_mask = (1 << num_exp_bits) - 1;
@@ -110,6 +98,18 @@ auto main() -> int {
 
   constexpr uint64_t bits = (uint64_t(bin_exp_biased) << num_sig_bits);
   constexpr int bin_exp = bin_exp_biased - (num_sig_bits + exp_bias);
+  constexpr int dec_exp = compute_dec_exp(bin_exp, true);
+  constexpr int exp_shift = compute_exp_shift(bin_exp, dec_exp);
+
+  int pow10_index = -dec_exp - dec_exp_min;
+  int exact_begin = 292, exact_end = 347;
+  if (pow10_index >= exact_begin && pow10_index <= exact_end) {
+    assert(pow10_significands[exact_begin].hi == 0x8000000000000000);
+    assert(pow10_significands[exact_end].hi == 0xd0cf4b50cfe20765);
+    printf("Power of 10 is exact for bin_exp=%d dec_exp=%d\n", bin_exp,
+           dec_exp);
+    return 0;
+  }
 
   unsigned num_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(num_threads);
@@ -119,11 +119,13 @@ auto main() -> int {
 
   auto start = std::chrono::steady_clock::now();
   for (unsigned i = 0; i < num_threads; ++i) {
-    uint64_t begin = bits | (num_significands * i / num_threads);
-    uint64_t end = bits | (num_significands * (i + 1) / num_threads);
+    uint64_t begin = (num_significands * i / num_threads);
+    uint64_t end = (num_significands * (i + 1) / num_threads);
 
     // Skip irregular because those are tested elsewhere.
     if (begin == 0) ++begin;
+    begin |= bits;
+    end |= bits;
     uint64_t n = end - begin;
     threads[i] = std::thread([i, begin, n, bin_exp, &num_processed_doubles,
                               &num_errors] {
@@ -146,7 +148,7 @@ auto main() -> int {
             }
           }
         }
-        if (!verify(begin + j, bin_exp)) ++num_errors;
+        if (!verify(begin + j, bin_exp, dec_exp, exp_shift)) ++num_errors;
       }
     });
   }
