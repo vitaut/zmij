@@ -783,22 +783,23 @@ inline auto is_big_endian() noexcept -> bool {
 }
 
 inline auto clz(uint64_t x) noexcept -> int {
-  assert(x != 0);
-#if ZMIJ_HAS_BUILTIN(__builtin_clzll)
-  return __builtin_clzll(x);
+  #if ZMIJ_HAS_BUILTIN(__builtin_ia32_lzcnt_u64)
+  return __builtin_ia32_lzcnt_u64(x);
+#elif ZMIJ_HAS_BUILTIN(__builtin_clzg)
+  return __builtin_clzg(x, 64);
 #elif defined(_MSC_VER) && defined(__AVX2__) && defined(_M_AMD64)
   // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
   return __lzcnt64(x);
 #elif defined(_MSC_VER) && (defined(_M_AMD64) || defined(_M_ARM64))
   unsigned long idx;
-  _BitScanReverse64(&idx, x);  // Fallback to the BSR instruction.
-  return 63 - idx;
+  auto nonzero_p = _BitScanReverse64(&idx, x);  // Fallback to the BSR instruction.
+  return nonzero_p ? 63 - idx : 64;
 #elif defined(_MSC_VER)
   // Fallback to the 32-bit BSR instruction.
   unsigned long idx;
   if (_BitScanReverse(&idx, uint32_t(x >> 32))) return 31 - idx;
-  _BitScanReverse(&idx, uint32_t(x));
-  return 63 - idx;
+  auto nonzero_p = BitScanReverse(&idx, uint32_t(x));
+  return nonzero_p ? 63 - idx : 64;
 #else
   int n = 64;
   for (; x > 0; x >>= 1) --n;
