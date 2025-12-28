@@ -987,21 +987,6 @@ auto write_significand9(char* buffer, uint32_t value) noexcept -> char* {
   return buffer - int(buffer - start == 1);
 }
 
-struct fp {
-  uint64_t sig;
-  int exp;
-};
-
-template <int num_bits> auto normalize(fp dec, bool subnormal) noexcept -> fp {
-  if (!subnormal) [[ZMIJ_LIKELY]]
-    return dec;
-  while (dec.sig < (num_bits == 64 ? uint64_t(1e16) : uint64_t(1e8))) {
-    dec.sig *= 10;
-    --dec.exp;
-  }
-  return dec;
-}
-
 // Computes the decimal exponent as floor(log10(2**bin_exp)) if regular or
 // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
 constexpr auto compute_dec_exp(int bin_exp, bool regular) noexcept -> int {
@@ -1033,6 +1018,21 @@ constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
   int pow10_bin_exp = -dec_exp * log2_pow10_sig >> log2_pow10_exp;
   // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127)
   return bin_exp + pow10_bin_exp + 1;
+}
+
+struct fp {
+  uint64_t sig;
+  int exp;
+};
+
+template <int num_bits> auto normalize(fp dec, bool subnormal) noexcept -> fp {
+  if (!subnormal) [[ZMIJ_LIKELY]]
+    return dec;
+  while (dec.sig < (num_bits == 64 ? uint64_t(1e16) : uint64_t(1e8))) {
+    dec.sig *= 10;
+    --dec.exp;
+  }
+  return dec;
 }
 
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
