@@ -52,11 +52,11 @@
 #endif
 
 #ifdef _MSC_VER
-#  define ZMIJ_INLINE __forceinline
+#  define ZMIJ_INLINE __forceinline inline
 #elif defined(__has_attribute) && __has_attribute(always_inline)
-#  define ZMIJ_INLINE __attribute__((always_inline))
+#  define ZMIJ_INLINE __attribute__((always_inline)) inline
 #else
-#  define ZMIJ_INLINE
+#  define ZMIJ_INLINE inline
 #endif
 
 namespace {

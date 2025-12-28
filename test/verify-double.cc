@@ -40,6 +40,21 @@ constexpr uint64_t implicit_bit = uint64_t(1) << num_sig_bits;
 
 inline auto verify(uint64_t bits, int bin_exp) -> bool {
   uint64_t bin_sig = bits & (implicit_bit - 1);
+
+  int dec_exp = compute_dec_exp(bin_exp, true);
+  int exp_shift = compute_exp_shift(bin_exp, dec_exp);
+
+  constexpr int dec_exp_min = -292;
+  auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp - dec_exp_min];
+  // The real power of 10 is in the range [pow10, pow10 + 1).
+  // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127)
+
+  // Check if there could be a carry due to the pow10 approximation error.
+  uint64_t bin_sig_shifted = bin_sig << exp_shift;
+  uint64_t scaled_sig_lo = uint64_t(umul128(pow10_lo, bin_sig_shifted));
+  bool carry = scaled_sig_lo + bin_sig_shifted < scaled_sig_lo;
+  if (!carry) return true;
+
   fp actual = to_decimal(bin_sig, bin_exp, true, false);
 
   double value;
