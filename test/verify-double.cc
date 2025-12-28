@@ -60,7 +60,7 @@ inline auto verify(uint64_t bits, int bin_exp) -> bool {
   // This checks all cases where integral and fractional can be off.
   // The rest is taken care off by the conservative boundary checks on the
   // fast path.
-  uint64_t bin_sig = bits & (implicit_bit - 1);
+  uint64_t bin_sig = (bits & (implicit_bit - 1)) | implicit_bit;
   uint64_t bin_sig_shifted = bin_sig << exp_shift;
   uint64_t scaled_sig_lo = uint64_t(umul128(pow10_lo, bin_sig_shifted));
   bool carry = scaled_sig_lo + bin_sig_shifted < scaled_sig_lo;
@@ -108,8 +108,7 @@ auto main() -> int {
   constexpr int exp_bias = (1 << (num_exp_bits - 1)) - 1;
   if (((bin_exp_biased + 1) & exp_mask) <= 1) printf("Unsupported exponent\n");
 
-  uint64_t bits = uint64_t(bin_exp_biased) << num_sig_bits;
-  bits ^= implicit_bit;
+  constexpr uint64_t bits = (uint64_t(bin_exp_biased) << num_sig_bits);
   constexpr int bin_exp = bin_exp_biased - (num_sig_bits + exp_bias);
 
   unsigned num_threads = std::thread::hardware_concurrency();
