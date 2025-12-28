@@ -48,6 +48,9 @@ inline auto verify(uint64_t bits, int bin_exp) -> bool {
   // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127).
 
   // Check for possible carry due to pow10 approximation error.
+  // This checks all cases where integral and fractional can be off.
+  // The rest is taken care off by the conservative boundary checks on the
+  // fast path.
   uint64_t bin_sig = bits & (implicit_bit - 1);
   uint64_t bin_sig_shifted = bin_sig << exp_shift;
   uint64_t scaled_sig_lo = uint64_t(umul128(pow10_lo, bin_sig_shifted));
