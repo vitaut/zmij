@@ -154,13 +154,13 @@ auto main() -> int {
           }
         }
 
-        // The real power of 10 is in the range [pow10, pow10 + 1), where
-        // pow10 = ((pow10_hi << 64) | pow10_lo) * 2**(pow10_bin_exp - 127).
+        // The real power of 10 is in the range [pow10, pow10 + 1) ignoring
+        // the exponent, where pow10 = (pow10_hi << 64) | pow10_lo.
 
         // Check for possible carry due to pow10 approximation error.
-        // This checks all cases where integral and fractional can be off.
-        // The rest is taken care of by the conservative boundary checks on the
-        // fast path.
+        // This checks all cases where integral and fractional can be off in
+        // to_decimal. The rest is taken care of by the conservative boundary
+        // checks on the fast path.
         uint64_t bin_sig = ((begin + j) & (implicit_bit - 1)) | implicit_bit;
         uint64_t bin_sig_shifted = bin_sig << exp_shift;
         uint64_t scaled_sig_lo = pow10_lo * bin_sig_shifted;
