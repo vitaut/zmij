@@ -15,25 +15,27 @@
 
 namespace {
 
+// clang-format off
 const uint64_t pow10[] = {
-    1,
-    10,
-    100,
-    1000,
-    10000,
-    100000,
-    1000000,
-    10000000,
-    100000000,
-    1000000000,
-    10000000000,
-    100000000000,
-    1000000000000,
-    10000000000000,
-    100000000000000,
-    1000000000000000,
-    10000000000000000,
+                  1,
+                 1'0,
+                1'0'0,
+               1'0'0'0,
+              1'0'0'0'0,
+             1'0'0'0'0'0,
+            1'0'0'0'0'0'0,
+           1'0'0'0'0'0'0'0,
+          1'0'0'0'0'0'0'0'0,
+         1'0'0'0'0'0'0'0'0'0,
+        1'0'0'0'0'0'0'0'0'0'0,
+       1'0'0'0'0'0'0'0'0'0'0'0,
+      1'0'0'0'0'0'0'0'0'0'0'0'0,
+     1'0'0'0'0'0'0'0'0'0'0'0'0'0,
+    1'0'0'0'0'0'0'0'0'0'0'0'0'0'0,
+   1'0'0'0'0'0'0'0'0'0'0'0'0'0'0'0,
+  1'0'0'0'0'0'0'0'0'0'0'0'0'0'0'0'0,
 };
+// clang-format on
 
 constexpr int num_sig_bits = std::numeric_limits<double>::digits - 1;
 constexpr uint64_t implicit_bit = uint64_t(1) << num_sig_bits;
@@ -168,8 +170,7 @@ auto main() -> int {
         if (!carry) continue;
         ++num_special_cases_local;
 
-        if (!verify(begin + j, bin_sig, bin_exp))
-          ++num_errors;
+        if (!verify(begin + j, bin_sig, bin_exp)) ++num_errors;
       }
       num_special_cases += num_special_cases_local;
     });
