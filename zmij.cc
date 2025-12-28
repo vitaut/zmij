@@ -16,10 +16,6 @@
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
 
-#ifdef __ARM_NEON
-#  include <arm_neon.h>
-#endif
-
 #ifdef _MSC_VER
 #  include <intrin.h>  // __lzcnt64/_umul128/__umulh
 #endif
@@ -30,6 +26,16 @@
 
 #ifndef ZMIJ_USE_SIMD
 #  define ZMIJ_USE_SIMD 1
+#endif
+
+#if ZMIJ_USE_SIMD
+#  ifdef __ARM_NEON
+#    include <arm_neon.h>
+#    define ZMIJ_USE_SIMD_NEON 1
+#  elifdef __SSE4_1__
+#    include <smmintrin.h>  // SSE4.1
+#    define ZMIJ_USE_SIMD_SSE4_1 1
+#  endif
 #endif
 
 #ifdef __has_builtin
@@ -884,22 +890,7 @@ constexpr uint64_t zeros = 0x30303030'30303030u;  // 0x30 == '0'
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
 auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
-#if !defined(__ARM_NEON) || !ZMIJ_USE_SIMD
-  char* start = buffer;
-  // Each digit is denoted by a letter so value is abbccddeeffgghhii.
-  uint32_t abbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  buffer = write_if_nonzero(buffer, abbccddee / 100'000'000);
-  uint64_t bcd = to_bcd8(abbccddee % 100'000'000);
-  write8(buffer, bcd | zeros);
-  if (ffgghhii == 0) {
-    buffer += count_trailing_nonzeros(bcd);
-    return buffer - int(buffer - start == 1);
-  }
-  bcd = to_bcd8(ffgghhii);
-  write8(buffer + 8, bcd | zeros);
-  return buffer + 8 + count_trailing_nonzeros(bcd);
-#else   // __ARM_NEON
+#if defined(ZMIJ_USE_SIMD_NEON)
   // An optimized version for NEON by Dougall Johnson.
   struct to_string_constants {
     uint64_t mul_const;
@@ -965,7 +956,51 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
 
   buffer += 16 - (clz(~zeroes) >> 2);
   return buffer - int(buffer - start == 1);
-#endif  // __ARM_NEON
+#elif defined(ZMIJ_USE_SIMD_SSE4_1)
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  uint32_t a = abbccddee / 100'000'000;
+  uint32_t bbccddee = abbccddee % 100'000'000;
+
+  buffer = write_if_nonzero(buffer, a);
+  // This BCD sequence is by Xiang JunBo.  It works the same as the one in to_bc8 but
+  // the masking can be avoided by using vector entries of the right size, and in the
+  // last step a shift operation is avoided by increasing the shift to 32 bits and
+  // then using ...mulhi... to avoid the shift.
+  __m128i x = _mm_set_epi64x(ffgghhii, bbccddee);
+  __m128i y = _mm_add_epi64(x, _mm_mul_epu32(_mm_set1_epi64x((1ull << 32) - 10000), _mm_srli_epi64(_mm_mul_epu32(x, _mm_set1_epi64x(109951163)), 40)));
+  __m128i z = _mm_add_epi64(y, _mm_mullo_epi32(_mm_set1_epi32((1 << 16) - 100), _mm_srli_epi32(_mm_mulhi_epu16(y, _mm_set1_epi16(5243)), 3)));
+  __m128i big_endian_bcd = _mm_add_epi64(z, _mm_mullo_epi16(_mm_set1_epi16((1 << 8) - 10), _mm_mulhi_epu16(z, _mm_set1_epi16(6554))));
+  __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, _mm_set_epi8(8, 9, 10, 11, 12, 13, 14, 15, 0, 1, 2, 3, 4, 5, 6, 7));
+    
+  // convert to ascii
+  const __m128i ascii0 = _mm_set1_epi8('0');
+  auto digits = _mm_add_epi8(bcd, ascii0);
+ 
+  // determine number of leading zeros
+  uint16_t mask = ~_mm_movemask_epi8(_mm_cmpeq_epi8(bcd, _mm_setzero_si128()));
+  auto len = 64 - clz(mask); 
+
+  // and save result
+  _mm_storeu_si128((__m128i*)buffer, digits);
+
+  return buffer + len;
+#else   // !defined(ZMIJ_USE_SIMD_NEON) && !defined(ZMIJ_USE_SIMD_SSE4_1)
+  char* start = buffer;
+  // Each digit is denoted by a letter so value is abbccddeeffgghhii.
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  buffer = write_if_nonzero(buffer, abbccddee / 100'000'000);
+  uint64_t bcd = to_bcd8(abbccddee % 100'000'000);
+  write8(buffer, bcd | zeros);
+  if (ffgghhii == 0) {
+    buffer += count_trailing_nonzeros(bcd);
+    return buffer - int(buffer - start == 1);
+  }
+  bcd = to_bcd8(ffgghhii);
+  write8(buffer + 8, bcd | zeros);
+  return buffer + 8 + count_trailing_nonzeros(bcd);
+#endif
 }
 
 // Writes a significand consisting of up to 9 decimal digits (7-9 for normals)
