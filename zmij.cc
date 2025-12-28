@@ -51,7 +51,9 @@
 #  define ZMIJ_UNLIKELY
 #endif
 
-#if defined(__has_attribute) && __has_attribute(always_inline)
+#ifdef _MSC_VER
+#  define ZMIJ_INLINE __forceinline
+#elif defined(__has_attribute) && __has_attribute(always_inline)
 #  define ZMIJ_INLINE __attribute__((always_inline))
 #else
 #  define ZMIJ_INLINE
