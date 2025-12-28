@@ -51,7 +51,7 @@ inline auto verify(uint64_t bits, int bin_exp, int dec_exp, int exp_shift,
 
   // Check for possible carry due to pow10 approximation error.
   // This checks all cases where integral and fractional can be off.
-  // The rest is taken care off by the conservative boundary checks on the
+  // The rest is taken care of by the conservative boundary checks on the
   // fast path.
   uint64_t bin_sig = (bits & (implicit_bit - 1)) | implicit_bit;
   uint64_t bin_sig_shifted = bin_sig << exp_shift;
