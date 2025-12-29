@@ -1224,12 +1224,16 @@ auto write(Float value, char* buffer) noexcept -> char* {
   *buffer++ = '-' + (dec_exp >= 0) * ('+' - '-');
   int mask = (dec_exp >= 0) - 1;
   dec_exp = ((dec_exp + mask) ^ mask);  // absolute value
-  constexpr int div_exp = 19;  // 19 is faster or equal to 12 even for 3 digits.
-  constexpr int div_sig = (1 << div_exp) / 100 + 1;
-  uint32_t a = (uint32_t(dec_exp) * div_sig) >> div_exp;  // value / 100
-  *buffer = char('0' + a);
-  buffer += dec_exp >= 100;
-  memcpy(buffer, digits2(dec_exp - a * 100), 2);
+  if constexpr (std::numeric_limits<Float>::min_exponent10 < -99 ||
+                std::numeric_limits<Float>::max_exponent10 > +99) {
+    constexpr int div_exp = 19;  // 19 is faster or eq to 12 even for 3 digits.
+    constexpr int div_sig = (1 << div_exp) / 100 + 1;
+    uint32_t a = (uint32_t(dec_exp) * div_sig) >> div_exp;  // value / 100
+    *buffer = char('0' + a);
+    buffer += dec_exp >= 100;
+    dec_exp -= a * 100;
+  }
+  memcpy(buffer, digits2(dec_exp), 2);
   buffer[2] = '\0';
   return buffer + 2;
 }
