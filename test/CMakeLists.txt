@@ -1,3 +1,5 @@
+set(ZMIJ_VERIFIER_STANDARD cxx_std_20)
+
 add_subdirectory(gtest)
 
 add_library(dragonbox dragonbox/dragonbox_to_chars.cpp)
@@ -19,9 +21,10 @@ add_zmij_test(zmij-no-simd-test)
 target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_USE_SIMD=0)
 
 add_executable(verify-float verify-float.cc)
+target_compile_features(verify-float PRIVATE ${ZMIJ_VERIFIER_STANDARD})
 target_include_directories(verify-float PRIVATE .)
 target_link_libraries(verify-float dragonbox zmij)
 
 add_executable(verify-double verify-double.cc)
-target_compile_features(verify-double PRIVATE ${ZMIJ_STANDARD})
+target_compile_features(verify-double PRIVATE ${ZMIJ_VERIFIER_STANDARD})
 target_include_directories(verify-double PRIVATE .)
