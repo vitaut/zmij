@@ -1015,12 +1015,12 @@ auto write_significand9(char* buffer, uint32_t value) noexcept -> char* {
 // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
 constexpr auto compute_dec_exp(int bin_exp, bool regular) noexcept -> int {
   assert(bin_exp >= -1334 && bin_exp <= 2620);
-  // log10_3_over_4_sig = round(log10(3/4) * 2**log10_2_exp)
-  constexpr int log10_3_over_4_sig = -131'008;
+  // log10_3_over_4_sig = -log10(3/4) * 2**log10_2_exp rounded to a power of 2
+  constexpr int log10_3_over_4_sig = 131'072;
   // log10_2_sig = round(log10(2) * 2**log10_2_exp)
   constexpr int log10_2_sig = 315'653;
   constexpr int log10_2_exp = 20;
-  return (bin_exp * log10_2_sig + !regular * log10_3_over_4_sig) >> log10_2_exp;
+  return (bin_exp * log10_2_sig - !regular * log10_3_over_4_sig) >> log10_2_exp;
 }
 
 // Computes a shift so that, after scaling by a power of 10, the intermediate
