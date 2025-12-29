@@ -15,13 +15,14 @@ template <typename Float>
 auto write(Float value, char* buffer) noexcept -> char*;
 }  // namespace detail
 
-struct fp {
-  unsigned long long sig;  // significand
-  int exp;                 // exponent
+// A decimal floating-point number sig * pow(10, exp).
+struct dec_fp {
+  long long sig;  // significand
+  int exp;        // exponent
 };
 
-/// Converts `value` into the shortest decimal representation `sig * 10**exp`.
-auto to_decimal(double value) noexcept -> fp;
+/// Converts `value` into the shortest correctly rounded decimal representation.
+auto to_decimal(double value) noexcept -> dec_fp;
 
 enum {
   double_buffer_size = 25,

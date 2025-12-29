@@ -1038,8 +1038,14 @@ constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
   return bin_exp + pow10_bin_exp + 1;
 }
 
+// Don't use dec_fp to allow headerless config and unsigned significand.
+struct fp {
+  uint64_t sig;
+  int exp;
+};
+
 template <int num_bits>
-auto normalize(zmij::fp dec, bool subnormal) noexcept -> zmij::fp {
+auto normalize(fp dec, bool subnormal) noexcept -> fp {
   if (!subnormal) [[ZMIJ_LIKELY]]
     return dec;
   while (dec.sig < (num_bits == 64 ? uint64_t(1e16) : uint64_t(1e8))) {
@@ -1053,7 +1059,7 @@ auto normalize(zmij::fp dec, bool subnormal) noexcept -> zmij::fp {
 // representation.
 template <typename UInt>
 ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
-                            bool subnormal) noexcept -> zmij::fp {
+                            bool subnormal) noexcept -> fp {
   int dec_exp = compute_dec_exp(bin_exp, regular);
   int exp_shift = compute_exp_shift(bin_exp, dec_exp);
   auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp - dec_exp_min];
@@ -1147,7 +1153,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, bool regular,
 
 namespace zmij {
 
-auto to_decimal(double value) noexcept -> fp {
+auto to_decimal(double value) noexcept -> dec_fp {
   using traits = float_traits<double>;
   uint64_t bits = traits::to_bits(value);
   uint64_t bin_sig = traits::get_sig(bits);  // binary significand
@@ -1155,7 +1161,7 @@ auto to_decimal(double value) noexcept -> fp {
   bool regular = bin_sig != 0;
   bool subnormal = false;
   if (((bin_exp + 1) & traits::exp_mask) <= 1) [[ZMIJ_UNLIKELY]] {
-    if (bin_exp != 0) return {~0ull, 0};
+    if (bin_exp != 0) return {std::numeric_limits<long long>::max(), 0};
     if (bin_sig == 0) return {0, 0};
     // Handle subnormals.
     regular = true;
@@ -1165,7 +1171,8 @@ auto to_decimal(double value) noexcept -> fp {
   }
   bin_sig ^= traits::implicit_bit;
   bin_exp -= traits::num_sig_bits + traits::exp_bias;
-  return ::to_decimal(bin_sig, bin_exp, regular, subnormal);
+  auto [dec_sig, dec_exp] = ::to_decimal(bin_sig, bin_exp, regular, subnormal);
+  return {int64_t(dec_sig), dec_exp};
 }
 
 namespace detail {
