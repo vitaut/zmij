@@ -9,7 +9,7 @@
 #else
 namespace zmij {
 struct dec_fp {
-  uint64_t sig;
+  long long sig;
   int exp;
 };
 }  // namespace zmij
