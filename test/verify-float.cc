@@ -24,7 +24,7 @@ auto main() -> int {
 
   auto start = std::chrono::steady_clock::now();
   for (uint32_t i = 0; i < num_threads; ++i) {
-    static constexpr unsigned long long num_floats = 1ULL << 32;
+    constexpr unsigned long long num_floats = 1ULL << 32;
     uint32_t begin = static_cast<uint32_t>(num_floats * i / num_threads);
     uint32_t end = static_cast<uint32_t>(num_floats * (i + 1) / num_threads);
     uint32_t n = end - begin;
