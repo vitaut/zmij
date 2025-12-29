@@ -799,20 +799,6 @@ auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t, uint32_t y) noexcept
   return uint32_t(result >> 32) | ((uint32_t(result) >> 1) != 0);
 }
 
-struct divmod_result {
-  uint32_t quo;
-  uint32_t rem;
-};
-
-// Returns {value / 100, value % 100} correct for values of up to 4 digits.
-inline auto divmod100(uint32_t value) noexcept -> divmod_result {
-  assert(value < 10'000);
-  constexpr int exp = 19;  // 19 is faster or equal to 12 even for 3 digits.
-  constexpr int sig = (1 << exp) / 100 + 1;
-  uint32_t div = (value * sig) >> exp;  // value / 100
-  return {div, value - div * 100};
-}
-
 inline auto is_big_endian() noexcept -> bool {
   int n = 1;
   return *reinterpret_cast<char*>(&n) != 1;
@@ -1238,10 +1224,12 @@ auto write(Float value, char* buffer) noexcept -> char* {
   *buffer++ = '-' + (dec_exp >= 0) * ('+' - '-');
   int mask = (dec_exp >= 0) - 1;
   dec_exp = ((dec_exp + mask) ^ mask);  // absolute value
-  auto [a, bb] = divmod100(uint32_t(dec_exp));
+  constexpr int div_exp = 19;  // 19 is faster or equal to 12 even for 3 digits.
+  constexpr int div_sig = (1 << div_exp) / 100 + 1;
+  uint32_t a = (uint32_t(dec_exp) * div_sig) >> div_exp;  // value / 100
   *buffer = char('0' + a);
   buffer += dec_exp >= 100;
-  memcpy(buffer, digits2(bb), 2);
+  memcpy(buffer, digits2(dec_exp - a * 100), 2);
   buffer[2] = '\0';
   return buffer + 2;
 }
