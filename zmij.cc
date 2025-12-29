@@ -37,6 +37,11 @@
 #else
 #  define ZMIJ_HAS_BUILTIN(x) 0
 #endif
+#ifdef __has_attribute
+#  define ZMIJ_HAS_ATTRIBUTE(x) __has_attribute(x)
+#else
+#  define ZMIJ_HAS_ATTRIBUTE(x) 0
+#endif
 #ifdef __has_cpp_attribute
 #  define ZMIJ_HAS_CPP_ATTRIBUTE(x) __has_cpp_attribute(x)
 #else
@@ -51,10 +56,10 @@
 #  define ZMIJ_UNLIKELY
 #endif
 
-#ifdef _MSC_VER
-#  define ZMIJ_INLINE __forceinline
-#elif defined(__has_attribute) && __has_attribute(always_inline)
+#if ZMIJ_HAS_ATTRIBUTE(always_inline)
 #  define ZMIJ_INLINE __attribute__((always_inline)) inline
+#elif defined(_MSC_VER)
+#  define ZMIJ_INLINE __forceinline
 #else
 #  define ZMIJ_INLINE inline
 #endif
