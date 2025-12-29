@@ -115,12 +115,11 @@ using uint128_t = unsigned __int128;
 using uint128_t = uint128;
 #endif  // ZMIJ_USE_INT128
 
-template <typename Float> struct float_traits {
-  static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
+template <typename Float> struct float_traits : std::numeric_limits<Float> {
+  static_assert(float_traits::is_iec559, "IEEE 754 required");
 
-  static constexpr int num_bits =
-      std::numeric_limits<Float>::digits == 53 ? 64 : 32;
-  static constexpr int num_sig_bits = std::numeric_limits<Float>::digits - 1;
+  static constexpr int num_bits = float_traits::digits == 53 ? 64 : 32;
+  static constexpr int num_sig_bits = float_traits::digits - 1;
   static constexpr int num_exp_bits = num_bits - num_sig_bits - 1;
   static constexpr int exp_mask = (1 << num_exp_bits) - 1;
   static constexpr int exp_bias = (1 << (num_exp_bits - 1)) - 1;
@@ -1216,7 +1215,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   // Write significand.
   char* start = buffer;
-  int num_digits = std::numeric_limits<Float>::max_digits10 - 2;
+  int num_digits = traits::max_digits10 - 2;
   if (traits::num_bits == 64) {
     dec_exp += num_digits + (dec_sig >= uint(1e16));
     buffer = write_significand17(buffer + 1, dec_sig);
@@ -1236,9 +1235,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
   *buffer++ = '-' + (dec_exp >= 0) * ('+' - '-');
   int mask = (dec_exp >= 0) - 1;
   dec_exp = ((dec_exp + mask) ^ mask);  // absolute value
-  if constexpr (std::numeric_limits<Float>::min_exponent10 < -99 ||
-                std::numeric_limits<Float>::max_exponent10 > +99) {
-    constexpr int div_exp = 19;  // 19 is faster or eq to 12 even for 3 digits.
+  if constexpr (traits::min_exponent10 < -99 || traits::max_exponent10 > 99) {
+    // 19 is faster or equal to 12 even for 3 digits.
+    constexpr int div_exp = 19;
     constexpr int div_sig = (1 << div_exp) / 100 + 1;
     uint32_t a = (uint32_t(dec_exp) * div_sig) >> div_exp;  // value / 100
     *buffer = char('0' + a);
