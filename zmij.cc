@@ -1239,6 +1239,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   // Write exponent.
   uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
+  if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
   memcpy(buffer, &e_sign, 2);
   buffer += 2;
   int mask = (dec_exp >= 0) - 1;
