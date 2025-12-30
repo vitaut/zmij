@@ -993,9 +993,9 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
 
   uint16x8_t is_zero = vceqzq_u8(digits);
   uint64_t zeroes =
-      vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_zero, 4)), 0);
+      ~vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_zero, 4)), 0);
 
-  buffer += 16 - (clz(~zeroes) >> 2);
+  buffer += 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2);
   return buffer - int(buffer - start == 1);
 #endif  // __ARM_NEON
 }
