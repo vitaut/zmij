@@ -88,17 +88,19 @@ auto main() -> int {
   for (int exp = 0; exp < traits::exp_mask; ++exp) {
     if (!is_pow10_exact_for_bin_exp(debias(exp))) ++num_inexact_exponents;
   }
-  printf("Need to verify %d exponents.\n", num_inexact_exponents);
+  printf("Need to verify %d exponents\n", num_inexact_exponents);
 
   // Verify correctness for doubles with a given binary exponent.
   constexpr int bin_exp_biased = 1;
-  constexpr uint64_t num_significands = uint64_t(1) << 33;  // test a subset
-
-  if (bin_exp_biased == 0 || bin_exp_biased == traits::exp_mask)
-    printf("Unsupported exponent.\n");
-
-  constexpr uint64_t bits = uint64_t(bin_exp_biased) << traits::num_sig_bits;
   constexpr int bin_exp = debias(bin_exp_biased);
+  if (bin_exp_biased == 0 || bin_exp_biased == traits::exp_mask)
+    printf("Unsupported exponent\n");
+  printf("Verifying exponent %d (0x%03x biased)\n", bin_exp, bin_exp_biased);
+
+  constexpr uint64_t num_significands = uint64_t(1) << 34;  // test a subset
+
+  constexpr uint64_t exp_bits = uint64_t(bin_exp_biased)
+                                << traits::num_sig_bits;
   constexpr int dec_exp = compute_dec_exp(bin_exp, true);
   constexpr int exp_shift = compute_exp_shift(bin_exp, dec_exp);
 
@@ -107,6 +109,7 @@ auto main() -> int {
            dec_exp);
     return 0;
   }
+
   constexpr int pow10_index = -dec_exp - dec_exp_min;
   constexpr uint64_t pow10_lo = pow10_significands[pow10_index].lo;
 
@@ -119,28 +122,35 @@ auto main() -> int {
 
   auto start = std::chrono::steady_clock::now();
   for (unsigned i = 0; i < num_threads; ++i) {
-    uint64_t begin = (num_significands * i / num_threads);
-    uint64_t end = (num_significands * (i + 1) / num_threads);
+    uint64_t bin_sig_begin = (num_significands * i / num_threads);
+    uint64_t bin_sig_end = (num_significands * (i + 1) / num_threads);
 
     // Skip irregular because those are tested elsewhere.
-    if (begin == 0) ++begin;
-    begin |= bits;
-    end |= bits;
-    uint64_t n = end - begin;
-    threads[i] = std::thread([i, begin, n, bin_exp, &num_processed_doubles,
-                              &num_special_cases, &num_errors] {
-      printf("Thread %d processing 0x%013llx - 0x%013llx\n", i, begin,
-             begin + n - 1);
+    if (bin_sig_begin == 0) ++bin_sig_begin;
+    bin_sig_begin |= traits::implicit_bit;
+    bin_sig_end |= traits::implicit_bit;
+    threads[i] = std::thread([i, bin_sig_begin, bin_sig_end, bin_exp,
+                              &num_processed_doubles, &num_special_cases,
+                              &num_errors] {
+      printf("Thread %d processing 0x%016llx - 0x%016llx\n", i,
+             exp_bits | bin_sig_begin, exp_bits | (bin_sig_end - 1));
 
-      constexpr double percent = 100.0 / num_significands;
-      uint64_t last_processed_count = 0;
+      uint64_t first_unreported = bin_sig_begin;
       auto last_update_time = std::chrono::steady_clock::now();
       unsigned long long num_special_cases_local = 0;
-      for (uint64_t j = 0; j < n; ++j) {
-        uint64_t num_doubles = j - last_processed_count + 1;
-        if (num_doubles >= (1 << 21) || j == n - 1) {
-          num_processed_doubles += num_doubles;
-          last_processed_count += num_doubles;
+      constexpr double percent = 100.0 / num_significands;
+
+      uint64_t scaled_sig_lo = pow10_lo * (bin_sig_begin << exp_shift);
+      uint64_t scaled_inc = pow10_lo * (1 << exp_shift);
+      for (uint64_t bin_sig = bin_sig_begin; bin_sig < bin_sig_end;
+           ++bin_sig, scaled_sig_lo += scaled_inc) {
+        if ((bin_sig % (1 << 24)) == 0) [[unlikely]] {
+          if (scaled_sig_lo != pow10_lo * (bin_sig << exp_shift)) {
+            printf("Sanity check failed.\n");
+            exit(1);
+          }
+          num_processed_doubles += bin_sig - first_unreported;
+          first_unreported = bin_sig;
           if (i == 0) {
             auto now = std::chrono::steady_clock::now();
             if (now - last_update_time >= std::chrono::seconds(1)) {
@@ -157,15 +167,15 @@ auto main() -> int {
         // This checks all cases where integral and fractional can be off in
         // to_decimal. The rest is taken care of by the conservative boundary
         // checks on the fast path.
-        uint64_t bin_sig = ((begin + j) & (traits::implicit_bit - 1)) | traits::implicit_bit;
         uint64_t bin_sig_shifted = bin_sig << exp_shift;
-        uint64_t scaled_sig_lo = pow10_lo * bin_sig_shifted;
+        // scaled_sig_lo = pow10_lo * bin_sig_shifted;
         bool carry = scaled_sig_lo + bin_sig_shifted < scaled_sig_lo;
         if (!carry) continue;
-        ++num_special_cases_local;
 
-        if (!verify(begin + j, bin_sig, bin_exp)) ++num_errors;
+        ++num_special_cases_local;
+        if (!verify(exp_bits | bin_sig, bin_sig, bin_exp)) ++num_errors;
       }
+      num_processed_doubles += bin_sig_end - first_unreported;
       num_special_cases += num_special_cases_local;
     });
   }
