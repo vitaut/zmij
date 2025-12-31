@@ -625,7 +625,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   auto bits = traits::to_bits(value);
   auto raw_exp = traits::get_exp(bits);  // binary exponent
   auto bin_exp = raw_exp - traits::num_sig_bits - traits::exp_bias;
-  // Compute decimal exponent as early as possible.
+  // Compute the decimal exponent early to overlap its latency with other work.
   auto dec_exp = compute_dec_exp(bin_exp, true);
 
   *buffer = '-';
