@@ -39,12 +39,12 @@ TEST(zmij_test, utilities) {
 }
 
 TEST(zmij_test, umul_upper_inexact_to_odd) {
-  auto pow10 = pow10_significands[0];
+  auto pow10 = pow10_significands[-292];
   EXPECT_EQ(umul_upper_inexact_to_odd(pow10.hi, pow10.lo,
-                                           uint64_t(0x1234567890abcdef << 1)),
+                                      uint64_t(0x1234567890abcdef << 1)),
             0x24554a3ce60a45f5);
   EXPECT_EQ(umul_upper_inexact_to_odd(pow10.hi, pow10.lo,
-                                           uint64_t(0x1234567890abce16 << 1)),
+                                      uint64_t(0x1234567890abce16 << 1)),
             0x24554a3ce60a4643);
 }
 

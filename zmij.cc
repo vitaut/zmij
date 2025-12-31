@@ -246,7 +246,10 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
 constexpr struct pow10_significands_table {
   uint128 data[617];
 
-  constexpr const uint128& operator[](int i) const { return data[i]; }
+  constexpr const uint128& operator[](int dec_exp) const {
+    constexpr int dec_exp_min = -292;
+    return data[dec_exp - dec_exp_min];
+  }
 
   constexpr pow10_significands_table() : data() {
     struct uint192 {
@@ -277,8 +280,6 @@ constexpr struct pow10_significands_table {
     }
   }
 } pow10_significands;
-
-constexpr int dec_exp_min = -292;
 
 inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // We count the number of bytes until there are only zeros left.
@@ -492,7 +493,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   if (regular & !subnormal) [[ZMIJ_LIKELY]] {
     int exp_shift = compute_exp_shift(bin_exp, dec_exp);
-    auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp - dec_exp_min];
+    auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp];
 
     UInt integral = 0;        // integral part of bin_sig * pow10
     uint64_t fractional = 0;  // fractional part of bin_sig * pow10
@@ -550,7 +551,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
 
   dec_exp = compute_dec_exp(bin_exp, regular);
   int exp_shift = compute_exp_shift(bin_exp, dec_exp);
-  auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp - dec_exp_min];
+  auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp];
 
   // Fallback to Schubfach to guarantee correctness in boundary cases.
   // This requires switching to strict overestimates of powers of 10.

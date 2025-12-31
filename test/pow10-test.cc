@@ -633,9 +633,10 @@ const uint128 expected[] = {
 };
 
 TEST(pow10_test, verify) {
+  constexpr int dec_exp_min = -292;
   for (int i = 0; i < int(sizeof(expected) / sizeof(*expected)); ++i) {
-    EXPECT_EQ(pow10_significands[i].hi, expected[i].hi);
-    EXPECT_EQ(pow10_significands[i].lo, expected[i].lo);
+    EXPECT_EQ(pow10_significands[dec_exp_min + i].hi, expected[i].hi);
+    EXPECT_EQ(pow10_significands[dec_exp_min + i].lo, expected[i].lo);
   }
 }
 

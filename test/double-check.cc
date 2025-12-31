@@ -75,11 +75,10 @@ inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp) -> bool {
 
 auto is_pow10_exact_for_bin_exp(int bin_exp) -> bool {
   int dec_exp = compute_dec_exp(bin_exp, true);
-  int pow10_index = -dec_exp - dec_exp_min;
-  constexpr int exact_begin = 292, exact_end = 347;
+  constexpr int exact_begin = -0, exact_end = 55;
   static_assert(pow10_significands[exact_begin].hi == 0x8000000000000000);
   static_assert(pow10_significands[exact_end].hi == 0xd0cf4b50cfe20765);
-  return pow10_index >= exact_begin && pow10_index <= exact_end;
+  return -dec_exp >= exact_begin && -dec_exp <= exact_end;
 }
 
 }  // namespace
@@ -111,7 +110,7 @@ auto main() -> int {
     return 0;
   }
 
-  constexpr int pow10_index = -dec_exp - dec_exp_min;
+  constexpr int pow10_index = -dec_exp;
   constexpr uint64_t pow10_lo = pow10_significands[pow10_index].lo;
 
   unsigned num_threads = std::thread::hardware_concurrency();
