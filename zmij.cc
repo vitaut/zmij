@@ -339,7 +339,7 @@ inline void write8(char* buffer, uint64_t value) noexcept {
   memcpy(buffer, &value, 8);
 }
 
-constexpr uint64_t zeros = 0x30303030'30303030u;  // 0x30 == '0'
+constexpr uint64_t zeros = 0x0101010101010101u * '0';
 
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
