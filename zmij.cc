@@ -147,8 +147,10 @@ struct dec_fp {
 
 #  ifdef ZMIJ_HAS_IF_CONSTEVAL
 #    define ZMIJ_IF_CONSTEVAL if consteval
+#    define ZMIJ_IF_RUNTIME if !consteval
 #  elif defined(ZMIJ_HAS_TEST_COMPILETIME)
 #    define ZMIJ_IF_CONSTEVAL if (__builtin_is_constant_evaluated())
+#    define ZMIJ_IF_RUNTIME if (!__builtin_is_constant_evaluated())
 #  endif
 
 template <typename T>
@@ -194,6 +196,7 @@ ZMIJ_CONSTEVAL auto ct_memcpy(char* dst, const T* src, unsigned len) noexcept
 #  define ZMIJ_INLINE inline
 #  define ZMIJ_CONSTEXPR
 #  define ZMIJ_IF_CONSTEVAL if constexpr (false)
+#  define ZMIJ_IF_RUNTIME if constexpr (true)
 
 #  define ZMIJ_MEMCPY memcpy
 #  define ZMIJ_MEMMOVE memmove
@@ -268,10 +271,10 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
 #ifdef ZMIJ_HAS_BITCAST
     return __builtin_bit_cast(sig_type, value);
 #else
-    uint64_t bits = 0;
-    ZMIJ_IF_CONSTEVAL {}
-    else {
+    ZMIJ_IF_RUNTIME {
+      uint64_t bits = 0;
       memcpy(&bits, &value, sizeof(value));
+      return bits;
     }
 #endif
   }
@@ -972,8 +975,7 @@ ZMIJ_INLINE auto is_big_endian() noexcept -> bool {
 #elif defined(_MSC_VER)                                         // msvc
   return false;
 #else
-  ZMIJ_IF_CONSTEVAL {}
-  else {
+  ZMIJ_IF_RUNTIME {
     int n = 1;
     return *reinterpret_cast<char*>(&n) != 1;
   }
@@ -1284,8 +1286,7 @@ constexpr ZMIJ_ALWAYS_INLINE auto to_decimal(UInt bin_sig, int bin_exp,
     // Relies on range calculation: (max_bin_sig << max_exp_shift) * max_u128.
     uint64_t div10 = (integral * ((uint128_t(1) << 64) / 10 + 1)) >> 64;
     uint64_t digit = integral - div10 * 10;
-    ZMIJ_IF_CONSTEVAL {}
-    else {
+    ZMIJ_IF_RUNTIME {
       asm(""
           : "+r"(digit));  // or it narrows to 32-bit and doesn't use madd/msub
     }
