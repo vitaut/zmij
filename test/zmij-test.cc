@@ -27,6 +27,7 @@ auto ftoa(float value) -> std::string {
 }
 
 TEST(zmij_test, utilities) {
+  EXPECT_EQ(clz(0), 64);
   EXPECT_EQ(clz(1), 63);
   EXPECT_EQ(clz(~0ull), 0);
 
