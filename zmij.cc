@@ -68,11 +68,11 @@ struct dec_fp {
 #endif
 
 #if ZMIJ_HAS_ATTRIBUTE(always_inline)
-#  define ZMIJ_INLINE __attribute__((always_inline)) inline
+#  define ZMIJ_ALWAYS_INLINE __attribute__((always_inline)) inline
 #elif defined(_MSC_VER)
-#  define ZMIJ_INLINE __forceinline
+#  define ZMIJ_ALWAYS_INLINE __forceinline
 #else
-#  define ZMIJ_INLINE inline
+#  define ZMIJ_ALWAYS_INLINE inline
 #endif
 
 #ifdef __cpp_lib_bit_cast
@@ -90,9 +90,7 @@ struct dec_fp {
 #ifdef __cpp_if_consteval
 #  define ZMIJ_HAS_IF_CONSTEVAL 1
 #endif
-#ifdef __cpp_if_constexpr
-#  define ZMIJ_HAS_IF_CONSTEXPR 1
-#else
+#ifndef __cpp_if_constexpr
 #  error compiler is too ancient
 #endif
 
@@ -136,34 +134,25 @@ struct dec_fp {
 #  endif
 #endif
 
-#undef CONSTEXPR
-#undef CONSTEVAL
-#undef INLINE
-#undef IF_CONSTEVAL
-#undef ZMIJ_INL
-#undef ASSERT
-#undef MEMCPY
-#undef MEMMOVE
-
 #ifdef ZMIJ_ENABLE_COMPILETIME_EVALUATION
-#  define INLINE constexpr
-#  define CONSTEXPR constexpr
+#  define ZMIJ_INLINE constexpr
+#  define ZMIJ_CONSTEXPR constexpr
 #  define ZMIJ_INL zmij::internal
 
 #  ifdef ZMIJ_HAS_CONSTEVAL
-#    define CONSTEVAL consteval
+#    define ZMIJ_CONSTEVAL consteval
 #  else
-#    define CONSTEVAL constexpr
+#    define ZMIJ_CONSTEVAL constexpr
 #  endif
 
 #  ifdef ZMIJ_HAS_IF_CONSTEVAL
-#    define IF_CONSTEVAL if consteval
+#    define ZMIJ_IF_CONSTEVAL if consteval
 #  elif defined(ZMIJ_HAS_TEST_COMPILETIME)
-#    define IF_CONSTEVAL if (__builtin_is_constant_evaluated())
+#    define ZMIJ_IF_CONSTEVAL if (__builtin_is_constant_evaluated())
 #  endif
 
 template <typename T>
-CONSTEVAL auto ct_memcpy(char* dst, const T* src, unsigned len) noexcept
+ZMIJ_CONSTEVAL auto ct_memcpy(char* dst, const T* src, unsigned len) noexcept
     -> char* {
   if constexpr (std::is_same_v<T, char>) {
     while (len-- > 0) *dst++ = *src++;
@@ -178,18 +167,18 @@ CONSTEVAL auto ct_memcpy(char* dst, const T* src, unsigned len) noexcept
   return dst;
 }
 
-#  define MEMCPY(dst, src, len)                                  \
+#  define ZMIJ_MEMCPY(dst, src, len)                             \
     __builtin_is_constant_evaluated() ? ct_memcpy(dst, src, len) \
                                       : memcpy(dst, src, len)
 
-#  define MEMMOVE(dst, src, len)                                 \
+#  define ZMIJ_MEMMOVE(dst, src, len)                            \
     __builtin_is_constant_evaluated() ? ct_memcpy(dst, src, len) \
                                       : memmove(dst, src, len)
 
 #  ifdef NDEBUG
-#    define ASSERT(expression) (void)0
+#    define ZMIJ_ASSERT(expression) (void)0
 #  else
-#    define ASSERT(expression)                                       \
+#    define ZMIJ_ASSERT(expression)                                  \
       __builtin_is_constant_evaluated()                              \
           ? (void)([](int b) { return 5 * b; }(!(expression) << 29)) \
           : assert(expression)
@@ -202,13 +191,13 @@ CONSTEVAL auto ct_memcpy(char* dst, const T* src, unsigned len) noexcept
 #    define ZMIJ_INL /* anonymous */
 #  endif
 
-#  define INLINE inline
-#  define CONSTEXPR
-#  define IF_CONSTEVAL if constexpr (false)
+#  define ZMIJ_INLINE inline
+#  define ZMIJ_CONSTEXPR
+#  define ZMIJ_IF_CONSTEVAL if constexpr (false)
 
-#  define MEMCPY memcpy
-#  define MEMMOVE memmove
-#  define ASSERT assert
+#  define ZMIJ_MEMCPY memcpy
+#  define ZMIJ_MEMMOVE memmove
+#  define ZMIJ_ASSERT assert
 #endif
 
 namespace ZMIJ_INL {
@@ -226,14 +215,14 @@ struct uint128 {
       uint64_t hilo = uint32_t(hi);
       return {hi >> 32, (hilo << 32) | (lo >> 32)};
     }
-    ASSERT(shift >= 64 && shift < 128);
+    ZMIJ_ASSERT(shift >= 64 && shift < 128);
     return {0, hi >> (shift - 64)};
   }
 };
 
-[[maybe_unused]] INLINE auto operator+(uint128 lhs, uint128 rhs) noexcept
+[[maybe_unused]] ZMIJ_INLINE auto operator+(uint128 lhs, uint128 rhs) noexcept
     -> uint128 {
-  IF_CONSTEVAL {
+  ZMIJ_IF_CONSTEVAL {
     uint64_t lo = lhs.lo + rhs.lo;
     return {lhs.hi + rhs.hi + (lo < lhs.lo), lo};
   }
@@ -280,7 +269,7 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
     return __builtin_bit_cast(sig_type, value);
 #else
     uint64_t bits = 0;
-    IF_CONSTEVAL {}
+    ZMIJ_IF_CONSTEVAL {}
     else {
       memcpy(&bits, &value, sizeof(value));
     }
@@ -919,7 +908,7 @@ constexpr uint128 pow10_significands[] = {
 };
 
 // Computes 128-bit result of multiplication of two 64-bit unsigned integers.
-INLINE auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
+ZMIJ_INLINE auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 #if ZMIJ_USE_INT128
   return uint128_t(x) * y;
 #else
@@ -939,7 +928,7 @@ INLINE auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
             (cs << 32) + uint32_t(bd)};
   };
 
-  IF_CONSTEVAL { return _umul128_(x, y); }
+  ZMIJ_IF_CONSTEVAL { return _umul128_(x, y); }
   else {
 #  if defined(_MSC_VER) && defined(_M_AMD64)
     uint64_t hi;
@@ -955,8 +944,8 @@ INLINE auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 #endif  // ZMIJ_USE_INT128
 }
 
-INLINE auto umul192_upper128(uint64_t x_hi, uint64_t x_lo, uint64_t y) noexcept
-    -> uint128 {
+ZMIJ_INLINE auto umul192_upper128(uint64_t x_hi, uint64_t x_lo,
+                                  uint64_t y) noexcept -> uint128 {
   uint128_t p = umul128(x_hi, y);
   uint64_t lo = uint64_t(p) + uint64_t(umul128(x_lo, y) >> 64);
   return {uint64_t(p >> 64) + (lo < uint64_t(p)), lo};
@@ -964,18 +953,18 @@ INLINE auto umul192_upper128(uint64_t x_hi, uint64_t x_lo, uint64_t y) noexcept
 
 // Computes upper 64 bits of multiplication of x and y, discards the least
 // significant bit and rounds to odd, where x = uint128_t(x_hi << 64) | x_lo.
-CONSTEXPR auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t x_lo,
-                                         uint64_t y) noexcept -> uint64_t {
+ZMIJ_CONSTEXPR auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t x_lo,
+                                              uint64_t y) noexcept -> uint64_t {
   auto [hi, lo] = umul192_upper128(x_hi, x_lo, y);
   return hi | ((lo >> 1) != 0);
 }
-CONSTEXPR auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t,
-                                         uint32_t y) noexcept -> uint32_t {
+ZMIJ_CONSTEXPR auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t,
+                                              uint32_t y) noexcept -> uint32_t {
   uint64_t result = uint64_t(umul128(x_hi, y) >> 32);
   return uint32_t(result >> 32) | ((uint32_t(result) >> 1) != 0);
 }
 
-INLINE auto is_big_endian() noexcept -> bool {
+ZMIJ_INLINE auto is_big_endian() noexcept -> bool {
 #ifdef ZMIJ_HAS_ENDIAN
   return std::endian::native == std::endian::big;
 #elif defined(__BYTE_ORDER__) && defined(__ORDER_BIG_ENDIAN__)  // clang, gcc
@@ -983,7 +972,7 @@ INLINE auto is_big_endian() noexcept -> bool {
 #elif defined(_MSC_VER)                                         // msvc
   return false;
 #else
-  IF_CONSTEVAL {}
+  ZMIJ_IF_CONSTEVAL {}
   else {
     int n = 1;
     return *reinterpret_cast<char*>(&n) != 1;
@@ -991,12 +980,12 @@ INLINE auto is_big_endian() noexcept -> bool {
 #endif
 }
 
-INLINE auto clz(uint64_t x) noexcept -> int {
-  ASSERT(x != 0);
+ZMIJ_INLINE auto clz(uint64_t x) noexcept -> int {
+  ZMIJ_ASSERT(x != 0);
 #ifdef ZMIJ_HAS_CLZLL
   return __builtin_clzll(x);
 #else
-  IF_CONSTEVAL {
+  ZMIJ_IF_CONSTEVAL {
     int n = 64;
     for (; x > 0; x >>= 1) --n;
     return n;
@@ -1024,13 +1013,13 @@ INLINE auto clz(uint64_t x) noexcept -> int {
 #endif
 }
 
-INLINE auto bswap64(uint64_t x) noexcept -> uint64_t {
+ZMIJ_INLINE auto bswap64(uint64_t x) noexcept -> uint64_t {
 #ifdef ZMIJ_HAS_BYTESWAP
   return std::byteswap(x);
 #elif defined(ZMIJ_HAS_BSWAP64)
   return __builtin_bswap64(x);
 #else
-  IF_CONSTEVAL {
+  ZMIJ_IF_CONSTEVAL {
     return ((x & 0xff00000000000000) >> 56) | ((x & 0x00ff000000000000) >> 40) |
            ((x & 0x0000ff0000000000) >> 24) | ((x & 0x000000ff00000000) >> +8) |
            ((x & 0x00000000ff000000) << +8) | ((x & 0x0000000000ff0000) << 24) |
@@ -1049,7 +1038,7 @@ INLINE auto bswap64(uint64_t x) noexcept -> uint64_t {
 #endif
 }
 
-INLINE auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
+ZMIJ_INLINE auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // We count the number of bytes until there are only zeros left.
   // The code is equivalent to
   //   return 8 - clz(x) / 8
@@ -1099,20 +1088,21 @@ constexpr auto to_bcd8(uint64_t abcdefgh) noexcept -> uint64_t {
   return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
-INLINE auto write_if_nonzero(char* buffer, uint32_t digit) noexcept -> char* {
+ZMIJ_INLINE auto write_if_nonzero(char* buffer, uint32_t digit) noexcept
+    -> char* {
   *buffer = char('0' + digit);
   return buffer + (digit != 0);
 }
 
-INLINE void write8(char* buffer, uint64_t value) noexcept {
-  MEMCPY(buffer, &value, 8);
+ZMIJ_INLINE void write8(char* buffer, uint64_t value) noexcept {
+  ZMIJ_MEMCPY(buffer, &value, 8);
 }
 
 constexpr uint64_t zeros = 0x30303030'30303030u;  // 0x30 == '0'
 
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
-CONSTEXPR auto write_significand17(char* buffer, uint64_t value) noexcept
+ZMIJ_CONSTEXPR auto write_significand17(char* buffer, uint64_t value) noexcept
     -> char* {
   constexpr auto _write = [](char* buffer, uint64_t value) {
     char* start = buffer;
@@ -1131,7 +1121,7 @@ CONSTEXPR auto write_significand17(char* buffer, uint64_t value) noexcept
     return buffer + 8 + count_trailing_nonzeros(bcd);
   };
 
-  IF_CONSTEVAL { return _write(buffer, value); }
+  ZMIJ_IF_CONSTEVAL { return _write(buffer, value); }
   else {
 #if !defined(__ARM_NEON) || !ZMIJ_USE_SIMD
     return _write(buffer, value);
@@ -1210,7 +1200,7 @@ CONSTEXPR auto write_significand17(char* buffer, uint64_t value) noexcept
 
 // Writes a significand consisting of up to 9 decimal digits (7-9 for normals)
 // and removes trailing zeros.
-CONSTEXPR auto write_significand9(char* buffer, uint32_t value) noexcept
+ZMIJ_CONSTEXPR auto write_significand9(char* buffer, uint32_t value) noexcept
     -> char* {
   char* start = buffer;
   buffer = write_if_nonzero(buffer, value / 100'000'000);
@@ -1242,9 +1232,10 @@ constexpr auto compute_dec_exp(int bin_exp, bool regular) noexcept -> int {
 // 10^dec_exp puts the decimal point in different bit positions:
 //   3 * 2**59 / 100 = 1.72...e+16  (needs shift = 1 + 1)
 //   3 * 2**60 / 100 = 3.45...e+16  (needs shift = 2 + 1)
-constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
+constexpr ZMIJ_ALWAYS_INLINE auto compute_exp_shift(int bin_exp,
+                                                    int dec_exp) noexcept
     -> int {
-  ASSERT(dec_exp >= -350 && dec_exp <= 350);
+  ZMIJ_ASSERT(dec_exp >= -350 && dec_exp <= 350);
   // log2_pow10_sig = round(log2(10) * 2**log2_pow10_exp) + 1
   constexpr int log2_pow10_sig = 217'707, log2_pow10_exp = 16;
   // pow10_bin_exp = floor(log2(10**-dec_exp))
@@ -1268,8 +1259,9 @@ constexpr auto normalize(zmij::dec_fp dec, bool subnormal) noexcept
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation.
 template <typename UInt>
-constexpr ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
-                                      bool regular, bool subnormal) noexcept
+constexpr ZMIJ_ALWAYS_INLINE auto to_decimal(UInt bin_sig, int bin_exp,
+                                             int dec_exp, bool regular,
+                                             bool subnormal) noexcept
     -> zmij::dec_fp {
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   if (regular & !subnormal) [[ZMIJ_LIKELY]] {
@@ -1292,7 +1284,7 @@ constexpr ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
     // Relies on range calculation: (max_bin_sig << max_exp_shift) * max_u128.
     uint64_t div10 = (integral * ((uint128_t(1) << 64) / 10 + 1)) >> 64;
     uint64_t digit = integral - div10 * 10;
-    IF_CONSTEVAL {}
+    ZMIJ_IF_CONSTEVAL {}
     else {
       asm(""
           : "+r"(digit));  // or it narrows to 32-bit and doesn't use madd/msub
@@ -1379,7 +1371,7 @@ constexpr ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
 
 namespace zmij {
 
-INLINE auto to_decimal(double value) noexcept -> dec_fp {
+ZMIJ_INLINE auto to_decimal(double value) noexcept -> dec_fp {
   using traits = ZMIJ_INL::float_traits<double>;
   auto bits = traits::to_bits(value);
   auto bin_sig = traits::get_sig(bits);  // binary significand
@@ -1407,7 +1399,7 @@ namespace detail {
 
 // It is slightly faster to return a pointer to the end than the size.
 template <typename Float>
-CONSTEXPR auto write(Float value, char* buffer) noexcept -> char* {
+ZMIJ_CONSTEXPR auto write(Float value, char* buffer) noexcept -> char* {
   using traits = ZMIJ_INL::float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto raw_exp = traits::get_exp(bits);  // binary exponent
@@ -1423,11 +1415,11 @@ CONSTEXPR auto write(Float value, char* buffer) noexcept -> char* {
   bool subnormal = false;
   if (((raw_exp + 1) & traits::exp_mask) <= 1) [[ZMIJ_UNLIKELY]] {
     if (raw_exp != 0) {
-      MEMCPY(buffer, bin_sig == 0 ? "inf" : "nan", 4);
+      ZMIJ_MEMCPY(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
     }
     if (bin_sig == 0) {
-      MEMCPY(buffer, "0", 2);
+      ZMIJ_MEMCPY(buffer, "0", 2);
       return buffer + 1;
     }
     // Handle subnormals.
@@ -1466,12 +1458,12 @@ CONSTEXPR auto write(Float value, char* buffer) noexcept -> char* {
   // Write exponent.
   uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
   if (ZMIJ_INL::is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
-  MEMCPY(buffer, &e_sign, 2);
+  ZMIJ_MEMCPY(buffer, &e_sign, 2);
   buffer += 2;
   int mask = (dec_exp >= 0) - 1;
   dec_exp = ((dec_exp + mask) ^ mask);  // absolute value
   if constexpr (traits::min_exponent10 >= -99 && traits::max_exponent10 <= 99) {
-    IF_CONSTEVAL {
+    ZMIJ_IF_CONSTEVAL {
       buffer[0] = char('0' + dec_exp / 10);
       buffer[1] = char('0' + dec_exp % 10);
     }
@@ -1486,9 +1478,9 @@ CONSTEXPR auto write(Float value, char* buffer) noexcept -> char* {
     uint32_t a = (uint32_t(dec_exp) * div_sig) >> div_exp;  // value / 100
     uint32_t a_with_nuls = '0' + a;
     if (ZMIJ_INL::is_big_endian()) a_with_nuls <<= 24;
-    MEMCPY(buffer, &a_with_nuls, 4);
+    ZMIJ_MEMCPY(buffer, &a_with_nuls, 4);
     buffer += dec_exp >= 100;
-    IF_CONSTEVAL {
+    ZMIJ_IF_CONSTEVAL {
       dec_exp -= a * 100;
       buffer[0] = char('0' + dec_exp / 10);
       buffer[1] = char('0' + dec_exp % 10);
@@ -1506,14 +1498,6 @@ template auto write(float value, char* buffer) noexcept -> char*;
 #endif
 }  // namespace detail
 }  // namespace zmij
-
-#undef CONSTEXPR
-#undef CONSTEVAL
-#undef INLINE
-#undef IF_CONSTEVAL
-#undef ASSERT
-#undef MEMCPY
-#undef MEMMOVE
 
 #ifdef __clang__
 #  pragma clang diagnostic pop

@@ -10,15 +10,15 @@
 #include <string.h>  // memcpy
 
 #ifdef ZMIJ_ENABLE_COMPILETIME_EVALUATION
-#  define ZMEJ_AUTO constexpr auto
+#  define ZMIJ_AUTO constexpr auto
 #else
-#  define ZMEJ_AUTO auto
+#  define ZMIJ_AUTO auto
 #endif
 
 namespace zmij {
 namespace detail {
 template <typename Float>
-ZMEJ_AUTO write(Float value, char* buffer) noexcept -> char*;
+ZMIJ_AUTO write(Float value, char* buffer) noexcept -> char*;
 }  // namespace detail
 
 enum {
@@ -35,7 +35,7 @@ struct dec_fp {
 /// Converts `value` into the shortest correctly rounded decimal representation.
 /// Usage:
 ///   auto [sig, exp] = to_decimal(6.62607015e-34);
-ZMEJ_AUTO to_decimal(double value) noexcept -> dec_fp;
+ZMIJ_AUTO to_decimal(double value) noexcept -> dec_fp;
 
 enum {
   double_buffer_size = 25,
@@ -72,5 +72,5 @@ inline auto write(char* out, size_t n, float value) noexcept -> size_t {
 #  endif
 #endif
 
-#undef ZMEJ_AUTO
+#undef ZMIJ_AUTO
 #endif  // ZMIJ_H_
