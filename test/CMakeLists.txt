@@ -18,6 +18,9 @@ target_compile_definitions(zmij-no-int128-test PRIVATE ZMIJ_USE_INT128=0)
 add_zmij_test(zmij-no-simd-test)
 target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_USE_SIMD=0)
 
+add_zmij_test(zmij-no-builtins-test)
+target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_NO_BUILTINS=1)
+
 add_executable(pow10-test pow10-test.cc)
 add_test(NAME pow10-test COMMAND pow10-test)
 target_link_libraries(pow10-test gtest)
