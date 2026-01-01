@@ -146,6 +146,15 @@ TEST(dtoa_test, to_decimal) {
   EXPECT_EQ(dec.exp, -50);
 }
 
+TEST(dtoa_test, no_overrun) {
+  char buffer[zmij::double_buffer_size + 1];
+  memset(buffer, '?', sizeof(buffer));
+  zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
+  EXPECT_EQ(buffer, std::string("-1.2345678901234567e+123"));
+  EXPECT_EQ(buffer[zmij::double_buffer_size], '?');
+  EXPECT_EQ(buffer[zmij::double_buffer_size - 1], '\0');
+}
+
 TEST(ftoa_test, normal) {
   EXPECT_EQ(ftoa(6.62607e-34f), "6.62607e-34");
   EXPECT_EQ(ftoa(1.342178e+08f), "1.342178e+08");
@@ -162,6 +171,15 @@ TEST(ftoa_test, no_buffer) {
   std::string result(n, '\0');
   zmij::write(result.data(), n, value);
   EXPECT_EQ(result, "6.62607e-34");
+}
+
+TEST(ftoa_test, no_overrun) {
+  char buffer[zmij::float_buffer_size + 1];
+  memset(buffer, '?', sizeof(buffer));
+  zmij::write(buffer, zmij::float_buffer_size, -1.00000005e+15f);
+  EXPECT_EQ(buffer, std::string("-1.00000005e+15"));
+  EXPECT_EQ(buffer[zmij::float_buffer_size], '?');
+  EXPECT_EQ(buffer[zmij::float_buffer_size - 1], '\0');
 }
 
 auto main(int argc, char** argv) -> int {
