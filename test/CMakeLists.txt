@@ -22,6 +22,7 @@ add_zmij_test(zmij-no-builtins-test)
 target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_NO_BUILTINS=1)
 
 add_executable(pow10-test pow10-test.cc)
+target_compile_features(pow10-test PRIVATE ${ZMIJ_STANDARD})
 add_test(NAME pow10-test COMMAND pow10-test)
 target_link_libraries(pow10-test gtest)
 
