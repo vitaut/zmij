@@ -103,14 +103,14 @@ void fast_check(uint64_t x0, uint64_t d, uint64_t count) {
     uint64_t target_lower = threshold - x0;
     uint64_t target_upper = ~uint64_t() - x0;
 
-    // If target_lower > target_R, the range wraps around the modulus
-    // We split it or handle it by checking the smallest n for either side
+    // If target_lower > target_R, the range wraps around the modulus.
+    // We split it or handle it by checking the smallest n for either side.
     int n = 0;
     if (target_lower <= target_upper) {
       n = find_min_n(d, mod, target_lower, target_upper);
     } else {
       // Range is [target_lower, mod - 1] OR [0, target_upper].
-      int n1 = find_min_n(d, mod, target_lower, ~uint64_t());
+      int n1 = find_min_n(d, mod, target_lower, mod - 1);
       int n2 = find_min_n(d, mod, 0, target_upper);
       if (n1 != -1 && n2 != -1)
         n = std::min(n1, n2);
