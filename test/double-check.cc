@@ -99,7 +99,7 @@ auto main() -> int {
     printf("Unsupported exponent\n");
   printf("Verifying binary exponent %d (0x%03x)\n", bin_exp, raw_exp);
 
-  constexpr uint64_t num_significands = uint64_t(1) << 32;  // test a subset
+  constexpr uint64_t num_significands = uint64_t(1) << 34;  // test a subset
 
   constexpr uint64_t exp_bits = uint64_t(raw_exp) << traits::num_sig_bits;
   constexpr int dec_exp = compute_dec_exp(bin_exp, true);
@@ -114,7 +114,7 @@ auto main() -> int {
 
   constexpr uint64_t pow10_lo = pow10_significands[-dec_exp].lo;
 
-  unsigned num_threads = 1;  // std::thread::hardware_concurrency();
+  unsigned num_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(num_threads);
   std::atomic<unsigned long long> num_processed_doubles(0);
   std::atomic<unsigned long long> num_special_cases(0);
