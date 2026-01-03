@@ -23,7 +23,15 @@ struct dec_fp {
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
 
-#if defined(__ARM_NEON) || defined(_MSC_VER) && defined(_M_ARM64)
+#ifndef ZMIJ_USE_NEON
+#  if defined(__ARM_NEON) || defined(_MSC_VER) && defined(_M_ARM64)
+#    define ZMIJ_USE_NEON 1
+#  else
+#    define ZMIJ_USE_NEON 0
+#  endif
+#endif
+
+#if ZMIJ_USE_NEON
 #  include <arm_neon.h>
 #endif
 
@@ -347,7 +355,7 @@ constexpr uint64_t zeros = 0x0101010101010101u * '0';
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
 auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
-#  if !defined(__ARM_NEON) && (!defined(_MSC_VER) || !defined(_M_ARM64)) || !ZMIJ_USE_SIMD
+#  if !ZMIJ_USE_NEON || !ZMIJ_USE_SIMD
   char* start = buffer;
   // Each digit is denoted by a letter so value is abbccddeeffgghhii.
   uint32_t abbccddee = uint32_t(value / 100'000'000);
@@ -362,7 +370,7 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   bcd = to_bcd8(ffgghhii);
   write8(buffer + 8, bcd | zeros);
   return buffer + 8 + count_trailing_nonzeros(bcd);
-#else   // __ARM_NEON
+#else   // ZMIJ_USE_NEON
   // An optimized version for NEON by Dougall Johnson.
   struct to_string_constants {
     uint64_t mul_const = 0xabcc77118461cefd;
