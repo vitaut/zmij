@@ -23,7 +23,7 @@ struct dec_fp {
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
 
-#ifdef __ARM_NEON
+#if defined(__ARM_NEON) || defined(_MSC_VER) && defined(_M_ARM64)
 #  include <arm_neon.h>
 #endif
 
@@ -347,7 +347,7 @@ constexpr uint64_t zeros = 0x0101010101010101u * '0';
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
 auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
-#if !defined(__ARM_NEON) || !ZMIJ_USE_SIMD
+#  if !defined(__ARM_NEON) && (!defined(_MSC_VER) || !defined(_M_ARM64)) || !ZMIJ_USE_SIMD
   char* start = buffer;
   // Each digit is denoted by a letter so value is abbccddeeffgghhii.
   uint32_t abbccddee = uint32_t(value / 100'000'000);
@@ -365,19 +365,16 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
 #else   // __ARM_NEON
   // An optimized version for NEON by Dougall Johnson.
   struct to_string_constants {
-    uint64_t mul_const;
-    uint64_t hundred_million;
-    int32x4_t multipliers32;
-    int16x8_t multipliers16;
+    uint64_t mul_const = 0xabcc77118461cefd;
+    uint64_t hundred_million = 100000000;
+    int32_t multipliers32[4] = {0x68db8bb, -10000 + 0x10000, 0x147b000,
+                                   -100 + 0x10000};
+    int16_t multipliers16[8] = {0xce0, -10 + 0x100};
   };
 
-  static const to_string_constants constants = {
-      .mul_const = 0xabcc77118461cefd,
-      .hundred_million = 100000000,
-      .multipliers32 = {0x68db8bb, -10000 + 0x10000, 0x147b000, -100 + 0x10000},
-      .multipliers16 = {0xce0, -10 + 0x100},
-  };
+  static const to_string_constants constants;
 
+#  ifndef _MSC_VER
   const to_string_constants* c = &constants;
 
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
@@ -388,14 +385,25 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
 
   // Compiler barrier, or clang narrows the load to 32-bit and unpairs it.
   asm("" : "+r"(hundred_million));
+#  else
+  // Compiler barrier, or clang doesn't load from memory and generates 15 more
+  // instructions
+  const to_string_constants* c;
+  __iso_volatile_store64(reinterpret_cast<volatile int64_t*>(&c),
+                         reinterpret_cast<int64_t>(&constants));
+
+  // Compiler barrier, or clang narrows the load to 32-bit and unpairs it.
+  uint64_t hundred_million = __iso_volatile_load64(
+      reinterpret_cast<volatile const int64_t*>(&c->hundred_million));
+#  endif
 
   // Equivalent to abbccddee = value / 100000000, ffgghhii = value % 100000000.
-  uint64_t abbccddee = (__uint128_t(value) * c->mul_const) >> 90;
+  uint64_t abbccddee = uint64_t(umul128(value, c->mul_const) >> 90);
   uint64_t ffgghhii = value - abbccddee * hundred_million;
 
   // We could probably make this bit faster, but we're preferring to
   // reuse the constants for now.
-  uint64_t a = (__uint128_t(abbccddee) * c->mul_const) >> 90;
+  uint64_t a = uint64_t(umul128(abbccddee, c->mul_const) >> 90);
   abbccddee -= a * hundred_million;
 
   char* start = buffer;
@@ -410,8 +418,12 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
 
   int32x4_t extended = vshll_n_u16(tenthousands, 0);
 
+#  ifndef _MSC_VER
   // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
   asm("" : "+w"(extended));
+#  else
+  // Unable to translate the vector store barrier to MSVC
+#  endif
 
   int32x4_t high_100 = vqdmulhq_n_s32(extended, c->multipliers32[2]);
   int32x4_t hundreds = vmlaq_n_s32(extended, high_100, c->multipliers32[3]);
