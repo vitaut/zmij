@@ -44,7 +44,8 @@ constexpr auto debias(int bin_exp_biased) -> int {
   return bin_exp_biased - (traits::num_sig_bits + traits::exp_bias);
 }
 
-inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp) -> bool {
+inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp,
+                   bool& has_errors) -> bool {
   zmij::dec_fp actual =
       to_decimal(bin_sig, bin_exp, compute_dec_exp(bin_exp, true), true, false);
 
@@ -67,10 +68,13 @@ inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp) -> bool {
   if (actual.sig == expected.significand && actual.exp == expected.exponent)
     return true;
 
+  if (has_errors) return false;
   using ullong = unsigned long long;
-  printf("Output mismatch for %.17g: %llu * 10**%d != %llu * 10**%d\n", value,
-         ullong(actual.sig), actual.exp, ullong(expected.significand),
-         expected.exponent);
+  printf(
+      "Output mismatch for %.17g (%llu * 2**%d): %llu * 10**%d != %llu * "
+      "10**%d\n",
+      value, bin_sig, bin_exp, ullong(actual.sig), actual.exp,
+      ullong(expected.significand), expected.exponent);
   return false;
 }
 
@@ -138,12 +142,21 @@ auto main() -> int {
                  bin_sig_begin, (bin_sig_end - 1));
 
           auto last_update_time = std::chrono::steady_clock::now();
+          bool has_errors = false;
+
+          // The real power of 10 is in the range [pow10, pow10 + 1) ignoring
+          // the exponent, where pow10 = (pow10_hi << 64) | pow10_lo.
+
+          // Check for possible carry due to pow10 approximation error.
+          // This checks all cases where integral and fractional can be off in
+          // to_decimal. The rest is taken care of by the conservative boundary
+          // checks on the fast path.
           num_special_cases += find_carried_away_doubles<pow10_lo, exp_shift>(
               bin_sig_begin, bin_sig_end,
               [&](uint64_t index) {
                 uint64_t bin_sig = bin_sig_begin + index;
                 uint64_t bits = exp_bits | (bin_sig ^ traits::implicit_bit);
-                if (!verify(bits, bin_sig, bin_exp)) ++num_errors;
+                if (!verify(bits, bin_sig, bin_exp, has_errors)) ++num_errors;
               },
               [&](uint64_t num_doubles) {
                 num_processed_doubles += num_doubles;
