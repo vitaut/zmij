@@ -65,9 +65,11 @@ auto find_carried_away_doubles(uint64_t bin_sig_begin, uint64_t bin_sig_end,
     double_count += n;
     if (double_count >= num_doubles) {
       on_progress(num_doubles - last_double_count);
-      printf("Fast check found %lld special cases in %lld values\n", hit_count,
-             double_count);
       return hit_count;
+    }
+    if ((hit_count % 100'000) != 0) {
+      on_progress(double_count - last_double_count);
+      last_double_count = double_count;
     }
 
     on_hit(double_count);
@@ -76,10 +78,5 @@ auto find_carried_away_doubles(uint64_t bin_sig_begin, uint64_t bin_sig_end,
     uint64_t hit_val = start + n * step;
     start = hit_val + step;
     ++double_count;
-
-    if ((hit_count % 100'000) == 0) {
-      on_progress(double_count - last_double_count);
-      last_double_count = double_count;
-    }
   }
 }
