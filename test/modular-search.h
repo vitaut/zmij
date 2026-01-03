@@ -67,7 +67,7 @@ auto find_carried_away_doubles(uint64_t bin_sig_begin, uint64_t bin_sig_end,
       on_progress(num_doubles - last_double_count);
       return hit_count;
     }
-    if ((hit_count % 100'000) != 0) {
+    if ((hit_count % 100'000) == 0) {
       on_progress(double_count - last_double_count);
       last_double_count = double_count;
     }
