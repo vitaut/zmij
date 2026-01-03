@@ -555,7 +555,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
     //                               1ulp
     //
     // s - shorter underestimate, S - shorter overestimate
-    // l - longer underestimate,  L - longer underestimate
+    // l - longer underestimate,  L - longer overestimate
 
     // An optimization from yy by Yaoyuan Guo:
     if (
