@@ -20,10 +20,11 @@ inline auto find_min_n(uint64_t lower, uint64_t upper) -> uint64_t {
     if (uint128_t(n) * step <= upper) return n;
 
     // Apply recursive modular interval reduction.
-    n = find_min_n<mod % step, step>((step - upper % step) % step,
-                  (step - lower % step) % step);
+    uint64_t rem_upper = upper % step;
+    uint64_t rem_lower = lower % step;
+    n = find_min_n<mod % step, step>(rem_upper != 0 ? step - rem_upper : 0,
+                  rem_lower != 0 ? step - rem_lower : 0);
     if (n == not_found) return not_found;
-
     return uint64_t((n * mod + lower + step - 1) / step);
   }
 }
