@@ -10,6 +10,7 @@
 
 #include <algorithm>  // std::sort
 #include <charconv>   // std::from_chars
+#include <chrono>     // std::chrono::steady_clock::now
 
 #include "fmt/base.h"
 
