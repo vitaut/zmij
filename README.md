@@ -26,7 +26,7 @@ with implementations in C and C++
 
 int main() {
   char buf[zmij::double_buffer_size];
-  zmij::write(buf, sizeof(buf), 6.62607015e-34);
+  zmij::write(buf, sizeof(buf), 5.0507837461e-27);
   puts(buf);
 }
 ```
