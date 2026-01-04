@@ -398,7 +398,6 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   asm("" : "+r"(hundred_million));
 #  endif
 
-
   // Equivalent to abbccddee = value / 100000000, ffgghhii = value % 100000000.
   uint64_t abbccddee = uint64_t(umul128(value, c->mul_const) >> 90);
   uint64_t ffgghhii = value - abbccddee * hundred_million;
