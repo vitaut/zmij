@@ -356,7 +356,7 @@ constexpr uint64_t zeros = 0x0101010101010101u * '0';
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
 auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
-#  if !ZMIJ_USE_NEON
+#if !ZMIJ_USE_NEON
   char* start = buffer;
   // Each digit is denoted by a letter so value is abbccddeeffgghhii.
   uint32_t abbccddee = uint32_t(value / 100'000'000);
@@ -371,13 +371,13 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   bcd = to_bcd8(ffgghhii);
   write8(buffer + 8, bcd | zeros);
   return buffer + 8 + count_trailing_nonzeros(bcd);
-#else   // ZMIJ_USE_NEON
+#else  // ZMIJ_USE_NEON
   // An optimized version for NEON by Dougall Johnson.
   struct to_string_constants {
     uint64_t mul_const = 0xabcc77118461cefd;
     uint64_t hundred_million = 100000000;
     int32_t multipliers32[4] = {0x68db8bb, -10000 + 0x10000, 0x147b000,
-                                   -100 + 0x10000};
+                                -100 + 0x10000};
     int16_t multipliers16[8] = {0xce0, -10 + 0x100};
   };
 
@@ -389,7 +389,7 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
   // instructions
   asm("" : "+r"(c));
-#endif
+#  endif
 
   uint64_t hundred_million = c->hundred_million;
 
