@@ -26,7 +26,7 @@ with implementations in C and C++
 
 int main() {
   char buf[zmij::double_buffer_size];
-  zmij::write(buf, sizeof(buf), 6.62607015e-34);
+  zmij::write(buf, sizeof(buf), 5.0507837461e-27);
   puts(buf);
 }
 ```
@@ -62,7 +62,7 @@ on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark) run on Apple M1.
 Compile time is ~135ms by default and ~155ms with optimizations enabled as measured by
 
 ```
-% time c++ -c -std=c++20 zmij.cc [-O2]
+% time c++ -c zmij.cc [-O2]
 ```
 
 taking the best of 3 runs.

@@ -2,9 +2,9 @@
 // Copyright (c) 2025 - present, Victor Zverovich
 // Distributed under the MIT license (see LICENSE).
 
-#include <gtest/gtest.h>
-
 #include "modular-search.h"
+
+#include <gtest/gtest.h>
 
 TEST(modular_search_test, find_min_n) {
   // (12345 * 0) % 100000 is in [0, 1000].
@@ -52,9 +52,9 @@ TEST(modular_search_test, find_min_n_significand_search) {
 }
 
 TEST(modular_search_test, find_min_n_overflow) {
-    uint64_t n = find_min_n<0x6000000000000001ULL, (uint128_t(1) << 64)>(
+  uint64_t n = find_min_n<0x6000000000000001ULL, (uint128_t(1) << 64)>(
       0xFFFFFFFFFFFFFF00ULL, 0xFFFFFFFFFFFFFFFFULL);
-    EXPECT_EQ(n, 0x1fffffffffffff05);
+  EXPECT_EQ(n, 0x1fffffffffffff05);
 }
 
 TEST(modular_search_test, find_carried_away_doubles) {
@@ -70,7 +70,7 @@ TEST(modular_search_test, find_carried_away_doubles) {
 
   std::vector<uint64_t> expected;
   for (uint64_t bin_sig = bin_sig_begin; bin_sig < bin_sig_end;
-             ++bin_sig, scaled_sig_lo += step) {
+       ++bin_sig, scaled_sig_lo += step) {
     uint64_t bin_sig_shifted = bin_sig << exp_shift;
     bool carry = scaled_sig_lo + bin_sig_shifted < scaled_sig_lo;
     if (carry) expected.push_back(bin_sig);
@@ -78,11 +78,8 @@ TEST(modular_search_test, find_carried_away_doubles) {
 
   std::vector<uint64_t> actual;
   find_carried_away_doubles<pow10_lo, exp_shift>(
-    bin_sig_begin, bin_sig_end, [&](uint64_t i) {
-      actual.push_back(bin_sig_begin + i);
-    },
-    [](uint64_t) {}
-  );
+      bin_sig_begin, bin_sig_end,
+      [&](uint64_t i) { actual.push_back(bin_sig_begin + i); });
 
   EXPECT_EQ(expected.size(), 2048);
   EXPECT_EQ(expected, actual);

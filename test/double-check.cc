@@ -87,15 +87,75 @@ auto is_pow10_exact_for_bin_exp(int bin_exp) -> bool {
   return -dec_exp >= exact_begin && -dec_exp <= exact_end;
 }
 
+struct stats {
+  std::atomic<unsigned long long> num_processed_doubles = 0;
+  std::atomic<unsigned long long> num_special_cases = 0;
+  std::atomic<unsigned long long> num_errors = 0;
+};
+
+template <int raw_exp>
+void run(uint64_t bin_sig_first, uint64_t bin_sig_last, stats& s) {
+  constexpr int bin_exp = debias(raw_exp);
+  constexpr int dec_exp = compute_dec_exp(bin_exp, true);
+  constexpr int exp_shift = compute_exp_shift(bin_exp, dec_exp);
+  constexpr uint64_t pow10_lo = pow10_significands[-dec_exp].lo;
+  constexpr uint64_t exp_bits =
+      uint64_t(raw_exp) << traits::num_sig_bits ^ traits::implicit_bit;
+
+  // With great power of 10 comes great responsibility to check the
+  // approximation error. The exact power of 10 significand is in the range
+  // [pow10, pow10 + 1), where pow10 = (pow10_hi << 64) | pow10_lo.
+
+  // Check for possible carry due to pow10 approximation error.
+  // This checks all cases where integral and fractional can be off in
+  // to_decimal. The rest is taken care of by the conservative boundary
+  // checks on the fast path.
+  bool has_errors = false;
+  uint64_t last_index = 0;
+  s.num_special_cases += find_carried_away_doubles<pow10_lo, exp_shift>(
+      bin_sig_first, bin_sig_last, [&](uint64_t index) {
+        if ((index % (1 << 20)) == 0) {
+          s.num_processed_doubles += index - last_index;
+          last_index = index;
+        }
+        uint64_t bin_sig = bin_sig_first + index;
+        uint64_t bits = exp_bits ^ bin_sig;
+        if (!verify(bits, bin_sig, bin_exp, has_errors)) ++s.num_errors;
+      });
+  s.num_processed_doubles += bin_sig_last - bin_sig_first - last_index + 1;
+}
+
+template <int n>
+void dispatch(int thread_index, int raw_exp, uint64_t bin_sig_first,
+              uint64_t bin_sig_last, stats& s) {
+  if constexpr (n == 100) {
+    if (thread_index == 0) {
+      fprintf(stderr, "Unsupported exponent %d\n", raw_exp);
+      exit(1);
+    }
+  } else {
+    if (raw_exp == n) return run<n>(bin_sig_first, bin_sig_last, s);
+    dispatch<n + 1>(thread_index, raw_exp, bin_sig_first, bin_sig_last, s);
+  }
+}
+
 }  // namespace
 
-auto main() -> int {
+auto main(int argc, char** argv) -> int {
+  if (argc != 2) {
+    fprintf(stderr, "Usage: %s <raw_exp>\n", argv[0]);
+    return 1;
+  }
+
+  int raw_exp = 0;
+  sscanf(argv[1], "%d", &raw_exp);
+
   // Verify correctness for doubles with a given binary exponent and
   // the first num_significands significands.
-  constexpr int raw_exp = 1;
-  constexpr uint64_t num_significands = uint64_t(1) << 36;
+  // raw_exp=1 verified on commit 410dff3f with 13,220,633,789,575 hits.
+  constexpr uint64_t num_significands = uint64_t(1) << 52;
 
-  constexpr int bin_exp = debias(raw_exp);
+  int bin_exp = debias(raw_exp);
   if (raw_exp == 0 || raw_exp == traits::exp_mask) {
     fprintf(stderr, "Unsupported exponent\n");
     return 1;
@@ -104,11 +164,11 @@ auto main() -> int {
   for (int exp = 0; exp < traits::exp_mask; ++exp) {
     if (!is_pow10_exact_for_bin_exp(debias(exp))) ++num_inexact_exponents;
   }
-  printf("Verifying binary exponent %d (0x%03x); %d total\n",
-         bin_exp, raw_exp, num_inexact_exponents);
+  printf("Verifying binary exponent %d (0x%03x); %d total\n", bin_exp, raw_exp,
+         num_inexact_exponents);
 
-  constexpr int dec_exp = compute_dec_exp(bin_exp, true);
-  constexpr int exp_shift = compute_exp_shift(bin_exp, dec_exp);
+  int dec_exp = compute_dec_exp(bin_exp, true);
+  int exp_shift = compute_exp_shift(bin_exp, dec_exp);
   printf("dec_exp=%d exp_shift=%d\n", dec_exp, exp_shift);
   if (is_pow10_exact_for_bin_exp(bin_exp)) {
     printf("Power of 10 is exact for bin_exp=%d\n", bin_exp);
@@ -118,11 +178,8 @@ auto main() -> int {
   unsigned num_threads = std::thread::hardware_concurrency();
   std::vector<std::thread> threads(num_threads);
   printf("Using %u threads\n", num_threads);
-  
-  std::atomic<unsigned long long> num_processed_doubles(0);
-  std::atomic<unsigned long long> num_special_cases(0);
-  std::atomic<unsigned long long> num_errors(0);
 
+  stats s;
   auto start = std::chrono::steady_clock::now();
   for (unsigned i = 0; i < num_threads; ++i) {
     uint64_t bin_sig_first = (num_significands * i / num_threads);
@@ -133,53 +190,41 @@ auto main() -> int {
     bin_sig_first |= traits::implicit_bit;
     bin_sig_last |= traits::implicit_bit;
 
-    auto fun = [i, bin_sig_first, bin_sig_last, &num_processed_doubles,
-                &num_special_cases, &num_errors] {
-      printf("Thread %d processing 0x%016llx - 0x%016llx\n", i, bin_sig_first,
+    threads[i] = std::thread([i, raw_exp, bin_sig_first, bin_sig_last, &s] {
+      printf("Thread %3d processing 0x%016llx - 0x%016llx\n", i, bin_sig_first,
              bin_sig_last);
-
-      auto last_update_time = std::chrono::steady_clock::now();
-      bool has_errors = false;
-
-      constexpr uint64_t pow10_lo = pow10_significands[-dec_exp].lo;
-      constexpr uint64_t exp_bits =
-        uint64_t(raw_exp) << traits::num_sig_bits ^ traits::implicit_bit;
-
-      // With great power of 10 comes great responsibility to check the
-      // approximation error. The exact power of 10 significand is in the range
-      // [pow10, pow10 + 1), where pow10 = (pow10_hi << 64) | pow10_lo.
-
-      // Check for possible carry due to pow10 approximation error.
-      // This checks all cases where integral and fractional can be off in
-      // to_decimal. The rest is taken care of by the conservative boundary
-      // checks on the fast path.
-      num_special_cases += find_carried_away_doubles<pow10_lo, exp_shift>(
-          bin_sig_first, bin_sig_last,
-          [&](uint64_t index) {
-            uint64_t bin_sig = bin_sig_first + index;
-            uint64_t bits = exp_bits ^ bin_sig;
-            if (!verify(bits, bin_sig, bin_exp, has_errors)) ++num_errors;
-          },
-          [&](uint64_t num_doubles) {
-            num_processed_doubles += num_doubles;
-            if (i != 0) return;
-            auto now = std::chrono::steady_clock::now();
-            if (now - last_update_time >= std::chrono::seconds(1)) {
-              last_update_time = now;
-              printf("Progress: %7.4f%%\n",
-                     num_processed_doubles * 100.0 / num_significands);
-            }
-          });
-    };
-    threads[i] = std::thread(fun);
+      dispatch<1>(i, raw_exp, bin_sig_first, bin_sig_last, s);
+    });
   }
+
+  std::atomic<bool> done(false);
+  std::thread progress([&]() {
+    auto last_update_time = std::chrono::steady_clock::now();
+    for (;;) {
+      auto now = std::chrono::steady_clock::now();
+      if (now - last_update_time >= std::chrono::seconds(1) || done) {
+        last_update_time = now;
+        printf("\rProgress: %6.2f%%",
+               s.num_processed_doubles * 100.0 / num_significands);
+        fflush(stdout);
+        if (done) break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    puts("");
+  });
+
   for (int i = 0; i < num_threads; ++i) threads[i].join();
+  done = true;
+  progress.join();
   auto finish = std::chrono::steady_clock::now();
 
   using seconds = std::chrono::duration<double>;
-  printf("%llu errors and %llu special cases in %llu values in %.2f seconds\n",
-         num_errors.load(), num_special_cases.load(),
-         num_processed_doubles.load(),
-         std::chrono::duration_cast<seconds>(finish - start).count());
-  return num_errors != 0 ? 1 : 0;
+  printf(
+      "Found %llu special cases and %llu errors among %llu values in %.2f "
+      "seconds\n",
+      s.num_special_cases.load(), s.num_errors.load(),
+      s.num_processed_doubles.load(),
+      std::chrono::duration_cast<seconds>(finish - start).count());
+  return s.num_errors != 0 ? 1 : 0;
 }

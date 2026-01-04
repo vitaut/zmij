@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 using uint128_t = unsigned __int128;
 
@@ -32,11 +33,9 @@ inline auto find_min_n(uint64_t lower, uint64_t upper) noexcept -> uint64_t {
 
 // Finds cases of missing carry when multiplying a significand by an
 // underestimate of a power of 10 without enumerating all doubles.
-template <uint64_t pow10_lo, int exp_shift, typename HitFun,
-          typename ProgressFun>
+template <uint64_t pow10_lo, int exp_shift, typename HitFun>
 auto find_carried_away_doubles(uint64_t bin_sig_first, uint64_t bin_sig_last,
-                               HitFun on_hit, ProgressFun on_progress) noexcept
-    -> uint64_t {
+                               HitFun on_hit) noexcept -> uint64_t {
   uint64_t start = pow10_lo * (bin_sig_first << exp_shift);
   constexpr uint64_t step = pow10_lo * (1 << exp_shift);
 
@@ -44,7 +43,6 @@ auto find_carried_away_doubles(uint64_t bin_sig_first, uint64_t bin_sig_last,
 
   uint64_t num_doubles = bin_sig_last - bin_sig_first + 1;
   uint64_t double_count = 0;
-  uint64_t last_double_count = 0;
   uint64_t hit_count = 0;
   for (;;) {
     // If start is already above threshold, distance to hit is 0.
@@ -62,14 +60,7 @@ auto find_carried_away_doubles(uint64_t bin_sig_first, uint64_t bin_sig_last,
 
     ++hit_count;
     double_count += n;
-    if (double_count >= num_doubles) {
-      on_progress(num_doubles - last_double_count);
-      return hit_count;
-    }
-    if ((hit_count % 100'000) == 0) {
-      on_progress(double_count - last_double_count);
-      last_double_count = double_count;
-    }
+    if (double_count >= num_doubles) return hit_count;
 
     on_hit(double_count);
 

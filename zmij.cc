@@ -256,12 +256,12 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
 struct pow10_significands_table {
   uint128 data[617];
 
-  constexpr const uint128& operator[](int dec_exp) const {
+  constexpr auto operator[](int dec_exp) const noexcept -> const uint128& {
     constexpr int dec_exp_min = -292;
     return data[dec_exp - dec_exp_min];
   }
 
-  constexpr pow10_significands_table() : data() {
+  constexpr pow10_significands_table() noexcept : data() {
     struct uint192 {
       uint64_t w0, w1, w2;  // w0 = least significant, w2 = most significant
     };
@@ -565,15 +565,18 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
     // value = 5.0507837461e-27
     // next  = 5.0507837461000010e-27
     //
-    // c = integral.fractional = 50507837461000003.2840565642863009226 (value)
-    //                           50507837461000010.3286355093970513089 (next)
+    // c = integral.fractional' = 50507837461000003.153987... (value)
+    //                            50507837461000010.328635... (next)
+    //          scaled_half_ulp =                 3.587324...
     //
-    //     50507837461000000                                  50507837461000010
-    //              s              l c  L                             S
-    // ───┬────┬────┼────┬────┬────┼─*──┼────┬────┬────┬────┬────┬────┼-*--┬───
+    // fractional' = fractional / 2**64, fractional = 2840565642863009226
+    //
+    //      50507837461000000       c               upper     50507837461000010
+    //              s              l|   L             |               S
+    // ───┬────┬────┼────┬────┬────┼*-──┼────┬────┬───*┬────┬────┬────┼-*--┬───
     //    8    9    0    1    2    3    4    5    6    7    8    9    0 |  1
-    //             └─────────────────┼─────────────────┘               next
-    //                              1ulp
+    //            └─────────────────┼─────────────────┘                next
+    //                             1ulp
     //
     // s - shorter underestimate, S - shorter overestimate
     // l - longer underestimate,  L - longer overestimate
@@ -582,10 +585,12 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
     if (
         // Exact half-ulp tie when rounding to nearest integer.
         fractional != half_ulp &&
-        // Exact half-ulp tie when rounding to nearest 10.
+        // Boundary case when rounding down to nearest 10.
         scaled_sig_mod10 != scaled_half_ulp &&
-        // Near-boundary case for rounding to nearest 10.
-        ten - upper > 1u) [[ZMIJ_LIKELY]] {
+        // Near-boundary case when rounding up to nearest 10.
+        // Case where upper != ten is insufficient: 1.342178e+08f.
+        ten - upper > 1u // upper != ten && upper != ten - 1
+      ) [[ZMIJ_LIKELY]] {
       bool round_up = upper >= ten;
       int64_t shorter = int64_t(integral - digit + round_up * 10);
       int64_t longer = int64_t(integral + (fractional >= half_ulp));
@@ -622,16 +627,16 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
 
   UInt scaled_sig = umul_upper_inexact_to_odd(pow10_hi, pow10_lo,
                                               bin_sig_shifted << exp_shift);
-  UInt dec_sig_below = scaled_sig >> bound_shift;
-  UInt dec_sig_above = dec_sig_below + 1;
+  UInt longer_below = scaled_sig >> bound_shift;
+  UInt longer_above = longer_below + 1;
 
   // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
   // the rounding interval.
   using sint = std::make_signed_t<UInt>;
-  sint cmp = sint(scaled_sig - ((dec_sig_below + dec_sig_above) << 1));
-  bool below_closer = cmp < 0 || (cmp == 0 && (dec_sig_below & 1) == 0);
-  bool below_in = (dec_sig_below << bound_shift) >= lower;
-  UInt dec_sig = (below_closer & below_in) ? dec_sig_below : dec_sig_above;
+  sint cmp = sint(scaled_sig - ((longer_below + longer_above) << 1));
+  bool below_closer = cmp < 0 || (cmp == 0 && (longer_below & 1) == 0);
+  bool below_in = (longer_below << bound_shift) >= lower;
+  UInt dec_sig = (below_closer & below_in) ? longer_below : longer_above;
   return normalize<num_bits>({int64_t(dec_sig), dec_exp}, subnormal);
 }
 
@@ -697,20 +702,19 @@ auto write(Float value, char* buffer) noexcept -> char* {
   // Here be 🐉s.
   auto dec = ::to_decimal(bin_sig, bin_exp, dec_exp, regular, subnormal);
   dec_exp = dec.exp;
-  uint64_t dec_sig = dec.sig;
 
   // Write significand.
   char* start = buffer;
   if (traits::num_bits == 64) {
-    dec_exp += traits::max_digits10 + (dec_sig >= uint64_t(1e16)) - 2;
-    buffer = write_significand17(buffer + 1, dec_sig);
+    dec_exp += traits::max_digits10 + (dec.sig >= uint64_t(1e16)) - 2;
+    buffer = write_significand17(buffer + 1, dec.sig);
   } else {
-    if (dec_sig < uint32_t(1e7)) [[ZMIJ_UNLIKELY]] {
-      dec_sig *= 10;
+    if (dec.sig < uint32_t(1e7)) [[ZMIJ_UNLIKELY]] {
+      dec.sig *= 10;
       --dec_exp;
     }
-    dec_exp += traits::max_digits10 + (dec_sig >= uint32_t(1e8)) - 2;
-    buffer = write_significand9(buffer + 1, dec_sig);
+    dec_exp += traits::max_digits10 + (dec.sig >= uint32_t(1e8)) - 2;
+    buffer = write_significand9(buffer + 1, dec.sig);
   }
   start[0] = start[1];
   start[1] = '.';
