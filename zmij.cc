@@ -681,20 +681,19 @@ auto write(Float value, char* buffer) noexcept -> char* {
   // Here be 🐉s.
   auto dec = ::to_decimal(bin_sig, bin_exp, dec_exp, regular, subnormal);
   dec_exp = dec.exp;
-  uint64_t dec_sig = dec.sig;
 
   // Write significand.
   char* start = buffer;
   if (traits::num_bits == 64) {
-    dec_exp += traits::max_digits10 + (dec_sig >= uint64_t(1e16)) - 2;
-    buffer = write_significand17(buffer + 1, dec_sig);
+    dec_exp += traits::max_digits10 + (dec.sig >= uint64_t(1e16)) - 2;
+    buffer = write_significand17(buffer + 1, dec.sig);
   } else {
-    if (dec_sig < uint32_t(1e7)) [[ZMIJ_UNLIKELY]] {
-      dec_sig *= 10;
+    if (dec.sig < uint32_t(1e7)) [[ZMIJ_UNLIKELY]] {
+      dec.sig *= 10;
       --dec_exp;
     }
-    dec_exp += traits::max_digits10 + (dec_sig >= uint32_t(1e8)) - 2;
-    buffer = write_significand9(buffer + 1, dec_sig);
+    dec_exp += traits::max_digits10 + (dec.sig >= uint32_t(1e8)) - 2;
+    buffer = write_significand9(buffer + 1, dec.sig);
   }
   start[0] = start[1];
   start[1] = '.';
