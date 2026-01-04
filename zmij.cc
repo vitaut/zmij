@@ -384,6 +384,7 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   static const to_string_constants constants;
 
   const to_string_constants* c = &constants;
+
 #  ifndef _MSC_VER
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
   // instructions
@@ -391,6 +392,7 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
 #endif
 
   uint64_t hundred_million = c->hundred_million;
+
 #  ifndef _MSC_VER
   // Compiler barrier, or clang narrows the load to 32-bit and unpairs it.
   asm("" : "+r"(hundred_million));
