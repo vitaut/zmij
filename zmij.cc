@@ -23,8 +23,13 @@ struct dec_fp {
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
 
+#ifndef ZMIJ_USE_SIMD
+#  define ZMIJ_USE_SIMD 1
+#endif
+
 #ifndef ZMIJ_USE_NEON
-#  if defined(__ARM_NEON) || defined(_MSC_VER) && defined(_M_ARM64)
+#  if ZMIJ_USE_SIMD && \
+      (defined(__ARM_NEON) || (defined(_MSC_VER) && defined(_M_ARM64)))
 #    define ZMIJ_USE_NEON 1
 #  else
 #    define ZMIJ_USE_NEON 0
@@ -41,10 +46,6 @@ struct dec_fp {
 
 #ifdef __clang__
 #  pragma clang diagnostic ignored "-Wc++17-extensions"
-#endif
-
-#ifndef ZMIJ_USE_SIMD
-#  define ZMIJ_USE_SIMD 1
 #endif
 
 #if defined(__has_builtin) && !defined(ZMIJ_NO_BUILTINS)
@@ -355,7 +356,7 @@ constexpr uint64_t zeros = 0x0101010101010101u * '0';
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
 auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
-#  if !ZMIJ_USE_NEON || !ZMIJ_USE_SIMD
+#  if !ZMIJ_USE_NEON
   char* start = buffer;
   // Each digit is denoted by a letter so value is abbccddeeffgghhii.
   uint32_t abbccddee = uint32_t(value / 100'000'000);
