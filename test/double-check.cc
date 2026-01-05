@@ -155,6 +155,10 @@ auto main(int argc, char** argv) -> int {
   // raw_exp=1 verified on commit 410dff3f with 13,220,633,789,575 hits.
   // raw_exp=2 verified on commit 9946e53c with 26,441,267,578,985 hits.
   // raw_exp=3 verified on commit 89933f51 with  3,312,278,778,759 hits.
+  // raw_exp=4 verified on commit 89933f51 with  6,624,557,557,418 hits.
+  // raw_exp=5 verified on commit 9946e53c with 13,220,633,789,557 hits.
+  // raw_exp=6 verified on commit 9946e53c with  3,305,158,447,517 hits.
+  // raw_exp=7 verified on commit 9946e53c with  6,610,316,894,858 hits.
   constexpr uint64_t num_significands = uint64_t(1) << 52;
 
   int bin_exp = debias(raw_exp);
