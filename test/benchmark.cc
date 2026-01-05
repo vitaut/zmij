@@ -4,6 +4,7 @@
 
 #include "benchmark.h"
 
+#include <math.h>    // isnan
 #include <stdint.h>  // uint64_t
 #include <stdio.h>   // snprintf
 #include <stdlib.h>  // exit
