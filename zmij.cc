@@ -672,8 +672,8 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   auto bin_sig = traits::get_sig(bits);  // binary significand
   bool regular = bin_sig != 0;
-  bool subnormal = ((raw_exp + 1) & traits::exp_mask) <= 1;
-  if (subnormal) [[ZMIJ_UNLIKELY]] {
+  bool special = ((raw_exp + 1) & traits::exp_mask) <= 1;
+  if (special) [[ZMIJ_UNLIKELY]] {
     if (raw_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
@@ -690,7 +690,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   bin_sig ^= traits::implicit_bit;
 
   // Here be 🐉s.
-  auto dec = ::to_decimal(bin_sig, bin_exp, dec_exp, regular, subnormal);
+  auto dec = ::to_decimal(bin_sig, bin_exp, dec_exp, regular, special);
   dec_exp = dec.exp;
 
   // Write significand.
