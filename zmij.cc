@@ -712,15 +712,21 @@ auto write(Float value, char* buffer) noexcept -> char* {
   // Write exponent.
   uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
   if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
-  memcpy(buffer, &e_sign, 2);
-  buffer += 2;
   int mask = (dec_exp >= 0) - 1;
   dec_exp = ((dec_exp + mask) ^ mask);  // absolute value
   if constexpr (traits::min_exponent10 >= -99 && traits::max_exponent10 <= 99) {
-    memcpy(buffer, digits2(dec_exp), 2);
-    buffer[2] = '\0';
-    return buffer + 2;
+    uint16_t e_digits2;
+    memcpy(&e_digits2, digits2(dec_exp), 2);
+
+    uint32_t e_all = is_big_endian() ? (uint32_t(e_sign) << 16) | e_digits2
+                                     : (uint32_t(e_digits2) << 16) | e_sign;
+    memcpy(buffer, &e_all, 4);
+
+    buffer[4] = '\0';
+    return buffer + 4;
   }
+  memcpy(buffer, &e_sign, 2);
+  buffer += 2;
   // 19 is faster or equal to 12 even for 3 digits.
   constexpr int div_exp = 19, div_sig = (1 << div_exp) / 100 + 1;
   uint32_t digit = (uint32_t(dec_exp) * div_sig) >> div_exp;  // value / 100
