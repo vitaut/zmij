@@ -44,10 +44,6 @@ struct dec_fp {
 #  include <intrin.h>  // __lzcnt64/_umul128/__umulh
 #endif
 
-#ifdef __clang__
-#  pragma clang diagnostic ignored "-Wc++17-extensions"
-#endif
-
 #if defined(__has_builtin) && !defined(ZMIJ_NO_BUILTINS)
 #  define ZMIJ_HAS_BUILTIN(x) __has_builtin(x)
 #else
@@ -227,13 +223,13 @@ inline auto umul192_upper128(uint64_t x_hi, uint64_t x_lo, uint64_t y) noexcept
 // significant bit and rounds to odd, where x = uint128_t(x_hi << 64) | x_lo.
 auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t x_lo,
                                uint64_t y) noexcept -> uint64_t {
-  auto [hi, lo] = umul192_upper128(x_hi, x_lo, y);
-  return hi | ((lo >> 1) != 0);
+  uint128 p = umul192_upper128(x_hi, x_lo, y);
+  return p.hi | ((p.lo >> 1) != 0);
 }
 auto umul_upper_inexact_to_odd(uint64_t x_hi, uint64_t, uint32_t y) noexcept
     -> uint32_t {
-  uint64_t result = uint64_t(umul128(x_hi, y) >> 32);
-  return uint32_t(result >> 32) | ((uint32_t(result) >> 1) != 0);
+  uint64_t p = uint64_t(umul128(x_hi, y) >> 32);
+  return uint32_t(p >> 32) | ((uint32_t(p) >> 1) != 0);
 }
 
 template <typename Float> struct float_traits : std::numeric_limits<Float> {
@@ -539,18 +535,18 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
   // An optimization from yy by Yaoyuan Guo:
   while (regular & !subnormal) {
     int exp_shift = compute_exp_shift(bin_exp, dec_exp);
-    auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp];
+    uint128 pow10 = pow10_significands[-dec_exp];
 
     UInt integral = 0;        // integral part of bin_sig * pow10
     uint64_t fractional = 0;  // fractional part of bin_sig * pow10
     if (num_bits == 64) {
-      auto [i, f] = umul192_upper128(pow10_hi, pow10_lo, bin_sig << exp_shift);
-      integral = i;
-      fractional = f;
+      uint128 p = umul192_upper128(pow10.hi, pow10.lo, bin_sig << exp_shift);
+      integral = p.hi;
+      fractional = p.lo;
     } else {
-      uint128_t result = umul128(pow10_hi, bin_sig << exp_shift);
-      integral = uint64_t(result >> 64);
-      fractional = uint64_t(result);
+      uint128_t p = umul128(pow10.hi, bin_sig << exp_shift);
+      integral = uint64_t(p >> 64);
+      fractional = uint64_t(p);
     }
     constexpr uint64_t half_ulp = uint64_t(1) << 63;
 
@@ -580,7 +576,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
     // dec_exp is chosen so that 10**dec_exp <= 2**bin_exp < 10**(dec_exp + 1).
     // Since 1ulp == 2**bin_exp it will be in the range [1, 10) after scaling
     // by 10**dec_exp. Add 1 to combine the shift with division by two.
-    uint64_t scaled_half_ulp = pow10_hi >> (num_integral_bits - exp_shift + 1);
+    uint64_t scaled_half_ulp = pow10.hi >> (num_integral_bits - exp_shift + 1);
     uint64_t upper = scaled_sig_mod10 + scaled_half_ulp;
 
     // value = 5.0507837461e-27
@@ -619,11 +615,11 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
 
   dec_exp = compute_dec_exp(bin_exp, regular);
   int exp_shift = compute_exp_shift(bin_exp, dec_exp);
-  auto [pow10_hi, pow10_lo] = pow10_significands[-dec_exp];
+  uint128 pow10 = pow10_significands[-dec_exp];
 
   // Fallback to Schubfach to guarantee correctness in boundary cases.
   // This requires switching to strict overestimates of powers of 10.
-  ++(num_bits == 64 ? pow10_lo : pow10_hi);
+  ++(num_bits == 64 ? pow10.lo : pow10.hi);
 
   // Shift the significand so that boundaries are integer.
   constexpr int bound_shift = 2;
@@ -633,9 +629,9 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
   // by multiplying them by the power of 10 and applying modified rounding.
   UInt lsb = bin_sig & 1;
   UInt lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
-  lower = umul_upper_inexact_to_odd(pow10_hi, pow10_lo, lower) + lsb;
+  lower = umul_upper_inexact_to_odd(pow10.hi, pow10.lo, lower) + lsb;
   UInt upper = (bin_sig_shifted + 2) << exp_shift;
-  upper = umul_upper_inexact_to_odd(pow10_hi, pow10_lo, upper) - lsb;
+  upper = umul_upper_inexact_to_odd(pow10.hi, pow10.lo, upper) - lsb;
 
   // The idea of using a single shorter candidate is by Cassio Neri.
   // It is less or equal to the upper bound by construction.
@@ -643,7 +639,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
   if ((shorter << bound_shift) >= lower)
     return normalize<num_bits>({int64_t(shorter), dec_exp}, subnormal);
 
-  UInt scaled_sig = umul_upper_inexact_to_odd(pow10_hi, pow10_lo,
+  UInt scaled_sig = umul_upper_inexact_to_odd(pow10.hi, pow10.lo,
                                               bin_sig_shifted << exp_shift);
   UInt longer_below = scaled_sig >> bound_shift;
   UInt longer_above = longer_below + 1;
@@ -678,9 +674,9 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
   }
   bin_sig ^= traits::implicit_bit;
   bin_exp -= traits::num_sig_bits + traits::exp_bias;
-  auto [dec_sig, dec_exp] = ::to_decimal(
+  auto dec = ::to_decimal(
       bin_sig, bin_exp, compute_dec_exp(bin_exp, true), regular, special);
-  return {traits::is_negative(bits) ? -dec_sig : dec_sig, dec_exp};
+  return {traits::is_negative(bits) ? -dec.sig : dec.sig, dec.exp};
 }
 
 namespace detail {
@@ -744,7 +740,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   buffer += 2;
   int mask = (dec_exp >= 0) - 1;
   dec_exp = ((dec_exp + mask) ^ mask);  // absolute value
-  if constexpr (traits::min_exponent10 >= -99 && traits::max_exponent10 <= 99) {
+  if (traits::min_exponent10 >= -99 && traits::max_exponent10 <= 99) {
     memcpy(buffer, digits2(dec_exp), 2);
     buffer[2] = '\0';
     return buffer + 2;
