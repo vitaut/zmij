@@ -561,8 +561,8 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int bin_exp, int dec_exp,
 #if ZMIJ_USE_INT128
     // An optimization of integral % 10 by Dougall Johnson.
     // Relies on range calculation: (max_bin_sig << max_exp_shift) * max_u128.
-    uint64_t div10 = (integral * ((uint128_t(1) << 64) / 10 + 1)) >> 64;
-    uint64_t digit = integral - div10 * 10;
+    uint64_t quo10 = (integral * ((uint128_t(1) << 64) / 10 + 1)) >> 64;
+    uint64_t digit = integral - quo10 * 10;
     asm("" : "+r"(digit));  // or it narrows to 32-bit and doesn't use madd/msub
 #else
     uint64_t digit = integral % 10;
