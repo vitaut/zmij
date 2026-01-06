@@ -3,8 +3,6 @@ project(zmij CXX)
 
 set(ZMIJ_STANDARD cxx_std_17)
 
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
-
 add_library(zmij zmij.cc zmij.h)
 target_include_directories(zmij PUBLIC .)
 target_compile_features(zmij PRIVATE ${ZMIJ_STANDARD})
