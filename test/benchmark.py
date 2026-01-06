@@ -32,7 +32,7 @@ def find_benchmark_exe(build: str):
     raise RuntimeError("benchmark executable not found")
 
 
-def benchmark_commit(sha: str, workdir: Path, writer: csv.Writer):
+def benchmark_commit(sha: str, workdir: Path, writer: csv.writer):
     run(["git", "checkout", "-q", sha], cwd=workdir)
 
     if not os.path.exists(workdir / "zmij.h"):
