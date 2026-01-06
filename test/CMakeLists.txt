@@ -46,6 +46,12 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   target_compile_features(double-check PRIVATE ${ZMIJ_CHECK_STANDARD})
   target_include_directories(double-check PRIVATE .)
 
+  include(CheckIPOSupported)
+  check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+  if (ipo_supported)
+    set_property(TARGET double-check PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+  endif()
+
   add_executable(modular-search-test modular-search-test.cc)
   target_compile_features(modular-search-test PRIVATE ${ZMIJ_CHECK_STANDARD})
   add_test(NAME modular-search-test COMMAND modular-search-test)

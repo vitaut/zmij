@@ -7,7 +7,7 @@
 # at http://code.google.com/p/googletest/wiki/FAQ for more details.
 add_library(gtest STATIC
   gmock-gtest-all.cc gmock/gmock.h gtest/gtest.h gtest/gtest-spi.h)
-target_compile_definitions(gtest PUBLIC GTEST_HAS_STD_WSTRING=1)
+set_source_files_properties(gmock-gtest-all.cc PROPERTIES COMPILE_OPTIONS "-O0")
 target_include_directories(gtest SYSTEM PUBLIC .)
 target_compile_features(gtest PUBLIC cxx_std_11)
 
