@@ -68,6 +68,12 @@ struct dec_fp {
 #  define ZMIJ_UNLIKELY
 #endif
 
+#if ZMIJ_HAS_CPP_ATTRIBUTE(maybe_unused)
+#  define ZMIJ_MAYBE_UNUSED maybe_unused
+#else
+#  define ZMIJ_MAYBE_UNUSED
+#endif
+
 #if ZMIJ_HAS_ATTRIBUTE(always_inline)
 #  define ZMIJ_INLINE __attribute__((always_inline)) inline
 #elif defined(_MSC_VER)
@@ -138,11 +144,11 @@ struct uint128 {
   uint64_t hi;
   uint64_t lo;
 
-  [[maybe_unused]] explicit constexpr operator uint64_t() const noexcept {
+  [[ZMIJ_MAYBE_UNUSED]] explicit constexpr operator uint64_t() const noexcept {
     return lo;
   }
 
-  [[maybe_unused]] constexpr auto operator>>(int shift) const noexcept
+  [[ZMIJ_MAYBE_UNUSED]] constexpr auto operator>>(int shift) const noexcept
       -> uint128 {
     if (shift == 32) {
       uint64_t hilo = uint32_t(hi);
@@ -153,7 +159,7 @@ struct uint128 {
   }
 };
 
-[[maybe_unused]] inline auto operator+(uint128 lhs, uint128 rhs) noexcept
+[[ZMIJ_MAYBE_UNUSED]] inline auto operator+(uint128 lhs, uint128 rhs) noexcept
     -> uint128 {
 #if defined(_MSC_VER) && defined(_M_AMD64)
   uint64_t lo, hi;

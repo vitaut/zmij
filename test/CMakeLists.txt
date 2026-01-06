@@ -26,6 +26,7 @@ target_compile_features(pow10-test PRIVATE ${ZMIJ_STANDARD})
 add_test(NAME pow10-test COMMAND pow10-test)
 target_link_libraries(pow10-test gtest)
 
+set(ZMIJ_BENCHMARK_STANDARD cxx_std_17)
 set(ZMIJ_CHECK_STANDARD cxx_std_20)
 
 add_executable(float-check float-check.cc)
@@ -34,7 +35,7 @@ target_include_directories(float-check PRIVATE .)
 target_link_libraries(float-check dragonbox zmij)
 
 add_executable(benchmark benchmark.cc zmij-benchmark.cc fmt/format.cc)
-target_compile_features(benchmark PRIVATE ${ZMIJ_STANDARD})
+target_compile_features(benchmark PRIVATE ${ZMIJ_BENCHMARK_STANDARD})
 if (MSVC)
   target_compile_options(benchmark PRIVATE /utf-8)
 endif()

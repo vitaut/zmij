@@ -133,7 +133,7 @@ TEST(dtoa_test, no_buffer) {
   double value = 6.62607015e-34;
   auto n = zmij::write(nullptr, 0, value);
   std::string result(n, '\0');
-  zmij::write(result.data(), n, value);
+  zmij::write(&result[0], n, value);
   EXPECT_EQ(result, "6.62607015e-34");
 }
 
@@ -169,7 +169,7 @@ TEST(ftoa_test, no_buffer) {
   float value = 6.62607e-34;
   auto n = zmij::write(nullptr, 0, value);
   std::string result(n, '\0');
-  zmij::write(result.data(), n, value);
+  zmij::write(&result[0], n, value);
   EXPECT_EQ(result, "6.62607e-34");
 }
 
