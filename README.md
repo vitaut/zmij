@@ -33,29 +33,29 @@ int main() {
 
 ## Performance
 
-More than 3.5x faster than [Ryu](https://github.com/ulfjack/ryu) used by multiple
+More than 4x faster than [Ryu](https://github.com/ulfjack/ryu) used by multiple
 C++ standard library implementations and ~2.5x faster than
 [Schubfach](https://github.com/vitaut/schubfach)
 on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark) run on Apple M1.
 
 | Function            | Time (ns) | Speedup |
-|---------------------|----------:|--------:|
-| ostringstream       |   874.884 |   1.00× |
-| sprintf             |   743.801 |   1.18× |
-| double-conversion   |    83.519 |  10.48× |
-| to_chars            |    43.672 |  20.03× |
-| ryu                 |    36.865 |  23.73× |
-| schubfach           |    24.879 |  35.16× |
-| fmt                 |    22.338 |  39.17× |
-| dragonbox           |    20.641 |  42.39× |
-| yy                  |    14.335 |  61.03× |
-| xjb64               |    10.724 |  81.58× |
-| zmij                |    10.087 |  86.73× |
-| null                |     0.930 | 940.73× |
+|---------------------|-----------|---------|
+| ostringstream       | 888.474   | 0.83x   |
+| sprintf             | 734.683   | 1.00x   |
+| double-conversion   | 86.827    | 8.46x   |
+| to_chars            | 42.795    | 17.17x  |
+| ryu                 | 39.258    | 18.71x  |
+| schubfach           | 25.199    | 29.15x  |
+| fmt                 | 23.718    | 30.98x  |
+| dragonbox           | 21.602    | 34.01x  |
+| yy                  | 14.960    | 49.11x  |
+| xjb64               | 10.598    | 69.32x  |
+| zmij                | 9.567     | 76.79x  |
+| null                | 0.993     | 739.80x |
 
-<img width="804" height="350" alt="image" src="https://github.com/user-attachments/assets/389d7e77-1ed2-4988-9521-1f6dbffbc77f" />
+<img width="922" height="406" alt="image" src="https://github.com/user-attachments/assets/52402fa4-084b-4002-b125-4655a4db10a2" />
 
-<img width="835" height="672" alt="image" src="https://github.com/user-attachments/assets/3d1224d8-1efa-47ee-b5b4-4ed3179bc799" />
+<img width="833" height="669" alt="image" src="https://github.com/user-attachments/assets/dae662e3-a18c-4edf-b3a3-baea4830d348" />
 
 ## Compile time
 
