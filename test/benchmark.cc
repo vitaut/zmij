@@ -56,7 +56,7 @@ auto get_random_digit_data(int digit) -> const double* {
         } while (isnan(d) || isinf(d));
 
         // Limit the number of digits.
-        char buffer[64];
+        char buffer[64] = {};
         std::format_to_n(buffer, sizeof(buffer), "{:.{}}", d, digit);
         d = 0;
         std::from_chars(buffer, buffer + strlen(buffer), d);
