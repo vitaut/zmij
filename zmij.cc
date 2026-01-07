@@ -23,19 +23,49 @@ struct dec_fp {
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
 
+
 #ifndef ZMIJ_USE_SIMD
 #  define ZMIJ_USE_SIMD 1
 #endif
 
 #ifdef ZMIJ_USE_NEON
-// Use the provided definition.
-#elif !ZMIJ_USE_SIMD
-#  define ZMIJ_USE_NEON 0
+// Use the provided definition
 #elif defined(__ARM_NEON) || (defined(_MSC_VER) && defined(_M_ARM64))
-#  include <arm_neon.h>
 #  define ZMIJ_USE_NEON 1
 #else
 #  define ZMIJ_USE_NEON 0
+#endif
+
+#ifdef ZMIJ_USE_SSE
+// Use the provided definition
+#elif defined(__SSE2__)
+#  define ZMIJ_USE_SSE 1
+#elif defined(_MSC_VER) && (defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86FP == 2))
+#  define ZMIJ_USE_SSE 1
+#else
+#  define ZMIJ_USE_SSE 0
+#endif
+
+#ifdef ZMIJ_USE_SSE4_1
+// Use the provided definition
+#elif defined(__SSE4_1__)
+#  define ZMIJ_USE_SSE4_1 1
+#elif defined(_MSC_VER) && defined(__AVX__) // There's no way to check for /arch:SSE4.2 specifically
+#  define ZMIJ_USE_SSE4_1 1
+#else
+#  define ZMIJ_USE_SSE4_1 0
+#endif
+
+#if ZMIJ_USE_NEON
+#  include <arm_neon.h>
+#endif
+
+#if ZMIJ_USE_SSE4_1 && !ZMIJ_USE_SSE
+#  error "User asked for SSE4.1 but SSE is not available or explicitly not requested."
+#endif
+
+#if ZMIJ_USE_SSE
+#  include <immintrin.h>
 #endif
 
 #ifdef _MSC_VER
@@ -450,22 +480,7 @@ constexpr uint64_t zeros = 0x0101010101010101u * '0';
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.
 auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
-#if !ZMIJ_USE_NEON
-  char* start = buffer;
-  // Each digit is denoted by a letter so value is abbccddeeffgghhii.
-  uint32_t abbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  buffer = write_if_nonzero(buffer, abbccddee / 100'000'000);
-  uint64_t bcd = to_bcd8(abbccddee % 100'000'000);
-  write8(buffer, bcd | zeros);
-  if (ffgghhii == 0) {
-    buffer += count_trailing_nonzeros(bcd);
-    return buffer - int(buffer - start == 1);
-  }
-  bcd = to_bcd8(ffgghhii);
-  write8(buffer + 8, bcd | zeros);
-  return buffer + 8 + count_trailing_nonzeros(bcd);
-#else   // ZMIJ_USE_NEON
+#if ZMIJ_USE_NEON
   // An optimized version for NEON by Dougall Johnson.
   struct to_string_constants {
     uint64_t mul_const = 0xabcc77118461cefd;
@@ -532,7 +547,76 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
 
   buffer += 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2);
   return buffer - int(buffer - start == 1);
-#endif  // __ARM_NEON
+#  elif ZMIJ_USE_SSE
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  uint32_t a = abbccddee / 100'000'000;
+  uint32_t bbccddee = abbccddee % 100'000'000;
+
+  buffer = write_if_nonzero(buffer, a);
+
+  alignas(64) static const struct {
+    __m128i div10000 = _mm_set1_epi64x((1ull << 40) / 10000 + 1);
+    __m128i divmod10000 = _mm_set1_epi64x((1ull << 32) - 10000);
+    __m128i div100 = _mm_set1_epi32((1 << 19) / 100 + 1);
+    __m128i divmod100 = _mm_set1_epi32((1 << 16) - 100);
+    __m128i div10 = _mm_set1_epi16((1 << 16) / 10 + 1);
+#  if ZMIJ_USE_SSE4_1
+    __m128i divmod10 = _mm_set1_epi16((1 << 8) - 10);
+    __m128i bswap = _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+#  else // !ZMIJ_USE_SSE4_1
+    __m128i one_hundred = _mm_set1_epi32(100);
+    __m128i moddiv10 = _mm_set1_epi16(10 * (1 << 8) - 1);
+#  endif // ZMIJ_USE_SSE4_1
+    __m128i ascii0 = _mm_set1_epi64x(zeros);
+  } c;
+
+// The BCD sequences are based on ones provided by Xiang JunBo.
+#  if ZMIJ_USE_SSE4_1
+  __m128i x = _mm_set_epi64x(bbccddee, ffgghhii);
+  __m128i y = _mm_add_epi64(x, _mm_mul_epu32(c.divmod10000, _mm_srli_epi64(_mm_mul_epu32(x, c.div10000), 40)));
+  __m128i z = _mm_add_epi64(y, _mm_mullo_epi32(c.divmod100, _mm_srli_epi32(_mm_mulhi_epu16(y, c.div100), 3))); // _mm_mullo_epi32 is SSE 4.1
+  __m128i big_endian_bcd = _mm_add_epi16(z, _mm_mullo_epi16(c.divmod10, _mm_mulhi_epu16(z, c.div10)));
+  __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, c.bswap); // SSSE3
+#  else // !ZMIJ_USE_SSE4_1
+  __m128i x = _mm_set_epi64x(bbccddee, ffgghhii);
+  __m128i y = _mm_add_epi64(x, _mm_mul_epu32(c.divmod10000, _mm_srli_epi64(_mm_mul_epu32(x, c.div10000), 40)));
+  __m128i y_div_100 = _mm_srli_epi16(_mm_mulhi_epu16(y, c.div100), 3);
+  __m128i y_mod_100 = _mm_sub_epi16(y, _mm_mullo_epi16(y_div_100, c.one_hundred));
+  __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
+  __m128i bcd_shuffled = _mm_sub_epi16(_mm_slli_epi16(z, 8), _mm_mullo_epi16(c.moddiv10, _mm_mulhi_epu16(z, c.div10)));
+  __m128i bcd = _mm_shuffle_epi32(bcd_shuffled, _MM_SHUFFLE(0, 1, 2, 3));
+#  endif // ZMIJ_USE_SSE4_1
+
+  auto digits = _mm_or_si128(bcd, c.ascii0);
+
+  // determine number of leading zeros
+  __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
+  uint16_t mask = _mm_movemask_epi8(mask128);
+#  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
+  auto len = 32 - __lzcnt32(mask);
+#  else
+  auto len = mask == 0 ? 0 : 64 - clz(mask);
+#  endif
+
+  _mm_storeu_si128((__m128i*)buffer, digits);
+  return buffer + len - int(len + (a != 0) == 1);
+#else   // !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
+  char* start = buffer;
+  // Each digit is denoted by a letter so value is abbccddeeffgghhii.
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  buffer = write_if_nonzero(buffer, abbccddee / 100'000'000);
+  uint64_t bcd = to_bcd8(abbccddee % 100'000'000);
+  write8(buffer, bcd | zeros);
+  if (ffgghhii == 0) {
+    buffer += count_trailing_nonzeros(bcd);
+    return buffer - int(buffer - start == 1);
+  }
+  bcd = to_bcd8(ffgghhii);
+  write8(buffer + 8, bcd | zeros);
+  return buffer + 8 + count_trailing_nonzeros(bcd);
+#endif
 }
 
 // Writes a significand consisting of up to 9 decimal digits (7-9 for normals)
