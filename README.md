@@ -40,7 +40,7 @@ https://github.com/google/double-conversion) and ~2.5x faster than
 on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark) run on Apple M1.
 
 | Function            | Time (ns) | Speedup |
-|---------------------|-----------|---------|
+|---------------------|----------:|--------:|
 | ostringstream       | 888.474   | 0.83x   |
 | sprintf             | 734.683   | 1.00x   |
 | double-conversion   | 86.827    | 8.46x   |
