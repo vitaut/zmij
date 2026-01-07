@@ -690,17 +690,17 @@ template <typename Float>
 auto write(Float value, char* buffer) noexcept -> char* {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
-  auto raw_exp = traits::get_exp(bits);  // binary exponent
-  auto bin_exp = raw_exp - traits::num_sig_bits - traits::exp_bias;
+  // It is beneficial to compute exponent early.
+  auto bin_exp = traits::get_exp(bits);  // binary exponent
 
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
   auto bin_sig = traits::get_sig(bits);  // binary significand
   bool regular = bin_sig != 0;
-  bool special = ((raw_exp + 1) & traits::exp_mask) <= 1;
+  bool special = ((bin_exp + 1) & traits::exp_mask) <= 1;
   if (special) [[ZMIJ_UNLIKELY]] {
-    if (raw_exp != 0) {
+    if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
     }
@@ -708,12 +708,13 @@ auto write(Float value, char* buffer) noexcept -> char* {
       memcpy(buffer, "0", 2);
       return buffer + 1;
     }
-    bin_exp = 1 - traits::num_sig_bits - traits::exp_bias;
+    bin_exp = 1;
     bin_sig |= traits::implicit_bit;
     // Setting regular is not redundant: it has a measurable perf impact.
     regular = true;
   }
   bin_sig ^= traits::implicit_bit;
+  bin_exp -= traits::num_sig_bits + traits::exp_bias;
 
   // Here be 🐉s.
   auto dec = ::to_decimal(bin_sig, bin_exp, regular, special);
