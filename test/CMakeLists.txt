@@ -29,10 +29,16 @@ target_link_libraries(pow10-test gtest)
 set(ZMIJ_CHECK_STANDARD cxx_std_20)
 
 add_library(fmt fmt/format.cc)
+if (MSVC)
+    target_compile_options(fmt PRIVATE /utf-8)
+endif()
 target_include_directories(fmt PUBLIC .)
 
 add_executable(float-check float-check.cc)
 target_compile_features(float-check PRIVATE ${ZMIJ_CHECK_STANDARD})
+if (MSVC)
+    target_compile_options(float-check PRIVATE /utf-8)
+endif()
 target_link_libraries(float-check fmt dragonbox zmij)
 
 add_executable(benchmark benchmark.cc zmij-benchmark.cc)
