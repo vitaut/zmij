@@ -634,19 +634,20 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int raw_exp, bool regular,
     // s - shorter underestimate, S - shorter overestimate
     // l - longer underestimate,  L - longer overestimate
 
-    if (  // Boundary case when rounding down to nearest 10.
-        scaled_sig_mod10 != scaled_half_ulp &&
-        // Near-boundary case when rounding up to nearest 10.
-        // Case where upper != ten is insufficient: 1.342178e+08f.
-        ten - upper > 1u  // upper != ten && upper != ten - 1
-        ) [[ZMIJ_LIKELY]] {
-      bool round_up = upper >= ten;
-      int64_t shorter = int64_t(integral - digit + round_up * 10);
-      int64_t longer = int64_t(integral + (fractional >= half_ulp));
-      bool use_shorter = (scaled_sig_mod10 <= scaled_half_ulp) + round_up != 0;
-      return {use_shorter ? shorter : longer, dec_exp};
+    // Check for boundary case when rounding down to nearest 10 and
+    // near-boundary case when rounding up to nearest 10.
+    if (scaled_sig_mod10 == scaled_half_ulp ||
+        // Case where upper == ten is insufficient: 1.342178e+08f.
+        ten - upper <= 1u)  // upper == ten || upper == ten - 1
+        [[ZMIJ_UNLIKELY]] {
+      break;
     }
-    break;
+
+    bool round_up = upper >= ten;
+    int64_t shorter = int64_t(integral - digit + round_up * 10);
+    int64_t longer = int64_t(integral + (fractional >= half_ulp));
+    bool use_shorter = (scaled_sig_mod10 <= scaled_half_ulp) + round_up != 0;
+    return {use_shorter ? shorter : longer, dec_exp};
   }
   bin_exp += subnormal;
 
