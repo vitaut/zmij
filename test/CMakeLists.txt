@@ -49,6 +49,7 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   include(CheckIPOSupported)
   check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
   if (ipo_supported)
+    set_property(TARGET float-check PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
     set_property(TARGET double-check PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
   endif()
 
