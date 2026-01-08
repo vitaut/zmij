@@ -594,7 +594,7 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
   uint16_t mask = _mm_movemask_epi8(mask128);
 #  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
-  auto len = 32 - __lzcnt32(mask);
+  auto len = 32 - _lzcnt_u32(mask);
 #  else
   auto len = mask == 0 ? 0 : 64 - clz(mask);
 #  endif
