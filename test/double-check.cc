@@ -126,7 +126,7 @@ void run(uint64_t bin_sig_first, uint64_t bin_sig_last, stats& s) {
 template <int n>
 void dispatch(int thread_index, int raw_exp, uint64_t bin_sig_first,
               uint64_t bin_sig_last, stats& s) {
-  if constexpr (n == 100) {
+  if constexpr (n == 10) {
     if (thread_index == 0) {
       fmt::print(stderr, "Unsupported exponent {}\n", raw_exp);
       exit(1);
@@ -194,9 +194,9 @@ auto main(int argc, char** argv) -> int {
     bin_sig_first |= traits::implicit_bit;
     bin_sig_last |= traits::implicit_bit;
 
+    fmt::print("Thread {:3} processing 0x{:016x} - 0x{:016x}\n", i,
+                bin_sig_first, bin_sig_last);
     threads[i] = std::thread([i, raw_exp, bin_sig_first, bin_sig_last, &s] {
-      fmt::print("Thread {:3} processing 0x{:016x} - 0x{:016x}\n", i,
-                 bin_sig_first, bin_sig_last);
       dispatch<1>(i, raw_exp, bin_sig_first, bin_sig_last, s);
     });
   }
