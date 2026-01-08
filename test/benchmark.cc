@@ -12,7 +12,7 @@
 #include <charconv>   // std::from_chars
 #include <chrono>     // std::chrono::steady_clock::now
 
-#include "print.h"
+#include "fmt/base.h"
 
 constexpr int num_trials = 15;
 constexpr int max_digits = std::numeric_limits<double>::max_digits10;
@@ -52,7 +52,7 @@ auto get_random_digit_data(int digit) -> const double* {
 
         // Limit the number of digits.
         char buffer[64] = {};
-        std::format_to_n(buffer, sizeof(buffer), "{:.{}}", d, digit);
+        fmt::format_to_n(buffer, sizeof(buffer), "{:.{}}", d, digit);
         d = 0;
         std::from_chars(buffer, buffer + strlen(buffer), d);
         data.push_back(d);
@@ -153,11 +153,11 @@ auto main() -> int {
       methods.begin(), methods.end(),
       [](const method& lhs, const method& rhs) { return lhs.name < rhs.name; });
 
-  print("Mean of per-digit medians:\n");
+  fmt::print("Mean of per-digit medians:\n");
   for (const method& m : methods) {
     benchmark_result result = bench_random_digit(m.dtoa, m.name);
-    print("{:9}: {:5.2f}ns ({:5.2f}ns - {:5.2f}ns) {}\n", m.name,
-          result.aggregated_ns, result.min_ns, result.max_ns,
-          result.noisy ? "noisy" : "");
+    fmt::print("{:9}: {:5.2f}ns ({:5.2f}ns - {:5.2f}ns) {}\n", m.name,
+               result.aggregated_ns, result.min_ns, result.max_ns,
+               result.noisy ? "noisy" : "");
   }
 }

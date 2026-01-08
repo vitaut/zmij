@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "dragonbox/dragonbox_to_chars.h"
-#include "print.h"
+#include "fmt/base.h"
 #include "zmij.h"
 
 auto main() -> int {
@@ -20,7 +20,7 @@ auto main() -> int {
   std::vector<std::thread> threads(num_threads);
   std::atomic<unsigned long long> num_processed_floats(0);
   std::atomic<unsigned long long> num_errors(0);
-  print("Using {} threads\n", num_threads);
+  fmt::print("Using {} threads\n", num_threads);
 
   auto start = std::chrono::steady_clock::now();
   for (uint32_t i = 0; i < num_threads; ++i) {
@@ -43,7 +43,7 @@ auto main() -> int {
           auto now = std::chrono::steady_clock::now();
           if (i == 0 && now - last_update_time >= std::chrono::seconds(1)) {
             last_update_time = now;
-            print("\rProgress: {:5.2f}%", num_processed_floats * percent);
+            fmt::print("\rProgress: {:5.2f}%", num_processed_floats * percent);
             fflush(stdout);
           }
         }
@@ -63,7 +63,7 @@ auto main() -> int {
 
         ++num_errors;
         if (!has_errors) {
-          print("\nOutput mismatch: {} != {}\n", actual, expected);
+          fmt::print("\nOutput mismatch: {} != {}\n", actual, expected);
           has_errors = true;
         }
       }
@@ -74,7 +74,8 @@ auto main() -> int {
 
   using seconds = std::chrono::duration<double>;
   std::locale::global(std::locale("en_US.UTF-8"));
-  print("\nTested {:L} values in {:.2f} seconds\n", num_processed_floats.load(),
-        std::chrono::duration_cast<seconds>(finish - start).count());
+  fmt::print("\nTested {:L} values in {:.2f} seconds\n",
+             num_processed_floats.load(),
+             std::chrono::duration_cast<seconds>(finish - start).count());
   return num_errors != 0 ? 1 : 0;
 }

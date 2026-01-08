@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-#include "print.h"
+#include "fmt/base.h"
 
 using uint128_t = unsigned __int128;
 
@@ -54,7 +54,7 @@ auto find_carried_away_doubles(uint64_t bin_sig_first, uint64_t bin_sig_last,
       n = find_min_n<step, uint128_t(1) << 64>(threshold - start,
                                                ~uint64_t() - start);
       if (n == not_found) {
-        print(stderr, "Failed to find the next hit\n");
+        fmt::print(stderr, "Failed to find the next hit\n");
         exit(1);
       }
     }
