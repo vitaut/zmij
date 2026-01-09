@@ -73,7 +73,11 @@ auto main() -> int {
   auto finish = std::chrono::steady_clock::now();
 
   using seconds = std::chrono::duration<double>;
-  std::locale::global(std::locale("en_US.UTF-8"));
+  try {
+    // Use thousands separators.
+    std::locale::global(std::locale("en_US.UTF-8"));
+  } catch (...) {
+  }
   fmt::print("\nTested {:L} values in {:.2f} seconds\n",
              num_processed_floats.load(),
              std::chrono::duration_cast<seconds>(finish - start).count());
