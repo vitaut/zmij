@@ -29,9 +29,7 @@ target_link_libraries(pow10-test gtest)
 set(ZMIJ_CHECK_STANDARD cxx_std_20)
 
 add_library(fmt fmt/format.cc)
-if (MSVC)
-    target_compile_options(fmt PUBLIC /utf-8)
-endif()
+target_compile_options(fmt PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_include_directories(fmt PUBLIC .)
 
 add_executable(float-check float-check.cc)
