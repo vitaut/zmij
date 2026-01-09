@@ -767,8 +767,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
   memcpy(buffer, &e_sign, 2);
   buffer += 2;
-  int mask = (dec_exp >= 0) - 1;
-  dec_exp = ((dec_exp + mask) ^ mask);  // absolute value
+  dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
   if (traits::min_exponent10 >= -99 && traits::max_exponent10 <= 99) {
     memcpy(buffer, digits2(dec_exp), 2);
     buffer[2] = '\0';
