@@ -7,6 +7,7 @@
 #include <math.h>    // isnan
 #include <stdint.h>  // uint64_t
 #include <stdlib.h>  // exit
+#include <string.h>  // memcpy, strlen
 
 #include <algorithm>  // std::sort
 #include <charconv>   // std::from_chars
