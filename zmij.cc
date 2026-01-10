@@ -459,6 +459,9 @@ constexpr uint32_t neg10k = uint32_t((1ull << 32) - 10000);
 constexpr int div100_exp = 19;
 constexpr uint32_t div100_sig = (1 << div100_exp) / 100 + 1;
 constexpr uint32_t neg100 = (1 << 16) - 100;
+constexpr int div10_exp = 10;
+constexpr uint32_t div10_sig = (1 << div10_exp) / 10 + 1;
+constexpr uint32_t neg10 = (1 << 8) - 10;
 
 constexpr uint64_t zeros = 0x0101010101010101u * '0';
 
@@ -477,7 +480,7 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> uint64_t {
       neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
   uint64_t a_b_c_d_e_f_g_h =
       ab_cd_ef_gh +
-      (0x100 - 10) * (((ab_cd_ef_gh * 0x67) >> 10) & 0xf000f000f000f);
+      neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
   return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
@@ -522,23 +525,22 @@ auto write_significand17(char* buffer, uint64_t value) noexcept -> char* {
   // We could probably make this bit faster, but we're preferring to
   // reuse the constants for now.
   uint64_t a = uint64_t(umul128(abbccddee, c->mul_const) >> 90);
-  abbccddee -= a * hundred_million;
+  uint64_t bbccddee = abbccddee - a * hundred_million;
 
   char* start = buffer;
   buffer = write_if_nonzero(buffer, a);
 
-  uint64x1_t hundredmillions64 = {abbccddee | (uint64_t(ffgghhii) << 32)};
-  int32x2_t hundredmillions32 = vreinterpret_s32_u64(hundredmillions64);
+  uint64x1_t ffgghhii_bbccddee64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
+  int32x2_t ffgghhii_bbccddee = vreinterpret_s32_u64(ffgghhii_bbccddee64);
 
-  int32x2_t high_10000 = vreinterpret_s32_u32(
+  int32x2_t quo10k = vreinterpret_s32_u32(
       vshr_n_u32(vreinterpret_u32_s32(
-                     vqdmulh_n_s32(hundredmillions32, c->multipliers32[0])),
+                     vqdmulh_n_s32(ffgghhii_bbccddee, c->multipliers32[0])),
                  9));
-  int32x2_t tenthousands =
-      vmla_n_s32(hundredmillions32, high_10000, c->multipliers32[1]);
+  int32x2_t rem10k = vmla_n_s32(ffgghhii_bbccddee, quo10k, c->multipliers32[1]);
 
   int32x4_t extended =
-      vreinterpretq_s32_u32(vshll_n_u16(vreinterpret_u16_s32(tenthousands), 0));
+      vreinterpretq_s32_u32(vshll_n_u16(vreinterpret_u16_s32(rem10k), 0));
 
   // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
   ZMIJ_ASM(("" : "+w"(extended)));
