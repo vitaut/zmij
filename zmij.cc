@@ -504,8 +504,13 @@ auto write_significand17(char* buffer, uint64_t value,
   struct to_string_constants {
     uint64_t mul_const = 0xabcc77118461cefd;
     uint64_t hundred_million = 100000000;
+#  ifndef _MSC_VER
     int32x4_t multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
     int16x8_t multipliers16 = {0xce0, neg10};
+#  else
+    int32_t multipliers32[4] = {div10k_sig, neg10k, div100_sig << 12, neg100};
+    int16_t multipliers16[8] = {0xce0, neg10};
+#  endif
   };
 
   static const to_string_constants constants;
