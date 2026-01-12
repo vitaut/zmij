@@ -502,7 +502,9 @@ inline void write8(char* buffer, uint64_t value) noexcept {
 }
 
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
-// normals) and removes trailing zeros.
+// normals) and removes trailing zeros.  The significant digits start
+// from buffer[1].  buffer[0] may contain '0' after this function if
+// the significand has length 16.
 auto write_significand17(char* buffer, uint64_t value,
                          bool has17digits) noexcept -> char* {
 #if ZMIJ_USE_NEON
@@ -537,8 +539,8 @@ auto write_significand17(char* buffer, uint64_t value,
   uint64_t a = uint64_t(umul128(abbccddee, c->mul_const) >> 90);
   uint64_t bbccddee = abbccddee - a * hundred_million;
 
-  char* start = buffer;
-  buffer = write_if(buffer, a, has17digits);
+  char* start = buffer + 1;
+  buffer = write_if(start, a, has17digits);
 
   uint64x1_t ffgghhii_bbccddee_64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
   int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
@@ -575,12 +577,23 @@ auto write_significand17(char* buffer, uint64_t value,
   buffer += 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2);
   return buffer - int(buffer - start == 1);
 #elif ZMIJ_USE_SSE
-  uint32_t abbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  uint32_t a = abbccddee / 100'000'000;
-  uint32_t bbccddee = abbccddee % 100'000'000;
+#  if ZMIJ_USE_INT128 == 1
+  constexpr int div10_exp = 64;
+  constexpr uint128_t div10_sig = (uint128_t(1) << div10_exp) / 10 + 1;
+  uint64_t digits_16 = uint64_t((value * div10_sig) >> div10_exp);
+#  else  // !ZMIJ_USE_INT128
+  uint64_t digits_16 = value / 10;
+#  endif  // ZMIJ_USE_INT128
+  uint32_t last_digit = value - digits_16 * 10;
 
-  buffer = write_if(buffer, a, has17digits);
+  // We always write 17 digits into the buffer, but the first one can be zero.
+  // buffer points to the second place in the output buffer to allow for the
+  // insertion of the decimal point, and so we can use the first place as scratch.
+  buffer += has17digits;
+  buffer[16] = char(last_digit + '0');
+
+  uint32_t abcdefgh = digits_16 / uint64_t(1e8);
+  uint32_t ijklmnop = digits_16 % uint64_t(1e8);
 
   alignas(64) static const struct {
     __m128i div10k = _mm_set1_epi64x(div10k_sig);
@@ -600,7 +613,7 @@ auto write_significand17(char* buffer, uint64_t value,
   } c;
 
   // The BCD sequences are based on ones provided by Xiang JunBo.
-  __m128i x = _mm_set_epi64x(bbccddee, ffgghhii);
+  __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(c.neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, c.div10k), div10k_exp)));
@@ -627,20 +640,20 @@ auto write_significand17(char* buffer, uint64_t value,
   // determine number of leading zeros
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
   uint16_t mask = _mm_movemask_epi8(mask128);
-#  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
-  auto len = 32 - _lzcnt_u32(mask);
-#  else
-  auto len = mask == 0 ? 0 : 64 - clz(mask);
-#  endif
+  // We don't need a zero-check here: if the mask were zero, either the significand is zero
+  // which is handled elsewhere or the only non-zero digit is the last digit which we factored
+  // off.  But in that case the number would be printed with a different exponent that shifts
+  // the last digit into the first position.
+  auto len = 64 - clz(mask);
 
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
-  return buffer + len - int(len + (a != 0) == 1);
+  return buffer + ((last_digit != 0) ? 17 : len - (len == 1)); 
 #else  // !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
-  char* start = buffer;
+  char* start = buffer + 1;
   // Each digit is denoted by a letter so value is abbccddeeffgghhii.
   uint32_t abbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  buffer = write_if(buffer, abbccddee / 100'000'000, has17digits);
+  buffer = write_if(start, abbccddee / 100'000'000, has17digits);
   uint64_t bcd = to_bcd8(abbccddee % 100'000'000);
   write8(buffer, bcd | zeros);
   if (ffgghhii == 0) {
@@ -873,7 +886,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (traits::num_bits == 64) {
     bool has17digits = dec.sig >= uint64_t(1e16);
     dec_exp += traits::max_digits10 - 2 + has17digits;
-    buffer = write_significand17(buffer + 1, dec.sig, has17digits);
+    buffer = write_significand17(buffer, dec.sig, has17digits);
   } else {
     if (dec.sig < uint32_t(1e7)) [[ZMIJ_UNLIKELY]] {
       dec.sig *= 10;
