@@ -502,10 +502,10 @@ auto write_significand17(char* buffer, uint64_t value,
   // An optimized version for NEON by Dougall Johnson.
   constexpr int32_t neg10k = -10000 + 0x10000;
   struct to_string_constants {
-#ifdef _MSC_VER
+#  ifdef _MSC_VER
     using int32x4_t = std::int32_t[4];
     using int16x8_t = std::int16_t[8];
-#endif
+#  endif
     uint64_t mul_const = 0xabcc77118461cefd;
     uint64_t hundred_million = 100000000;
     int32x4_t multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
@@ -891,9 +891,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
     return buffer + 2;
   }
 
-#if defined(__APPLE__) && defined(__aarch64__) && ZMIJ_USE_INT128
-    // Use mulhi to divide by 100.
-    uint32_t digit = (uint128_t(dec_exp) * 0x290000000000000) >> 64;
+#if defined(__APPLE__) && ZMIJ_USE_INT128
+  // Use mulhi to divide by 100.
+  uint32_t digit = (uint128_t(dec_exp) * 0x290000000000000) >> 64;
 #else
   // div100_exp=19 is faster or equal to 12 even for 3 digits.
   uint32_t digit =
