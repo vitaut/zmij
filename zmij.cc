@@ -686,7 +686,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   int64_t bin_exp = raw_exp - traits::num_sig_bits - traits::exp_bias;
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   // An optimization from yy by Yaoyuan Guo:
-  while (regular & !subnormal) [[likely]] {
+  while (regular & !subnormal) [[ZMIJ_LIKELY]] {
     int dec_exp = use_umul128_hi64 ? umul128_hi64(bin_exp, 0x4d10500000000000)
                                    : compute_dec_exp(bin_exp, true);
     unsigned char exp_shift =
