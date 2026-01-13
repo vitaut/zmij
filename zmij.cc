@@ -850,7 +850,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   bool regular = bin_sig != 0;
   bool subnormal = bin_exp == 0;
-  if (bin_exp == 0 || bin_exp == 0x7ff) [[ZMIJ_UNLIKELY]] {
+  if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
