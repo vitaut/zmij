@@ -292,8 +292,8 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
   static auto get_sig(sig_type bits) noexcept -> sig_type {
     return bits & (implicit_bit - 1);
   }
-  static auto get_exp(sig_type bits) noexcept -> int {
-    return int(bits >> num_sig_bits) & exp_mask;
+  static auto get_exp(sig_type bits) noexcept -> int64_t {
+    return int64_t(bits >> num_sig_bits) & exp_mask;
   }
 };
 
@@ -675,14 +675,18 @@ auto normalize(zmij::dec_fp dec, bool subnormal) noexcept -> zmij::dec_fp {
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation, where bin_exp = raw_exp - num_sig_bits - exp_bias.
 template <typename Float, typename UInt>
-ZMIJ_INLINE auto to_decimal(UInt bin_sig, int raw_exp, bool regular,
+ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
                             bool subnormal) noexcept -> zmij::dec_fp {
   using traits = float_traits<Float>;
-  int bin_exp = raw_exp - traits::num_sig_bits - traits::exp_bias;
+  int64_t bin_exp = raw_exp - traits::num_sig_bits - traits::exp_bias;
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   // An optimization from yy by Yaoyuan Guo:
-  while (regular & !subnormal) {
+  while (regular & !subnormal) [[likely]] {
+#if defined(__APPLE__) && ZMIJ_USE_INT128
+    int dec_exp = (uint128_t(bin_exp) * 0x4d10500000000000) >> 64;
+#else
     int dec_exp = compute_dec_exp(bin_exp, true);
+#endif
     unsigned char exp_shift =
         compute_exp_shift<num_bits, true>(bin_exp, dec_exp);
     uint128 pow10 = pow10_significands[-dec_exp];
@@ -842,9 +846,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  bool special = ((bin_exp + 1) & traits::exp_mask) <= 1;
-  bool regular = (bin_sig != 0) | special;  // | special slightly improves perf.
-  if (special) [[ZMIJ_UNLIKELY]] {
+  bool regular = bin_sig != 0;
+  bool subnormal = bin_exp == 0;
+  if (bin_exp == 0 || bin_exp == 0x7ff) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
@@ -858,7 +862,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   bin_sig ^= traits::implicit_bit;
 
   // Here be 🐉s.
-  auto dec = ::to_decimal<Float>(bin_sig, bin_exp, regular, special);
+  auto dec = ::to_decimal<Float>(bin_sig, bin_exp, regular, subnormal);
   int dec_exp = dec.exp;
 
   // Write significand.
