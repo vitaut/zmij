@@ -37,7 +37,7 @@ struct dec_fp {
 #ifdef ZMIJ_USE_NEON
 // Use the provided definition
 #elif defined(__ARM_NEON) || defined(_M_ARM64)
-#  define ZMIJ_USE_NEON 1
+#  define ZMIJ_USE_NEON ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_NEON 0
 #endif
@@ -45,9 +45,9 @@ struct dec_fp {
 #ifdef ZMIJ_USE_SSE
 // Use the provided definition
 #elif defined(__SSE2__)
-#  define ZMIJ_USE_SSE 1
+#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86FP == 2)
-#  define ZMIJ_USE_SSE 1
+#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_SSE 0
 #endif
@@ -55,10 +55,10 @@ struct dec_fp {
 #ifdef ZMIJ_USE_SSE4_1
 // Use the provided definition
 #elif defined(__SSE4_1__)
-#  define ZMIJ_USE_SSE4_1 1
+#  define ZMIJ_USE_SSE4_1 ZMIJ_USE_SIMD
 #elif ZMIJ_MSC_VER && \
     defined(__AVX__)  // There's no way to check for /arch:SSE4.2 specifically
-#  define ZMIJ_USE_SSE4_1 1
+#  define ZMIJ_USE_SSE4_1 ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_SSE4_1 0
 #endif
