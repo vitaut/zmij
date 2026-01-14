@@ -103,8 +103,8 @@ taking the best of 3 runs.
 refers to a mythical dragon- or serpent-like creature, continuing the dragon
 theme [started by Steele and White](https://fmt.dev/papers/p372-steele.pdf).
 
-A nice bonus is that the name even contains a “floating point” in its first
-letter.
+A nice bonus is that the name even contains a "floating point" in its first
+letter. And to quote Aras Pranckevičius, "Żmij is also literally a beast."
 
 ## Acknowledgements
 
