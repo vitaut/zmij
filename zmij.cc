@@ -577,13 +577,9 @@ auto write_significand17(char* buffer, uint64_t value,
   buffer += 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2);
   return buffer - int(buffer - start == 1);
 #elif ZMIJ_USE_SSE
-#  if ZMIJ_USE_INT128 == 1
-  constexpr int div10_exp = 64;
-  constexpr uint128_t div10_sig = (uint128_t(1) << div10_exp) / 10 + 1;
-  uint64_t digits_16 = uint64_t((value * div10_sig) >> div10_exp);
-#  else  // !ZMIJ_USE_INT128
-  uint64_t digits_16 = value / 10;
-#  endif  // ZMIJ_USE_INT128
+  // Divide by ten with a 64bit shift.  Note that (1 << 63) / 5 == (1 << 64) / 10
+  // but doesn't need an intermediate int128.
+  uint64_t digits_16 = use_umul128_hi64 ? umul128_hi64((1ull << 63) / 5 + 1, value) : value / 10;
   uint32_t last_digit = value - digits_16 * 10;
 
   // We always write 17 digits into the buffer, but the first one can be zero.
