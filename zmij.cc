@@ -589,9 +589,9 @@ auto write_significand17(char* buffer, uint64_t value,
     __m128i div10k = _mm_set1_epi64x(div10k_sig);
     __m128i neg10k = _mm_set1_epi64x(::neg10k);
     __m128i div100 = _mm_set1_epi32(div100_sig);
-    __m128i neg100 = _mm_set1_epi32(::neg100);
     __m128i div10 = _mm_set1_epi16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
+    __m128i neg100 = _mm_set1_epi32(::neg100);
     __m128i neg10 = _mm_set1_epi16((1 << 8) - 10);
     __m128i bswap =
         _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
