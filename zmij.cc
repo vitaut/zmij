@@ -680,16 +680,62 @@ auto normalize(zmij::dec_fp dec, bool subnormal) noexcept -> zmij::dec_fp {
   return dec;
 }
 
+template <bool subnormal = false, typename UInt>
+auto to_decimal_schubfach(UInt bin_sig, int64_t bin_exp, bool regular) noexcept
+    -> zmij::dec_fp {
+  constexpr int num_bits = std::numeric_limits<UInt>::digits;
+  int dec_exp = compute_dec_exp(bin_exp, regular);
+  unsigned char exp_shift = compute_exp_shift<num_bits>(bin_exp, dec_exp);
+  uint128 pow10 = pow10_significands[-dec_exp];
+
+  // Fallback to Schubfach to guarantee correctness in boundary cases.
+  // This requires switching to strict overestimates of powers of 10.
+  ++(num_bits == 64 ? pow10.lo : pow10.hi);
+
+  // Shift the significand so that boundaries are integer.
+  constexpr int bound_shift = 2;
+  UInt bin_sig_shifted = bin_sig << bound_shift;
+
+  // Compute the estimates of lower and upper bounds of the rounding interval
+  // by multiplying them by the power of 10 and applying modified rounding.
+  UInt lsb = bin_sig & 1;
+  UInt lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
+  lower = umulhi_inexact_to_odd(pow10.hi, pow10.lo, lower) + lsb;
+  UInt upper = (bin_sig_shifted + 2) << exp_shift;
+  upper = umulhi_inexact_to_odd(pow10.hi, pow10.lo, upper) - lsb;
+
+  // The idea of using a single shorter candidate is by Cassio Neri.
+  // It is less or equal to the upper bound by construction.
+  UInt shorter = 10 * ((upper >> bound_shift) / 10);
+  if ((shorter << bound_shift) >= lower)
+    return normalize<num_bits>({int64_t(shorter), dec_exp}, subnormal);
+
+  UInt scaled_sig =
+      umulhi_inexact_to_odd(pow10.hi, pow10.lo, bin_sig_shifted << exp_shift);
+  UInt longer_below = scaled_sig >> bound_shift;
+  UInt longer_above = longer_below + 1;
+
+  // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
+  // the rounding interval.
+  using sint = std::make_signed_t<UInt>;
+  sint cmp = sint(scaled_sig - ((longer_below + longer_above) << 1));
+  bool below_closer = cmp < 0 || (cmp == 0 && (longer_below & 1) == 0);
+  bool below_in = (longer_below << bound_shift) >= lower;
+  UInt dec_sig = (below_closer & below_in) ? longer_below : longer_above;
+  return normalize<num_bits>({int64_t(dec_sig), dec_exp}, subnormal);
+}
+
+// Here be 🐉s.
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation, where bin_exp = raw_exp - num_sig_bits - exp_bias.
 template <typename Float, typename UInt>
-ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
-                            bool subnormal) noexcept -> zmij::dec_fp {
+ZMIJ_INLINE auto to_decimal_normal(UInt bin_sig, int64_t raw_exp,
+                                   bool regular) noexcept -> zmij::dec_fp {
   using traits = float_traits<Float>;
   int64_t bin_exp = raw_exp - traits::num_sig_bits - traits::exp_bias;
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   // An optimization from yy by Yaoyuan Guo:
-  while (regular & !subnormal) [[ZMIJ_LIKELY]] {
+  while (regular) [[ZMIJ_LIKELY]] {
     int dec_exp = use_umul128_hi64 ? umul128_hi64(bin_exp, 0x4d10500000000000)
                                    : compute_dec_exp(bin_exp, true);
     unsigned char exp_shift =
@@ -780,47 +826,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     bool use_shorter = (scaled_sig_mod10 <= scaled_half_ulp) + round_up != 0;
     return {use_shorter ? shorter : longer, dec_exp};
   }
-  bin_exp += subnormal;
-
-  int dec_exp = compute_dec_exp(bin_exp, regular);
-  unsigned char exp_shift = compute_exp_shift<num_bits>(bin_exp, dec_exp);
-  uint128 pow10 = pow10_significands[-dec_exp];
-
-  // Fallback to Schubfach to guarantee correctness in boundary cases.
-  // This requires switching to strict overestimates of powers of 10.
-  ++(num_bits == 64 ? pow10.lo : pow10.hi);
-
-  // Shift the significand so that boundaries are integer.
-  constexpr int bound_shift = 2;
-  UInt bin_sig_shifted = bin_sig << bound_shift;
-
-  // Compute the estimates of lower and upper bounds of the rounding interval
-  // by multiplying them by the power of 10 and applying modified rounding.
-  UInt lsb = bin_sig & 1;
-  UInt lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
-  lower = umulhi_inexact_to_odd(pow10.hi, pow10.lo, lower) + lsb;
-  UInt upper = (bin_sig_shifted + 2) << exp_shift;
-  upper = umulhi_inexact_to_odd(pow10.hi, pow10.lo, upper) - lsb;
-
-  // The idea of using a single shorter candidate is by Cassio Neri.
-  // It is less or equal to the upper bound by construction.
-  UInt shorter = 10 * ((upper >> bound_shift) / 10);
-  if ((shorter << bound_shift) >= lower)
-    return normalize<num_bits>({int64_t(shorter), dec_exp}, subnormal);
-
-  UInt scaled_sig =
-      umulhi_inexact_to_odd(pow10.hi, pow10.lo, bin_sig_shifted << exp_shift);
-  UInt longer_below = scaled_sig >> bound_shift;
-  UInt longer_above = longer_below + 1;
-
-  // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
-  // the rounding interval.
-  using sint = std::make_signed_t<UInt>;
-  sint cmp = sint(scaled_sig - ((longer_below + longer_above) << 1));
-  bool below_closer = cmp < 0 || (cmp == 0 && (longer_below & 1) == 0);
-  bool below_in = (longer_below << bound_shift) >= lower;
-  UInt dec_sig = (below_closer & below_in) ? longer_below : longer_above;
-  return normalize<num_bits>({int64_t(dec_sig), dec_exp}, subnormal);
+  return to_decimal_schubfach(bin_sig, bin_exp, regular);
 }
 
 }  // namespace
@@ -832,15 +838,16 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);  // binary exponent
   auto bin_sig = traits::get_sig(bits);  // binary significand
-  bool regular = bin_sig != 0;
-  bool subnormal = bin_exp == 0;
+  dec_fp dec;
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return {0, int(~0u >> 1)};
     if (bin_sig == 0) return {0, 0};
-    bin_sig |= traits::implicit_bit;
+    constexpr int exp_offset = traits::num_sig_bits + traits::exp_bias;
+    dec = to_decimal_schubfach<true>(bin_sig, 1 - exp_offset, true);
+  } else {
+    dec = to_decimal_normal<double>(bin_sig | traits::implicit_bit, bin_exp,
+                                    bin_sig != 0);
   }
-  bin_sig ^= traits::implicit_bit;
-  auto dec = ::to_decimal<double>(bin_sig, bin_exp, regular, subnormal);
   return {traits::is_negative(bits) ? -dec.sig : dec.sig, dec.exp};
 }
 
@@ -858,8 +865,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  bool regular = bin_sig != 0;
-  bool subnormal = bin_exp == 0;
+  dec_fp dec;
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
@@ -869,12 +875,12 @@ auto write(Float value, char* buffer) noexcept -> char* {
       memcpy(buffer, "0", 2);
       return buffer + 1;
     }
-    bin_sig |= traits::implicit_bit;
+    constexpr int exp_offset = traits::num_sig_bits + traits::exp_bias;
+    dec = to_decimal_schubfach<true>(bin_sig, 1 - exp_offset, true);
+  } else {
+    dec = to_decimal_normal<Float>(bin_sig | traits::implicit_bit, bin_exp,
+                                   bin_sig != 0);
   }
-  bin_sig ^= traits::implicit_bit;
-
-  // Here be 🐉s.
-  auto dec = ::to_decimal<Float>(bin_sig, bin_exp, regular, subnormal);
   int dec_exp = dec.exp;
 
   // Write significand.
