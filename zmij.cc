@@ -496,6 +496,41 @@ inline void write8(char* buffer, uint64_t value) noexcept {
   memcpy(buffer, &value, 8);
 }
 
+#if ZMIJ_USE_SSE
+constexpr auto splat64(uint64_t x) -> __m128i {
+  return __m128i{static_cast<long long>(x), static_cast<long long>(x)};
+}
+constexpr auto splat32(uint32_t x) -> __m128i {
+  return splat64(uint64_t(x) << 32 | x);
+}
+constexpr auto splat16(uint16_t x) -> __m128i {
+  return splat32(uint32_t(x) << 16 | x);
+}
+constexpr auto pack8(uint8_t a, uint8_t b, uint8_t c, uint8_t d,  //
+                     uint8_t e, uint8_t f, uint8_t g, uint8_t h) -> uint64_t {
+  using u64 = uint64_t;
+  return u64(h) << 56 | u64(g) << 48 | u64(f) << 40 | u64(e) << 32 |
+         u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
+}
+
+alignas(64) constexpr struct {
+  __m128i div10k = splat64(div10k_sig);
+  __m128i neg10k = splat64(::neg10k);
+  __m128i div100 = splat32(div100_sig);
+  __m128i div10 = splat16((1 << 16) / 10 + 1);
+#  if ZMIJ_USE_SSE4_1
+  __m128i neg100 = splat32(::neg100);
+  __m128i neg10 = splat16((1 << 8) - 10);
+  __m128i bswap = __m128i{pack8(15, 14, 13, 12, 11, 10, 9, 8),
+                          pack8(7, 6, 5, 4, 3, 2, 1, 0)};
+#  else
+  __m128i hundred = splat32(100);
+  __m128i moddiv10 = splat16(10 * (1 << 8) - 1);
+#  endif
+  __m128i zeros = splat64(::zeros);
+} consts;
+#endif  // ZMIJ_USE_SSE
+
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.  The significant digits start
 // from buffer[1].  buffer[0] may contain '0' after this function if
@@ -585,47 +620,44 @@ auto write_significand17(char* buffer, uint64_t value,
   uint32_t abcdefgh = digits_16 / uint64_t(1e8);
   uint32_t ijklmnop = digits_16 % uint64_t(1e8);
 
-  alignas(64) static const struct {
-    __m128i div10k = _mm_set1_epi64x(div10k_sig);
-    __m128i neg10k = _mm_set1_epi64x(::neg10k);
-    __m128i div100 = _mm_set1_epi32(div100_sig);
-    __m128i div10 = _mm_set1_epi16((1 << 16) / 10 + 1);
+  const __m128i div10k = _mm_load_si128(&consts.div10k);
+  const __m128i neg10k = _mm_load_si128(&consts.neg10k);
+  const __m128i div100 = _mm_load_si128(&consts.div100);
+  const __m128i div10 = _mm_load_si128(&consts.div10);
 #  if ZMIJ_USE_SSE4_1
-    __m128i neg100 = _mm_set1_epi32(::neg100);
-    __m128i neg10 = _mm_set1_epi16((1 << 8) - 10);
-    __m128i bswap =
-        _mm_set_epi8(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+  const __m128i neg100 = _mm_load_si128(&consts.neg100);
+  const __m128i neg10 = _mm_load_si128(&consts.neg10);
+  const __m128i bswap = _mm_load_si128(&consts.bswap);
 #  else
-    __m128i hundred = _mm_set1_epi32(100);
-    __m128i moddiv10 = _mm_set1_epi16(10 * (1 << 8) - 1);
-#  endif  // ZMIJ_USE_SSE4_1
-    __m128i zeros = _mm_set1_epi64x(::zeros);
-  } c;
+  const __m128i hundred = _mm_load_si128(&consts.hundred);
+  const __m128i moddiv10 = _mm_load_si128(&consts.moddiv10);
+#  endif
+  const __m128i zeros = _mm_load_si128(&consts.zeros);
 
   // The BCD sequences are based on ones provided by Xiang JunBo.
   __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
   __m128i y = _mm_add_epi64(
-      x, _mm_mul_epu32(c.neg10k,
-                       _mm_srli_epi64(_mm_mul_epu32(x, c.div10k), div10k_exp)));
+      x, _mm_mul_epu32(neg10k,
+                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 #  if ZMIJ_USE_SSE4_1
   // _mm_mullo_epi32 is SSE 4.1
   __m128i z = _mm_add_epi64(
-      y, _mm_mullo_epi32(c.neg100,
-                         _mm_srli_epi32(_mm_mulhi_epu16(y, c.div100), 3)));
+      y, _mm_mullo_epi32(neg100,
+                         _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
   __m128i big_endian_bcd =
-      _mm_add_epi16(z, _mm_mullo_epi16(c.neg10, _mm_mulhi_epu16(z, c.div10)));
-  __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, c.bswap);  // SSSE3
+      _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
+  __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, bswap);  // SSSE3
 #  else
-  __m128i y_div_100 = _mm_srli_epi16(_mm_mulhi_epu16(y, c.div100), 3);
-  __m128i y_mod_100 = _mm_sub_epi16(y, _mm_mullo_epi16(y_div_100, c.hundred));
+  __m128i y_div_100 = _mm_srli_epi16(_mm_mulhi_epu16(y, div100), 3);
+  __m128i y_mod_100 = _mm_sub_epi16(y, _mm_mullo_epi16(y_div_100, hundred));
   __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
   __m128i bcd_shuffled =
       _mm_sub_epi16(_mm_slli_epi16(z, 8),
-                    _mm_mullo_epi16(c.moddiv10, _mm_mulhi_epu16(z, c.div10)));
+                    _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
   __m128i bcd = _mm_shuffle_epi32(bcd_shuffled, _MM_SHUFFLE(0, 1, 2, 3));
 #  endif  // ZMIJ_USE_SSE4_1
 
-  auto digits = _mm_or_si128(bcd, c.zeros);
+  auto digits = _mm_or_si128(bcd, zeros);
 
   // determine number of leading zeros
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
