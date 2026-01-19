@@ -500,9 +500,11 @@ struct m128i_t {
   long long data[2];
 };
 
-constexpr bool use_sse_type_frivolously = ZMIJ_USE_SSE && !ZMIJ_MSC_VER;
-
-using m128i = std::conditional_t<use_sse_type_frivolously, __m128i, m128i_t>;
+#if ZMIJ_USE_SSE
+using m128i = std::conditional_t<ZMIJ_MSC_VER == 0, __m128i, m128i_t>;
+#else
+using m128i = m128i_t;
+#endif
 
 constexpr auto splat64(uint64_t x) -> m128i {
   return m128i{static_cast<long long>(x), static_cast<long long>(x)};
