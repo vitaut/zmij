@@ -497,13 +497,20 @@ inline void write8(char* buffer, uint64_t value) noexcept {
 }
 
 #if ZMIJ_USE_SSE
-constexpr auto splat64(uint64_t x) -> __m128i {
-  return __m128i{static_cast<long long>(x), static_cast<long long>(x)};
+using m128i = __m128i;
+#else
+struct m128i {
+  long long data[2];
+};
+#endif
+
+constexpr auto splat64(uint64_t x) -> m128i {
+  return m128i{static_cast<long long>(x), static_cast<long long>(x)};
 }
-constexpr auto splat32(uint32_t x) -> __m128i {
+constexpr auto splat32(uint32_t x) -> m128i {
   return splat64(uint64_t(x) << 32 | x);
 }
-constexpr auto splat16(uint16_t x) -> __m128i {
+constexpr auto splat16(uint16_t x) -> m128i {
   return splat32(uint32_t(x) << 16 | x);
 }
 constexpr auto pack8(uint8_t a, uint8_t b, uint8_t c, uint8_t d,  //
@@ -512,24 +519,6 @@ constexpr auto pack8(uint8_t a, uint8_t b, uint8_t c, uint8_t d,  //
   return u64(h) << 56 | u64(g) << 48 | u64(f) << 40 | u64(e) << 32 |
          u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
 }
-
-alignas(64) constexpr struct {
-  __m128i div10k = splat64(div10k_sig);
-  __m128i neg10k = splat64(::neg10k);
-  __m128i div100 = splat32(div100_sig);
-  __m128i div10 = splat16((1 << 16) / 10 + 1);
-#  if ZMIJ_USE_SSE4_1
-  __m128i neg100 = splat32(::neg100);
-  __m128i neg10 = splat16((1 << 8) - 10);
-  __m128i bswap = __m128i{pack8(15, 14, 13, 12, 11, 10, 9, 8),
-                          pack8(7, 6, 5, 4, 3, 2, 1, 0)};
-#  else
-  __m128i hundred = splat32(100);
-  __m128i moddiv10 = splat16(10 * (1 << 8) - 1);
-#  endif
-  __m128i zeros = splat64(::zeros);
-} consts;
-#endif  // ZMIJ_USE_SSE
 
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.  The significant digits start
@@ -620,6 +609,23 @@ auto write_significand17(char* buffer, uint64_t value,
   uint32_t abcdefgh = digits_16 / uint64_t(1e8);
   uint32_t ijklmnop = digits_16 % uint64_t(1e8);
 
+  alignas(64) static constexpr struct {
+    __m128i div10k = splat64(div10k_sig);
+    __m128i neg10k = splat64(::neg10k);
+    __m128i div100 = splat32(div100_sig);
+    __m128i div10 = splat16((1 << 16) / 10 + 1);
+  #  if ZMIJ_USE_SSE4_1
+    __m128i neg100 = splat32(::neg100);
+    __m128i neg10 = splat16((1 << 8) - 10);
+    __m128i bswap = __m128i{pack8(15, 14, 13, 12, 11, 10, 9, 8),
+                            pack8(7, 6, 5, 4, 3, 2, 1, 0)};
+  #  else
+    __m128i hundred = splat32(100);
+    __m128i moddiv10 = splat16(10 * (1 << 8) - 1);
+  #  endif
+    __m128i zeros = splat64(::zeros);
+  } consts;
+
   const __m128i div10k = _mm_load_si128(&consts.div10k);
   const __m128i neg10k = _mm_load_si128(&consts.neg10k);
   const __m128i div100 = _mm_load_si128(&consts.div100);
@@ -642,8 +648,8 @@ auto write_significand17(char* buffer, uint64_t value,
 #  if ZMIJ_USE_SSE4_1
   // _mm_mullo_epi32 is SSE 4.1
   __m128i z = _mm_add_epi64(
-      y, _mm_mullo_epi32(neg100,
-                         _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
+      y,
+      _mm_mullo_epi32(neg100, _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
   __m128i big_endian_bcd =
       _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
   __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, bswap);  // SSSE3
