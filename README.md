@@ -68,7 +68,8 @@ performance.
 <img width="857" height="687" alt="image"
   src="https://github.com/user-attachments/assets/13cb86d3-4d76-4903-a13e-d4845a4388b4" />
 
-On EPYC Milan (AMD64) Żmij is ~2.8x faster than Ryū and ~5x faster than double-conversion.
+On EPYC Milan (AMD64) running Linux, Żmij is approximately **2.8× faster than Ryū** and
+**5× faster than double-conversion** when compiled with GCC 11.5.
 
 | Function            | Time (ns) | Speedup |
 |---------------------|----------:|--------:|
