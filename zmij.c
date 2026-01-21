@@ -1179,7 +1179,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t abcdefgh = value_div10 / uint64_t(1e8);
   uint32_t ijklmnop = value_div10 % uint64_t(1e8);
 
-  alignas(64) static constexpr struct {
+  alignas(64) static const struct {
     __m128i div10k = splat64(div10k_sig);
     __m128i neg10k = splat64(::neg10k);
     __m128i div100 = splat32(div100_sig);

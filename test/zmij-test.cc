@@ -8,6 +8,7 @@
 #ifndef ZMIJ_C
 #include "../zmij.cc"
 #else
+#define _Alignas(x) alignas(x)
 #include "../zmij.c"
 
 namespace zmij {
