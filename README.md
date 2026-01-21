@@ -35,7 +35,7 @@ int main() {
 
 ## Performance
 
-More than 4x faster than [Ryu](https://github.com/ulfjack/ryu) used by multiple
+More than 4x faster than [Ryū](https://github.com/ulfjack/ryu) used by multiple
 C++ standard library implementations, 9x faster than [double-conversion](
 https://github.com/google/double-conversion) and ~2.5x faster than
 [Schubfach](https://github.com/vitaut/schubfach)
@@ -67,6 +67,27 @@ performance.
 
 <img width="857" height="687" alt="image"
   src="https://github.com/user-attachments/assets/13cb86d3-4d76-4903-a13e-d4845a4388b4" />
+
+On EPYC Milan (AMD64) Żmij is ~2.8x faster than Ryū and ~5x faster than double-conversion.
+
+| Function            | Time (ns) | Speedup |
+|---------------------|----------:|--------:|
+| ostringstream       | 958.889   | 1.00x   |
+| sprintf             | 563.022   | 1.70x   |
+| double-conversion   | 95.706    | 10.02x  |
+| to_chars            | 67.115    | 14.29x  |
+| ryu                 | 54.144    | 17.71x  |
+| schubfach           | 44.435    | 21.58x  |
+| fmt                 | 40.098    | 23.91x  |
+| dragonbox           | 30.896    | 31.04x  |
+| yy                  | 26.959    | 35.57x  |
+| xjb64               | 19.275    | 49.75x  |
+| zmij                | 19.194    | 49.96x  |
+| null                | 2.766     | 346.72x |
+
+<img width="741" height="327" alt="image" src="https://github.com/user-attachments/assets/e7f0ec3f-7317-4c60-b33d-c106215f1ee6" />
+
+<img width="761" height="616" alt="image" src="https://github.com/user-attachments/assets/cece5726-006c-4712-bf09-6ca62c27ef29" />
 
 ## Compile time
 
