@@ -24,6 +24,7 @@ enum {
 struct dec_fp {
   long long sig;  // significand
   int exp;        // exponent
+  bool negative;
 };
 
 /// Converts `value` into the shortest correctly rounded decimal representation.
