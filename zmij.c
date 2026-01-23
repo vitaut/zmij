@@ -1067,6 +1067,17 @@ static uint64_t pack8(uint8_t a, uint8_t b, uint8_t c, uint8_t d,  //
          (u64)d << 24 | (u64)c << 16 | (u64)b << +8 | (u64)a;
 }
 
+// Writes a significand consisting of up to 9 decimal digits (7-9 for normals)
+// and removes trailing zeros.
+static char* write_significand9(char* buffer, uint32_t value, bool has9digits) {
+  char* start = buffer;
+  buffer = write_if(buffer, value / 100000000, has9digits);
+  uint64_t bcd = to_bcd8(value % 100000000);
+  write8(buffer, bcd | zeros);
+  buffer += count_trailing_nonzeros(bcd);
+  return buffer - (int)(buffer - start == 1);
+}
+
 // Writes a significand consisting of up to 17 decimal digits (16-17 for
 // normals) and removes trailing zeros.  The significant digits start
 // from buffer[1].  buffer[0] may contain '0' after this function if
@@ -1248,17 +1259,6 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
   return buffer + ((last_digit != 0) ? 17 : len - (len == 1));
 #endif    // ZMIJ_USE_SSE
-}
-
-// Writes a significand consisting of up to 9 decimal digits (7-9 for normals)
-// and removes trailing zeros.
-static char* write_significand9(char* buffer, uint32_t value, bool has9digits) {
-  char* start = buffer;
-  buffer = write_if(buffer, value / 100000000, has9digits);
-  uint64_t bcd = to_bcd8(value % 100000000);
-  write8(buffer, bcd | zeros);
-  buffer += count_trailing_nonzeros(bcd);
-  return buffer - (int)(buffer - start == 1);
 }
 
 typedef struct {

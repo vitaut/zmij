@@ -32,15 +32,15 @@ struct dec_fp {
 auto to_decimal(double value) noexcept -> dec_fp;
 
 enum {
-  double_buffer_size = 25,
   float_buffer_size = 16,
+  double_buffer_size = 25,
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
 /// `out`. `out` should point to a buffer of size `n` or larger.
-inline auto write(char* out, size_t n, double value) noexcept -> size_t {
-  if (n >= double_buffer_size) return detail::write(value, out) - out;
-  char buffer[double_buffer_size];
+inline auto write(char* out, size_t n, float value) noexcept -> size_t {
+  if (n >= float_buffer_size) return detail::write(value, out) - out;
+  char buffer[float_buffer_size];
   size_t result = detail::write(value, buffer) - buffer;
   memcpy(out, buffer, n);
   return result;
@@ -48,9 +48,9 @@ inline auto write(char* out, size_t n, double value) noexcept -> size_t {
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
 /// `out`. `out` should point to a buffer of size `n` or larger.
-inline auto write(char* out, size_t n, float value) noexcept -> size_t {
-  if (n >= float_buffer_size) return detail::write(value, out) - out;
-  char buffer[float_buffer_size];
+inline auto write(char* out, size_t n, double value) noexcept -> size_t {
+  if (n >= double_buffer_size) return detail::write(value, out) - out;
+  char buffer[double_buffer_size];
   size_t result = detail::write(value, buffer) - buffer;
   memcpy(out, buffer, n);
   return result;
