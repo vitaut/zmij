@@ -513,7 +513,7 @@ auto write_significand17(char* buffer, uint64_t value, bool has17digits,
                          long long value_div10) noexcept -> char* {
   if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE) {
     char* start = buffer + 1;
-    // Each digit is denoted by a letter so value is abbccddeeffgghhii.
+    // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
     uint32_t abbccddee = uint32_t(value / 100'000'000);
     uint32_t ffgghhii = uint32_t(value % 100'000'000);
     buffer = write_if(start, abbccddee / 100'000'000, has17digits);
@@ -542,7 +542,7 @@ auto write_significand17(char* buffer, uint64_t value, bool has17digits,
   const mul_constants* c = &constants;
 
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
-  // instructions
+  // instructions.
   ZMIJ_ASM(("" : "+r"(c)));
 
   uint64_t hundred_million = c->hundred_million;
@@ -655,7 +655,7 @@ auto write_significand17(char* buffer, uint64_t value, bool has17digits,
 #  endif
   const __m128i zeros = _mm_load_si128(ptr(&consts.zeros));
 
-  // The BCD sequences are based on ones provided by Xiang JunBo.
+  // The BCD sequences are based on the ones provided by Xiang JunBo.
   __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
@@ -680,7 +680,7 @@ auto write_significand17(char* buffer, uint64_t value, bool has17digits,
 
   auto digits = _mm_or_si128(bcd, zeros);
 
-  // determine number of leading zeros
+  // Count leading zeros.
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
   uint32_t mask = _mm_movemask_epi8(mask128);
   // We don't need a zero-check here: if the mask were zero, either the
