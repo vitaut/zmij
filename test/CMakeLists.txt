@@ -12,8 +12,8 @@ endfunction()
 
 add_zmij_test(zmij-test)
 
-#add_zmij_test(zmij-c-test)
-#target_compile_definitions(zmij-c-test PRIVATE ZMIJ_C)
+add_zmij_test(zmij-c-test)
+target_compile_definitions(zmij-c-test PRIVATE ZMIJ_C)
 
 add_zmij_test(zmij-no-int128-test)
 target_compile_definitions(zmij-no-int128-test PRIVATE ZMIJ_USE_INT128=0)
