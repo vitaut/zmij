@@ -214,13 +214,17 @@ static uint128_t umul128(uint64_t x, uint64_t y) {
   return (uint128_t)x * y;
 #else
 #  if defined(_M_AMD64)
-  uint64_t hi = 0;
-  uint64_t lo = _umul128(x, y, &hi);
-  uint128 result = {hi, lo};
-  return result;
+  {
+    uint64_t hi = 0;
+    uint64_t lo = _umul128(x, y, &hi);
+    uint128 result = {hi, lo};
+    return result;
+  }
 #  elif defined(_M_ARM64)
-  uint128 result = {__umulh(x, y), x * y};
-  return result;
+  {
+    uint128 result = {__umulh(x, y), x * y};
+    return result;
+  }
 #  endif
   uint64_t a = x >> 32;
   uint64_t b = uint32_t(x);
@@ -240,13 +244,32 @@ static uint128_t umul128(uint64_t x, uint64_t y) {
 }
 
 static uint64_t umul128_hi64(uint64_t x, uint64_t y) {
+#if ZMIJ_USE_INT128
   return (uint64_t)(umul128(x, y) >> 64);
+#else
+  return umul128(x, y).hi;
+#endif
+}
+
+static uint64_t lo64(uint128 v) {
+#if ZMIJ_USE_INT128
+  return (uint64_t)v;
+#else
+  return v.lo;
+#endif
+}
+static uint64_t hi64(uint128 v) {
+#if ZMIJ_USE_INT128
+  return v >> 64;
+#else
+  return v.hi;
+#endif
 }
 
 static inline uint128 umul192_hi128(uint64_t x_hi, uint64_t x_lo, uint64_t y) {
   uint128_t p = umul128(x_hi, y);
-  uint64_t lo = (uint64_t)p + (uint64_t)(umul128(x_lo, y) >> 64);
-  uint128 result = {(uint64_t)(p >> 64) + (lo < (uint64_t)p), lo};
+  uint64_t lo = lo64(p) + umul128_hi64(x_lo, y);
+  uint128 result = {hi64(p) + (lo < lo64(p)), lo};
   return result;
 }
 
@@ -257,8 +280,13 @@ uint64_t umulhi_inexact_to_odd64(uint64_t x_hi, uint64_t x_lo, uint64_t y) {
   return p.hi | ((p.lo >> 1) != 0);
 }
 uint32_t umulhi_inexact_to_odd32(uint64_t x_hi, uint64_t _, uint32_t y) {
+#if ZMIJ_USE_INT128
   uint64_t p = (uint64_t)(umul128(x_hi, y) >> 32);
   return (uint32_t)(p >> 32) | (((uint32_t)p >> 1) != 0);
+#else
+  uint128 p = umul128(x_hi, y);
+  return (uint32_t)hi64(p) | ((lo64(p) >> 33) != 0);
+#endif
 }
 
 static const int double_num_bits = 64;
@@ -1138,12 +1166,12 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   ZMIJ_ASM(("" : "+r"(hundred_million)));
 
   // Equivalent to abbccddee = value / 100000000, ffgghhii = value % 100000000.
-  uint64_t abbccddee = (uint64_t)(umul128(value, c->mul_const) >> 90);
+  uint64_t abbccddee = umul128_hi64(value, c->mul_const) >> 26;
   uint64_t ffgghhii = value - abbccddee * hundred_million;
 
   // We could probably make this bit faster, but we're preferring to
   // reuse the constants for now.
-  uint64_t a = (uint64_t)(umul128(abbccddee, c->mul_const) >> 90);
+  uint64_t a = umul128_hi64(abbccddee, c->mul_const) >> 26;
   uint64_t bbccddee = abbccddee - a * hundred_million;
 
   buffer = write_if(buffer, a, has17digits);
@@ -1414,8 +1442,8 @@ static ZMIJ_INLINE to_decimal_result to_decimal_normal32(uint32_t bin_sig,
     uint32_t integral = 0;    // integral part of bin_sig * pow10
     uint64_t fractional = 0;  // fractional part of bin_sig * pow10
     uint128_t p = umul128(pow10.hi, bin_sig << exp_shift);
-    integral = (uint64_t)(p >> 64);
-    fractional = (uint64_t)p;
+    integral = hi64(p);
+    fractional = lo64(p);
     const uint64_t half_ulp = (uint64_t)1 << 63;
 
     // Exact half-ulp tie when rounding to nearest integer.
