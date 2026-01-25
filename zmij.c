@@ -1202,7 +1202,8 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
   memcpy(buffer, &str, sizeof(str));
 
-  uint16x8_t is_not_zero = vreinterpretq_u16_u8(vcgtzq_s8(digits));
+  uint16x8_t is_not_zero =
+      vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
   uint64_t zeroes =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
 
