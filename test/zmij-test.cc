@@ -183,7 +183,7 @@ TEST(dtoa_test, null_terminated) {
   EXPECT_STREQ(buffer, "nan");
 }
 
-#ifndef ZMIJ_C
+#if !ZMIJ_C
 TEST(dtoa_test, no_buffer) {
   double value = 6.62607015e-34;
   auto n = zmij::write(nullptr, 0, value);
@@ -224,7 +224,7 @@ TEST(dtoa_test, to_decimal) {
   dec = zmij::to_decimal(garlic_nan);
   EXPECT_EQ(dec.sig, garlic);
 }
-#endif
+#endif  // ZMIJ_C
 
 TEST(dtoa_test, no_overrun) {
   char buffer[zmij::double_buffer_size + 1];
