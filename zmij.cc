@@ -611,7 +611,7 @@ auto write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t abcdefgh = value_div10 / uint64_t(1e8);
   uint32_t ijklmnop = value_div10 % uint64_t(1e8);
 
-  alignas(64) static constexpr struct {
+  alignas(64) static constexpr struct constants {
     static constexpr auto splat64(uint64_t x) -> uint128 { return {x, x}; }
     static constexpr auto splat32(uint32_t x) -> uint128 {
       return splat64(uint64_t(x) << 32 | x);
@@ -643,20 +643,24 @@ auto write_significand17(char* buffer, uint64_t value, bool has17digits,
     uint128 zeros = splat64(::zeros);
   } consts;
 
+  const constants* c = &consts;
+  // Make the compiler forget where the constants came from to ensure they are loaded from memory.
+  ZMIJ_ASM(("" : "+r"(c)));
+
   using ptr = const __m128i*;
-  const __m128i div10k = _mm_load_si128(ptr(&consts.div10k));
-  const __m128i neg10k = _mm_load_si128(ptr(&consts.neg10k));
-  const __m128i div100 = _mm_load_si128(ptr(&consts.div100));
-  const __m128i div10 = _mm_load_si128(ptr(&consts.div10));
+  const __m128i div10k = _mm_load_si128(ptr(&c->div10k));
+  const __m128i neg10k = _mm_load_si128(ptr(&c->neg10k));
+  const __m128i div100 = _mm_load_si128(ptr(&c->div100));
+  const __m128i div10 = _mm_load_si128(ptr(&c->div10));
 #  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_load_si128(ptr(&consts.neg100));
-  const __m128i neg10 = _mm_load_si128(ptr(&consts.neg10));
-  const __m128i bswap = _mm_load_si128(ptr(&consts.bswap));
+  const __m128i neg100 = _mm_load_si128(ptr(&c->neg100));
+  const __m128i neg10 = _mm_load_si128(ptr(&c->neg10));
+  const __m128i bswap = _mm_load_si128(ptr(&c->bswap));
 #  else
-  const __m128i hundred = _mm_load_si128(ptr(&consts.hundred));
-  const __m128i moddiv10 = _mm_load_si128(ptr(&consts.moddiv10));
+  const __m128i hundred = _mm_load_si128(ptr(&c->hundred));
+  const __m128i moddiv10 = _mm_load_si128(ptr(&c->moddiv10));
 #  endif
-  const __m128i zeros = _mm_load_si128(ptr(&consts.zeros));
+  const __m128i zeros = _mm_load_si128(ptr(&c->zeros));
 
   // The BCD sequences are based on the ones provided by Xiang JunBo.
   __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
