@@ -280,13 +280,8 @@ uint64_t umulhi_inexact_to_odd64(uint64_t x_hi, uint64_t x_lo, uint64_t y) {
   return p.hi | ((p.lo >> 1) != 0);
 }
 uint32_t umulhi_inexact_to_odd32(uint64_t x_hi, uint64_t _, uint32_t y) {
-#if ZMIJ_USE_INT128
-  uint64_t p = (uint64_t)(umul128(x_hi, y) >> 32);
+  uint64_t p = lo64(uint128_rshift(umul128(x_hi, y), 32));
   return (uint32_t)(p >> 32) | (((uint32_t)p >> 1) != 0);
-#else
-  uint128 p = umul128(x_hi, y);
-  return (uint32_t)hi64(p) | ((lo64(p) >> 33) != 0);
-#endif
 }
 
 static const int double_num_bits = 64;
@@ -1166,12 +1161,12 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   ZMIJ_ASM(("" : "+r"(hundred_million)));
 
   // Equivalent to abbccddee = value / 100000000, ffgghhii = value % 100000000.
-  uint64_t abbccddee = umul128_hi64(value, c->mul_const) >> 26;
+  uint64_t abbccddee = lo64(uint128_rshift(umul128(value, c->mul_const), 90));
   uint64_t ffgghhii = value - abbccddee * hundred_million;
 
   // We could probably make this bit faster, but we're preferring to
   // reuse the constants for now.
-  uint64_t a = umul128_hi64(abbccddee, c->mul_const) >> 26;
+  uint64_t a = lo64(uint128_rshift(umul128_hi64(abbccddee, c->mul_const), 90));
   uint64_t bbccddee = abbccddee - a * hundred_million;
 
   buffer = write_if(buffer, a, has17digits);
