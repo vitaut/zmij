@@ -1002,7 +1002,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   memcpy(buffer, &e_sign, 2);
   buffer += 2;
   dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
-  if (traits::min_exponent10 > -100 && traits::max_exponent10 < 100) {
+  if (traits::max_exponent10 < 100) {
     memcpy(buffer, digits2(dec_exp), 2);
     buffer[2] = '\0';
     return buffer + 2;
