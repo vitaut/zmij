@@ -1166,7 +1166,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
 
   // We could probably make this bit faster, but we're preferring to
   // reuse the constants for now.
-  uint64_t a = lo64(uint128_rshift(umul128_hi64(abbccddee, c->mul_const), 90));
+  uint64_t a = lo64(uint128_rshift(umul128(abbccddee, c->mul_const), 90));
   uint64_t bbccddee = abbccddee - a * hundred_million;
 
   buffer = write_if(buffer, a, has17digits);
