@@ -506,7 +506,7 @@ auto write_significand9(char* buffer, uint32_t value, bool has9digits) noexcept
     -> char* {
   buffer = write_if(buffer, value / 100'000'000, has9digits);
   uint64_t bcd = to_bcd8(value % 100'000'000);
-  write8(buffer, bcd | zeros);
+  write8(buffer, bcd + zeros);
   return buffer + count_trailing_nonzeros(bcd);
 }
 
@@ -522,13 +522,13 @@ auto write_significand17(char* buffer, uint64_t value, bool has17digits,
     uint32_t ffgghhii = uint32_t(value % 100'000'000);
     buffer = write_if(buffer, abbccddee / 100'000'000, has17digits);
     uint64_t bcd = to_bcd8(abbccddee % 100'000'000);
-    write8(buffer, bcd | zeros);
+    write8(buffer, bcd + zeros);
     if (ffgghhii == 0) {
       write8(buffer + 8, zeros);
       return buffer + count_trailing_nonzeros(bcd);
     }
     bcd = to_bcd8(ffgghhii);
-    write8(buffer + 8, bcd | zeros);
+    write8(buffer + 8, bcd + zeros);
     return buffer + 8 + count_trailing_nonzeros(bcd);
   }
 #if ZMIJ_USE_NEON
