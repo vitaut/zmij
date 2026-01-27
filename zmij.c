@@ -989,8 +989,7 @@ static int compute_dec_exp(int bin_exp, bool regular) {
 // 10^dec_exp puts the decimal point in different bit positions:
 //   3 * 2**59 / 100 = 1.72...e+16  (needs shift = 1 + 1)
 //   3 * 2**60 / 100 = 3.45...e+16  (needs shift = 2 + 1)
-static const ZMIJ_INLINE unsigned char compute_exp_shift(int bin_exp,
-                                                         int dec_exp) {
+static ZMIJ_INLINE unsigned char compute_exp_shift(int bin_exp, int dec_exp) {
   assert(dec_exp >= -350 && dec_exp <= 350);
   // log2_pow10_sig = round(log2(10) * 2**log2_pow10_exp) + 1
   const int log2_pow10_sig = 217707, log2_pow10_exp = 16;
