@@ -289,7 +289,7 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
   static constexpr sig_type implicit_bit = sig_type(1) << num_sig_bits;
 
   static auto to_bits(Float value) noexcept -> sig_type {
-    uint64_t bits;
+    sig_type bits;
     memcpy(&bits, &value, sizeof(value));
     return bits;
   }
