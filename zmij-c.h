@@ -33,9 +33,9 @@ static inline size_t zmij_write_float(char* out, size_t n, float value) {
 /// `out`. `out` should point to a buffer of size `n` or larger.
 static inline size_t zmij_write_double(char* out, size_t n, double value) {
   if (n >= zmij_double_buffer_size)
-    return zmij_detail_write_float(value, out) - out;
+    return zmij_detail_write_double(value, out) - out;
   char buffer[zmij_double_buffer_size];
-  size_t result = zmij_detail_write_float(value, buffer) - buffer;
+  size_t result = zmij_detail_write_double(value, buffer) - buffer;
   memcpy(out, buffer, n);
   return result;
 }
