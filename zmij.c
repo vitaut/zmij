@@ -4,10 +4,9 @@
 // the Boost Software License, Version 1.0.
 // https://github.com/vitaut/zmij/
 
-typedef struct {
-  long long sig;
-  int exp;
-} zmij_dec_fp;
+#if __has_include("zmij-c.h")
+#  include "zmij-c.h"
+#endif
 
 #include <assert.h>   // assert
 #include <float.h>    // DBL_MANT_DIG
@@ -1577,7 +1576,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_normal64(uint64_t bin_sig,
   return to_decimal_schubfach64(bin_sig, bin_exp, regular, false);
 }
 
-char* zmij_write_float(float value, char* buffer) {
+char* zmij_detail_write_float(float value, char* buffer) {
   uint32_t bits = float_to_bits(value);
   // It is beneficial to extract exponent and significand early.
   int64_t bin_exp = float_get_exp(bits);   // binary exponent
@@ -1627,7 +1626,7 @@ char* zmij_write_float(float value, char* buffer) {
 }
 
 // It is slightly faster to return a pointer to the end than the size.
-char* zmij_write_double(double value, char* buffer) {
+char* zmij_detail_write_double(double value, char* buffer) {
   uint64_t bits = double_to_bits(value);
   // It is beneficial to extract exponent and significand early.
   int64_t bin_exp = double_get_exp(bits);   // binary exponent
