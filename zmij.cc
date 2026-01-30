@@ -403,6 +403,21 @@ struct exp_shift_table {
 };
 constexpr exp_shift_table exp_shifts;
 
+struct digits4_table {
+  static constexpr bool enable = true;
+  unsigned char data[enable ? 4 * 10000 : 1] = {};
+
+  constexpr digits4_table() {
+    for (int i = 0; i < 10000; ++i) {
+      data[4 * i] = i / 1000 + '0';
+      data[4 * i + 1] = (i % 1000) / 100 + '0';
+      data[4 * i + 2] = (i % 100) / 10 + '0';
+      data[4 * i + 3] = (i % 10) + '0';
+    }
+  }
+};
+constexpr digits4_table digits4;
+
 // Computes a shift so that, after scaling by a power of 10, the intermediate
 // result always has a fixed 128-bit fractional part (for double).
 //
@@ -436,20 +451,6 @@ inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // be faster than the automatically inserted range check.
   if (is_big_endian()) x = bswap64(x);
   return (size_t(70) - clz((x << 1) | 1)) / 8;  // size_t for native arithmetic
-}
-
-// Converts value in the range [0, 100) to a string. GCC generates a bit better
-// code when value is pointer-size (https://www.godbolt.org/z/5fEPMT1cc).
-inline auto digits2(size_t value) noexcept -> const char* {
-  // Align data since unaligned access may be slower when crossing a
-  // hardware-specific boundary.
-  alignas(2) static const char data[] =
-      "0001020304050607080910111213141516171819"
-      "2021222324252627282930313233343536373839"
-      "4041424344454647484950515253545556575859"
-      "6061626364656667686970717273747576777879"
-      "8081828384858687888990919293949596979899";
-  return &data[value * 2];
 }
 
 constexpr int div10k_exp = 40;
@@ -506,7 +507,7 @@ inline auto read8(char* buffer) noexcept -> uint64_t {
 // (8-9 for normals) for float. The significant digits start from buffer[1].
 // buffer[0] may contain '0' after this function if the leading digit is zero.
 template <int num_bits, bool use_sse = ZMIJ_USE_SSE != 0 && num_bits == 64>
-auto write_significand(char* buffer, uint64_t value, bool extra_digit,
+inline auto write_significand(char* buffer, uint64_t value, bool extra_digit,
                        long long value_div10) noexcept -> char* {
   if (num_bits == 32) {
     buffer = write_if(buffer, value / 100'000'000, extra_digit);
@@ -627,18 +628,10 @@ auto write_significand(char* buffer, uint64_t value, bool extra_digit,
 
     uint128 div10k = splat64(div10k_sig);
     uint128 neg10k = splat64(::neg10k);
-    uint128 div100 = splat32(div100_sig);
-    uint128 div10 = splat16((1 << 16) / 10 + 1);
-#  if ZMIJ_USE_SSE4_1
-    uint128 neg100 = splat32(::neg100);
-    uint128 neg10 = splat16((1 << 8) - 10);
-    uint128 bswap = uint128{pack8(15, 14, 13, 12, 11, 10, 9, 8),
-                            pack8(7, 6, 5, 4, 3, 2, 1, 0)};
-#  else
     uint128 hundred = splat32(100);
-    uint128 moddiv10 = splat16(10 * (1 << 8) - 1);
-#  endif
+
     uint128 zeros = splat64(::zeros);
+    uint128 all_ones = splat16(0xffff);
   } consts;
   const auto* c = &consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
@@ -646,45 +639,17 @@ auto write_significand(char* buffer, uint64_t value, bool extra_digit,
   using ptr = const __m128i*;
   const __m128i div10k = _mm_load_si128(ptr(&c->div10k));
   const __m128i neg10k = _mm_load_si128(ptr(&c->neg10k));
-  const __m128i div100 = _mm_load_si128(ptr(&c->div100));
-  const __m128i div10 = _mm_load_si128(ptr(&c->div10));
-#  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_load_si128(ptr(&c->neg100));
-  const __m128i neg10 = _mm_load_si128(ptr(&c->neg10));
-  const __m128i bswap = _mm_load_si128(ptr(&c->bswap));
-#  else
-  const __m128i hundred = _mm_load_si128(ptr(&c->hundred));
-  const __m128i moddiv10 = _mm_load_si128(ptr(&c->moddiv10));
-#  endif
   const __m128i zeros = _mm_load_si128(ptr(&c->zeros));
 
-  // The BCD sequences are based on the ones provided by Xiang JunBo.
   __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
-  __m128i y = _mm_add_epi64(
+  __m128i y_shuffled = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
-#  if ZMIJ_USE_SSE4_1
-  // _mm_mullo_epi32 is SSE 4.1
-  __m128i z = _mm_add_epi64(
-      y,
-      _mm_mullo_epi32(neg100, _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
-  __m128i big_endian_bcd =
-      _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
-  __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, bswap);  // SSSE3
-#  else
-  __m128i y_div_100 = _mm_srli_epi16(_mm_mulhi_epu16(y, div100), 3);
-  __m128i y_mod_100 = _mm_sub_epi16(y, _mm_mullo_epi16(y_div_100, hundred));
-  __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
-  __m128i bcd_shuffled =
-      _mm_sub_epi16(_mm_slli_epi16(z, 8),
-                    _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
-  __m128i bcd = _mm_shuffle_epi32(bcd_shuffled, _MM_SHUFFLE(0, 1, 2, 3));
-#  endif  // ZMIJ_USE_SSE4_1
-
-  auto digits = _mm_or_si128(bcd, zeros);
+  __m128i y = _mm_shuffle_epi32(y_shuffled, _MM_SHUFFLE(0, 1, 2, 3));
+  __m128i digits = _mm_i32gather_epi32((const int*)(digits4.data), y, 4);
 
   // Count leading zeros.
-  __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
+  __m128i mask128 = _mm_cmpgt_epi8(digits, zeros);
   uint32_t mask = _mm_movemask_epi8(mask128);
   // We don't need a zero-check here: if the mask were zero, either the
   // significand is zero which is handled elsewhere or the only non-zero digit
@@ -985,26 +950,14 @@ auto write(Float value, char* buffer) noexcept -> char* {
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
 
   // Write exponent.
+  auto dec_exp_abs = dec_exp >= 0 ? dec_exp : -dec_exp;
+  size_t want_hundreds = dec_exp_abs >= 100;
+  memcpy(buffer + want_hundreds, digits4.data + 4*dec_exp_abs, 4);
   uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
-  if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
   memcpy(buffer, &e_sign, 2);
-  buffer += 2;
-  dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
-  if (traits::max_exponent10 < 100) {
-    memcpy(buffer, digits2(dec_exp), 2);
-    buffer[2] = '\0';
-    return buffer + 2;
-  }
-  // digit = dec_exp / 100
-  uint32_t digit = use_umul128_hi64
-                       ? umul128_hi64(dec_exp, 0x290000000000000)
-                       : (uint32_t(dec_exp) * div100_sig) >> div100_exp;
-  uint32_t digit_with_nuls = '0' + digit;
-  if (is_big_endian()) digit_with_nuls <<= 24;
-  memcpy(buffer, &digit_with_nuls, 4);
-  buffer += dec_exp >= 100;
-  memcpy(buffer, digits2(dec_exp - digit * 100), 2);
-  return buffer + 2;
+  buffer += 2 + want_hundreds + 2;
+  *buffer = 0;
+  return buffer;
 }
 
 template auto write(float value, char* buffer) noexcept -> char*;
