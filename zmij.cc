@@ -848,10 +848,9 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
 
     // Check for boundary case when rounding down to nearest 10 and
     // near-boundary case when rounding up to nearest 10.
-    if (scaled_sig_mod10 == scaled_half_ulp ||
-        // Case where upper == ten is insufficient: 1.342178e+08f.
-        ten - upper <= 1u)  // upper == ten || upper == ten - 1
-        [[ZMIJ_UNLIKELY]] {
+    // Case where upper == ten is insufficient: 1.342178e+08f.
+    if (ten - upper <= 1u ||  // upper == ten || upper == ten - 1
+        scaled_sig_mod10 == scaled_half_ulp) [[ZMIJ_UNLIKELY]] {
       break;
     }
 
