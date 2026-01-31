@@ -74,6 +74,12 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #  define ZMIJ_X86_64 0
 #endif
 
+#ifdef __clang__
+#  define ZMIJ_CLANG 1
+#else
+#  define ZMIJ_CLANG 0
+#endif
+
 #ifdef _MSC_VER
 #  define ZMIJ_MSC_VER _MSC_VER
 #  include <intrin.h>  // __lzcnt64/_umul128/__umulh
@@ -180,7 +186,8 @@ inline auto clz(uint64_t x) noexcept -> int {
 // Returns true_value if condition != 0, else false_value, without branching.
 ZMIJ_INLINE auto select(uint64_t condition, int64_t true_value,
                         int64_t false_value) -> int64_t {
-  if (!ZMIJ_X86_64) return condition ? true_value : false_value;
+  // Clang can figure it out on its own.
+  if (!ZMIJ_X86_64 || ZMIJ_CLANG) return condition ? true_value : false_value;
   ZMIJ_ASM(
       volatile("test %2, %2\n\t"
                "cmovne %1, %0\n\t" :  //
