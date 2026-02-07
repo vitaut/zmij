@@ -33,9 +33,9 @@
 #ifdef ZMIJ_USE_SSE
 // Use the provided definition
 #elif defined(__SSE2__)
-#  define ZMIJ_USE_SSE 0
+#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86FP == 2)
-#  define ZMIJ_USE_SSE 0
+#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_SSE 0
 #endif
@@ -1112,9 +1112,9 @@ static char* write_significand9(char* buffer, uint32_t value, bool has9digits) {
 // normals) and removes trailing zeros.  The significant digits start
 // from buffer[1].  buffer[0] may contain '0' after this function if
 // the significand has length 16.
-static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
-                                 long long value_div10) {
-  if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE) {
+static char* write_significand17_no_simd(char* buffer, uint64_t value,
+                                         bool has17digits) {
+  {
     // Each digit is denoted by a letter so value is abbccddeeffgghhii.
     uint32_t abbccddee = (uint32_t)(value / 100000000);
     uint32_t ffgghhii = (uint32_t)(value % 100000000);
@@ -1128,6 +1128,13 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
     bcd = to_bcd8(ffgghhii);
     write8(buffer + 8, bcd | zeros);
     return buffer + 8 + count_trailing_nonzeros(bcd);
+  }
+}
+
+static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
+                                 long long value_div10) {
+  if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE) {
+    return write_significand17_no_simd(buffer, value, has17digits);
   }
 #if ZMIJ_USE_NEON
   // An optimized version for NEON by Dougall Johnson.
@@ -1676,7 +1683,7 @@ char* zmij_detail_write_double(double value, char* buffer) {
     // Avoid reading uninitialized memory (would be unnecessary in asm).
     write8(buffer + 16, 0);
 
-    buffer = write_significand17(buffer, dec.sig, has17digits, sig_div10);
+    buffer = write_significand17_no_simd(buffer, dec.sig, has17digits);
 
     // Branchless move to make space for the '.' without OOB accesses.
     char* part1 = start + dec_exp + (dec_exp < 2);
