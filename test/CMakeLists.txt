@@ -11,6 +11,7 @@ function(add_zmij_test name)
 endfunction()
 
 add_zmij_test(zmij-test)
+target_sources(zmij-test PRIVATE pow10-test.cc)
 
 add_zmij_test(zmij-c-test)
 target_compile_definitions(zmij-c-test PRIVATE ZMIJ_C=1)
@@ -24,10 +25,9 @@ target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_USE_SIMD=0)
 add_zmij_test(zmij-no-builtins-test)
 target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_NO_BUILTINS=1)
 
-add_executable(pow10-test pow10-test.cc)
-target_compile_features(pow10-test PRIVATE ${ZMIJ_STANDARD})
-add_test(NAME pow10-test COMMAND pow10-test)
-target_link_libraries(pow10-test gtest)
+add_zmij_test(zmij-optimize-size-test)
+target_compile_definitions(zmij-optimize-size-test PRIVATE ZMIJ_OPTIMIZE_SIZE=1)
+target_sources(zmij-optimize-size-test PRIVATE pow10-test.cc)
 
 set(ZMIJ_CHECK_STANDARD cxx_std_20)
 

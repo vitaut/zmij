@@ -638,9 +638,10 @@ TEST(pow10_test, verify) {
     auto actual = pow10_significands[dec_exp_min + i];
     EXPECT_EQ(actual.hi, expected[i].hi);
     auto diff = int64_t(actual.lo - expected[i].lo);
-    EXPECT_LE(std::abs(diff), pow10_significands_table::compress ? 1 : 0)
-        << "i=" << i << " actual.lo=" << actual.lo
-        << " expected.lo=" << expected[i].lo;
+    EXPECT_GE(diff, pow10_significands_table::compress ? -1 : 0)
+        << "i=" << i << " actual.lo=" << actual.lo << " expected.lo=" << expected[i].lo;
+    EXPECT_LE(diff, pow10_significands_table::compress ? 1 : 0)
+        << "i=" << i << " actual.lo=" << actual.lo << " expected.lo=" << expected[i].lo;
   }
 }
 
@@ -652,9 +653,4 @@ TEST(pow10_test, umulhi_inexact_to_odd) {
   EXPECT_EQ(umulhi_inexact_to_odd(pow10.hi, pow10.lo,
                                   uint64_t(0x1234567890abce16 << 1)),
             0x24554a3ce60a4643);
-}
-
-auto main(int argc, char** argv) -> int {
-  testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
 }
