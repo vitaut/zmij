@@ -117,7 +117,11 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #  define ZMIJ_MAYBE_UNUSED
 #endif
 
-#ifndef ZMIJ_OPTIMIZE_SIZE
+#ifdef ZMIJ_OPTIMIZE_SIZE
+// Use the provided definition
+#elif defined(__OPTIMIZE_SIZE__)
+#  define ZMIJ_OPTIMIZE_SIZE 1
+#else
 #  define ZMIJ_OPTIMIZE_SIZE 0
 #endif
 
