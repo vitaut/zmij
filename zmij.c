@@ -229,18 +229,18 @@ static uint128_t umul128(uint64_t x, uint64_t y) {
   }
 #  endif
   uint64_t a = x >> 32;
-  uint64_t b = uint32_t(x);
+  uint64_t b = (uint32_t)x;
   uint64_t c = y >> 32;
-  uint64_t d = uint32_t(y);
+  uint64_t d = (uint32_t)y;
 
   uint64_t ac = a * c;
   uint64_t bc = b * c;
   uint64_t ad = a * d;
   uint64_t bd = b * d;
 
-  uint64_t cs = (bd >> 32) + uint32_t(ad) + uint32_t(bc);  // cross sum
+  uint64_t cs = (bd >> 32) + (uint32_t)ad + (uint32_t)bc;  // cross sum
   uint128 result = {ac + (ad >> 32) + (bc >> 32) + (cs >> 32),
-                    (cs << 32) + uint32_t(bd)};
+                    (cs << 32) + (uint32_t)bd};
   return result;
 #endif  // ZMIJ_USE_INT128
 }
