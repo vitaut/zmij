@@ -91,7 +91,7 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #endif
 
 #if ZMIJ_HAS_CPP_ATTRIBUTE(maybe_unused)
-#  define ZMIJ_MAYBE_UNUSED maybe_unused
+#  define ZMIJ_MAYBE_UNUSED [[maybe_unused]]
 #else
 #  define ZMIJ_MAYBE_UNUSED
 #endif
@@ -157,11 +157,11 @@ typedef struct {
   uint64_t lo;
 } uint128;
 
-[[ZMIJ_MAYBE_UNUSED]] static inline uint64_t uint128_to_uint64(uint128 u) {
+ZMIJ_MAYBE_UNUSED static inline uint64_t uint128_to_uint64(uint128 u) {
   return u.lo;
 }
 
-[[ZMIJ_MAYBE_UNUSED]] static inline uint128 uint128_add(uint128 lhs,
+ZMIJ_MAYBE_UNUSED static inline uint128 uint128_add(uint128 lhs,
                                                         uint128 rhs) {
 #ifdef _M_AMD64
   uint64_t lo, hi;
@@ -189,7 +189,7 @@ typedef unsigned __int128 uint128_t;
 typedef uint128 uint128_t;
 #endif  // ZMIJ_USE_INT128
 
-[[ZMIJ_MAYBE_UNUSED]] static inline uint128_t uint128_rshift(uint128_t u,
+ZMIJ_MAYBE_UNUSED static inline uint128_t uint128_rshift(uint128_t u,
                                                              int shift) {
 #if ZMIJ_USE_INT128
   return u >> shift;
