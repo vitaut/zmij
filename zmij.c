@@ -286,17 +286,18 @@ uint32_t umulhi_inexact_to_odd32(uint64_t x_hi, uint64_t _, uint32_t y) {
   return (uint32_t)(p >> 32) | (((uint32_t)p >> 1) != 0);
 }
 
-static const int double_num_bits = 64;
-static const int double_num_sig_bits = DBL_MANT_DIG - 1;
-static const int double_num_exp_bits =
-    double_num_bits - double_num_sig_bits - 1;
-static const int double_exp_mask = (1 << double_num_exp_bits) - 1;
-static const int double_exp_bias = (1 << (double_num_exp_bits - 1)) - 1;
-static const int double_exp_offset = double_exp_bias + double_num_sig_bits;
+enum
+{
+ double_num_bits = 64,
+ double_num_sig_bits = DBL_MANT_DIG - 1,
+ double_num_exp_bits = double_num_bits - double_num_sig_bits - 1,
+ double_exp_mask = (1 << double_num_exp_bits) - 1,
+ double_exp_bias = (1 << (double_num_exp_bits - 1)) - 1,
+ double_exp_offset = double_exp_bias + double_num_sig_bits,
+};
 
 typedef uint64_t double_sig_type;
-static const double_sig_type double_implicit_bit = (double_sig_type)1
-                                                   << double_num_sig_bits;
+#define double_implicit_bit ((double_sig_type)((double_sig_type)1 << double_num_sig_bits))
 
 static inline double_sig_type double_to_bits(double value) {
   uint64_t bits;
@@ -314,16 +315,18 @@ static int64_t double_get_exp(double_sig_type bits) {
   return (int64_t)((bits << 1) >> (double_num_sig_bits + 1));
 }
 
-static const int float_num_bits = 32;
-static const int float_num_sig_bits = FLT_MANT_DIG - 1;
-static const int float_num_exp_bits = float_num_bits - float_num_sig_bits - 1;
-static const int float_exp_mask = (1 << float_num_exp_bits) - 1;
-static const int float_exp_bias = (1 << (float_num_exp_bits - 1)) - 1;
-static const int float_exp_offset = float_exp_bias + float_num_sig_bits;
+enum
+{
+ float_num_bits = 32,
+ float_num_sig_bits = FLT_MANT_DIG - 1,
+ float_num_exp_bits = float_num_bits - float_num_sig_bits - 1,
+ float_exp_mask = (1 << float_num_exp_bits) - 1,
+ float_exp_bias = (1 << (float_num_exp_bits - 1)) - 1,
+ float_exp_offset = float_exp_bias + float_num_sig_bits,
+};
 
 typedef uint32_t float_sig_type;
-static const float_sig_type float_implicit_bit = (float_sig_type)1
-                                                 << float_num_sig_bits;
+#define float_implicit_bit ((float_sig_type)((float_sig_type)1 << float_num_sig_bits))
 
 static inline float_sig_type float_to_bits(float value) {
   uint32_t bits;
