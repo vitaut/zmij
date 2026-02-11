@@ -1239,22 +1239,36 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t abcdefgh = value_div10 / (uint64_t)1e8;
   uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
 
-  alignas(64) static const struct {
-    m128i div10k = splat64(div10k_sig);
-    m128i neg10k = splat64(::neg10k);
-    m128i div100 = splat32(div100_sig);
-    m128i div10 = splat16((1 << 16) / 10 + 1);
+  ZMIJ_ALIGNAS(64) static const struct {
+    m128i div10k;
+    m128i neg10k;
+    m128i div100;
+    m128i div10;
 #  if ZMIJ_USE_SSE4_1
-    m128i neg100 = splat32(::neg100);
-    m128i neg10 = splat16((1 << 8) - 10);
-    m128i bswap = m128i{pack8(15, 14, 13, 12, 11, 10, 9, 8),
-                        pack8(7, 6, 5, 4, 3, 2, 1, 0)};
+    m128i neg100;
+    m128i neg10;
+    m128i bswap;
 #  else
-    m128i hundred = splat32(100);
-    m128i moddiv10 = splat16(10 * (1 << 8) - 1);
+    m128i hundred;
+    m128i moddiv10;
 #  endif
-    m128i zeros = splat64(::zeros);
-  } consts;
+    m128i zeros;
+  } consts = {
+    .div10k = splat64(div10k_sig),
+    .neg10k = splat64(neg10k),
+    .div100 = splat32(div100_sig),
+    .div10 = splat16((1 << 16) / 10 + 1),
+#  if ZMIJ_USE_SSE4_1
+    .neg100 = splat32(neg100),
+    .neg10 = splat16((1 << 8) - 10),
+    .bswap = m128i{pack8(15, 14, 13, 12, 11, 10, 9, 8),
+                        pack8(7, 6, 5, 4, 3, 2, 1, 0)},
+#  else
+    .hundred = splat32(100),
+    .moddiv10 = splat16(10 * (1 << 8) - 1),
+#  endif
+    .zeros = splat64(zeros),
+  };
 
   const __m128i div10k = _mm_load_si128((__m128i*)&consts.div10k);
   const __m128i neg10k = _mm_load_si128((__m128i*)&consts.neg10k);
