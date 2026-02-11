@@ -1043,13 +1043,13 @@ static inline const char* digits2(size_t value) {
   return &data[value * 2];
 }
 
-static const int div10k_exp = 40;
+#define div10k_exp 40
 static const uint32_t div10k_sig = (uint32_t)((1ull << div10k_exp) / 10000 + 1);
 static const uint32_t neg10k = (uint32_t)((1ull << 32) - 10000);
-static const int div100_exp = 19;
+#define div100_exp 19
 static const uint32_t div100_sig = (1 << div100_exp) / 100 + 1;
 static const uint32_t neg100 = (1 << 16) - 100;
-static const int div10_exp = 10;
+#define div10_exp 10
 static const uint32_t div10_sig = (1 << div10_exp) / 10 + 1;
 static const uint32_t neg10 = (1 << 8) - 10;
 
