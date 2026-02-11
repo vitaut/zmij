@@ -110,6 +110,16 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #  define ZMIJ_ASM(x)
 #endif
 
+#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#  define ZMIJ_ALIGNAS(x) _Alignas(x)
+#elif ZMIJ_MSC_VER
+#  define ZMIJ_ALIGNAS(x) __declspec(align(x))
+#elif __GNUC__
+#  define ZMIJ_ALIGNAS(x) __attribute__((aligned(x)))
+#else
+#  error Failed to define ZMIJ_ALIGNAS
+#endif
+
 static inline bool is_big_endian() {
   int n = 1;
   return *(char*)(&n) != 1;
@@ -345,7 +355,7 @@ static int64_t float_get_exp(float_sig_type bits) {
 }
 
 // 128-bit significands of powers of 10 rounded down.
-_Alignas(64) const uint128 pow10_significands_data[] = {
+ZMIJ_ALIGNAS(64) const uint128 pow10_significands_data[] = {
     {0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a},  // -292
     {0x9faacf3df73609b1, 0x77b191618c54e9ac},  // -291
     {0xc795830d75038c1d, 0xd59df5b9ef6a2417},  // -290
@@ -1024,7 +1034,7 @@ static inline int count_trailing_nonzeros(uint64_t x) {
 static inline const char* digits2(size_t value) {
   // Align data since unaligned access may be slower when crossing a
   // hardware-specific boundary.
-  _Alignas(2) static const char data[] =
+  ZMIJ_ALIGNAS(2) static const char data[] =
       "0001020304050607080910111213141516171819"
       "2021222324252627282930313233343536373839"
       "4041424344454647484950515253545556575859"
