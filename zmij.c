@@ -1234,10 +1234,10 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   // buffer points to the second place in the output buffer to allow for the
   // insertion of the decimal point, so we can use the first place as scratch.
   buffer += has17digits - 1;
-  buffer[16] = char(last_digit + '0');
+  buffer[16] = (char)(last_digit + '0');
 
-  uint32_t abcdefgh = value_div10 / uint64_t(1e8);
-  uint32_t ijklmnop = value_div10 % uint64_t(1e8);
+  uint32_t abcdefgh = value_div10 / (uint64_t)1e8;
+  uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
 
   alignas(64) static const struct {
     m128i div10k = splat64(div10k_sig);
