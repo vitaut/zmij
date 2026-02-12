@@ -1046,18 +1046,18 @@ static inline const char* digits2(size_t value) {
   return &data[value * 2];
 }
 
-#define DIV_10K_EXP 40
+#define div_10k_exp 40
 static const uint32_t div10k_sig =
-    ((uint32_t)((1ull << DIV_10K_EXP) / 10000 + 1));
-static const uint32_t NEG10K = ((uint32_t)((1ull << 32) - 10000));
-#define DIV100_EXP 19
-static const uint32_t div100_sig = ((1 << DIV100_EXP) / 100 + 1);
+    ((uint32_t)((1ull << div_10k_exp) / 10000 + 1));
+static const uint32_t neg10k = ((uint32_t)((1ull << 32) - 10000));
+#define div100_exp 19
+static const uint32_t div100_sig = ((1 << div100_exp) / 100 + 1);
 static const uint32_t neg100 = ((1 << 16) - 100);
-#define DIV10_EXP 10
-static const uint32_t div10_sig = ((1 << DIV10_EXP) / 10 + 1);
+#define div10_exp 10
+static const uint32_t div10_sig = ((1 << div10_exp) / 10 + 1);
 static const uint32_t neg10 = ((1 << 8) - 10);
 
-static const uint64_t ZEROS = 0x0101010101010101u * '0';
+static const uint64_t zeros = 0x0101010101010101u * '0';
 
 static uint64_t to_bcd8(uint64_t abcdefgh) {
   // An optimization from Xiang JunBo.
@@ -1068,13 +1068,13 @@ static uint64_t to_bcd8(uint64_t abcdefgh) {
   // where the division on the RHS is implemented by the usual multiply + shift
   // trick and the fractional bits are masked away.
   uint64_t abcd_efgh =
-      abcdefgh + NEG10K * ((abcdefgh * div10k_sig) >> DIV_10K_EXP);
+      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div_10k_exp);
   uint64_t ab_cd_ef_gh =
       abcd_efgh +
-      neg100 * (((abcd_efgh * div100_sig) >> DIV100_EXP) & 0x7f0000007f);
+      neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
   uint64_t a_b_c_d_e_f_g_h =
       ab_cd_ef_gh +
-      neg10 * (((ab_cd_ef_gh * div10_sig) >> DIV10_EXP) & 0xf000f000f000f);
+      neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
   return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
@@ -1120,7 +1120,7 @@ static char* write_significand9(char* buffer, uint32_t value, bool has9digits) {
   char* start = buffer;
   buffer = write_if(buffer, value / 100000000, has9digits);
   uint64_t bcd = to_bcd8(value % 100000000);
-  write8(buffer, bcd | ZEROS);
+  write8(buffer, bcd | zeros);
   buffer += count_trailing_nonzeros(bcd);
   return buffer - (int)(buffer - start == 1);
 }
@@ -1137,13 +1137,13 @@ static char* write_significand17_no_simd(char* buffer, uint64_t value,
     uint32_t ffgghhii = (uint32_t)(value % 100000000);
     buffer = write_if(buffer, abbccddee / 100000000, has17digits);
     uint64_t bcd = to_bcd8(abbccddee % 100000000);
-    write8(buffer, bcd | ZEROS);
+    write8(buffer, bcd | zeros);
     if (ffgghhii == 0) {
-      write8(buffer + 8, ZEROS);
+      write8(buffer + 8, zeros);
       return buffer + count_trailing_nonzeros(bcd);
     }
     bcd = to_bcd8(ffgghhii);
-    write8(buffer + 8, bcd | ZEROS);
+    write8(buffer + 8, bcd | zeros);
     return buffer + 8 + count_trailing_nonzeros(bcd);
   }
 }
@@ -1172,8 +1172,8 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   static const mul_constants constants = {
       0xabcc77118461cefd,
       100000000,
-      {DIV10K_SIG, NEG10K, DIV100_SIG << 12, NEG100},
-      {0xce0, NEG10}};
+      {div10k_sig, neg10k, div100_sig << 12, neg100},
+      {0xce0, neg10}};
   const mul_constants* c = &constants;
 
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
@@ -1244,11 +1244,11 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
 
   const __m128i div10k = _mm_set1_epi64x(div10k_sig);
-  const __m128i neg10k = _mm_set1_epi64x(NEG10K);
+  const __m128i neg10k_wide = _mm_set1_epi64x(neg10k);
   const __m128i div100 = _mm_set1_epi32(div100_sig);
   const __m128i div10 = _mm_set1_epi16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_set1_epi32(NEG100);
+  const __m128i neg100_wide = _mm_set1_epi32(neg100);
   const __m128i neg10 = _mm_set1_epi16((1 << 8) - 10);
   const __m128i bswap =
       _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
@@ -1256,18 +1256,18 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   const __m128i hundred = _mm_set1_epi32(100);
   const __m128i moddiv10 = _mm_set1_epi16(10 * (1 << 8) - 1);
 #  endif
-  const __m128i zeros = _mm_set1_epi64x(ZEROS);
+  const __m128i zeros_wide = _mm_set1_epi64x(zeros);
 
   // The BCD sequences are based on ones provided by Xiang JunBo.
   __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
   __m128i y = _mm_add_epi64(
-      x, _mm_mul_epu32(neg10k,
-                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), DIV_10K_EXP)));
+      x, _mm_mul_epu32(neg10k_wide,
+                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), div_10k_exp)));
 #  if ZMIJ_USE_SSE4_1
   // _mm_mullo_epi32 is SSE 4.1
   __m128i z = _mm_add_epi64(
-      y,
-      _mm_mullo_epi32(neg100, _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
+      y, _mm_mullo_epi32(neg100_wide,
+                         _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
   __m128i big_endian_bcd =
       _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
   __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, bswap);  // SSSE3
@@ -1281,7 +1281,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   __m128i bcd = _mm_shuffle_epi32(bcd_shuffled, _MM_SHUFFLE(0, 1, 2, 3));
 #  endif  // ZMIJ_USE_SSE4_1
 
-  __m128i digits = _mm_or_si128(bcd, zeros);
+  __m128i digits = _mm_or_si128(bcd, zeros_wide);
 
   // determine number of leading zeros
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
@@ -1717,7 +1717,7 @@ char* zmij_detail_write_double(double value, char* buffer) {
   // digit = dec_exp / 100
   uint32_t digit = use_umul128_hi64
                        ? umul128_hi64(dec_exp, 0x290000000000000)
-                       : ((uint32_t)dec_exp * div100_sig) >> DIV100_EXP;
+                       : ((uint32_t)dec_exp * div100_sig) >> div100_exp;
   uint32_t digit_with_nuls = '0' + digit;
   if (is_big_endian()) digit_with_nuls <<= 24;
   memcpy(buffer, &digit_with_nuls, 4);
