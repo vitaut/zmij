@@ -298,17 +298,17 @@ uint32_t umulhi_inexact_to_odd32(uint64_t x_hi, uint64_t _, uint32_t y) {
 }
 
 enum {
-  DOUBLE_NUM_BITS = 64,
-  DOUBLE_NUM_SIG_BITS = DBL_MANT_DIG - 1,
-  DOUBLE_NUM_EXP_BITS = DOUBLE_NUM_BITS - DOUBLE_NUM_SIG_BITS - 1,
-  DOUBLE_EXP_MASK = (1 << DOUBLE_NUM_EXP_BITS) - 1,
-  DOUBLE_EXP_BIAS = (1 << (DOUBLE_NUM_EXP_BITS - 1)) - 1,
-  DOUBLE_EXP_OFFSET = DOUBLE_EXP_BIAS + DOUBLE_NUM_SIG_BITS,
+  double_num_bits = 64,
+  double_num_sig_bits = DBL_MANT_DIG - 1,
+  double_num_exp_bits = double_num_bits - double_num_sig_bits - 1,
+  double_exp_mask = (1 << double_num_exp_bits) - 1,
+  double_exp_bias = (1 << (double_num_exp_bits - 1)) - 1,
+  double_exp_offset = double_exp_bias + double_num_sig_bits,
 };
 
 typedef uint64_t double_sig_type;
-#define DOUBLE_IMPLICIT_BIT \
-  ((double_sig_type)((double_sig_type)1 << DOUBLE_NUM_SIG_BITS))
+#define double_implicit_bit \
+  ((double_sig_type)((double_sig_type)1 << double_num_sig_bits))
 
 static inline double_sig_type double_to_bits(double value) {
   uint64_t bits;
@@ -317,27 +317,27 @@ static inline double_sig_type double_to_bits(double value) {
 }
 
 static inline bool double_is_negative(double_sig_type bits) {
-  return bits >> (DOUBLE_NUM_BITS - 1);
+  return bits >> (double_num_bits - 1);
 }
 static inline double_sig_type double_get_sig(double_sig_type bits) {
-  return bits & (DOUBLE_IMPLICIT_BIT - 1);
+  return bits & (double_implicit_bit - 1);
 }
 static int64_t double_get_exp(double_sig_type bits) {
-  return (int64_t)((bits << 1) >> (DOUBLE_NUM_SIG_BITS + 1));
+  return (int64_t)((bits << 1) >> (double_num_sig_bits + 1));
 }
 
 enum {
-  FLOAT_NUM_BITS = 32,
-  FLOAT_NUM_SIG_BITS = FLT_MANT_DIG - 1,
-  FLOAT_NUM_EXP_BITS = FLOAT_NUM_BITS - FLOAT_NUM_SIG_BITS - 1,
-  FLOAT_EXP_MASK = (1 << FLOAT_NUM_EXP_BITS) - 1,
-  FLOAT_EXP_BIAS = (1 << (FLOAT_NUM_EXP_BITS - 1)) - 1,
-  FLOAT_EXP_OFFSET = FLOAT_EXP_BIAS + FLOAT_NUM_SIG_BITS,
+  float_num_bits = 32,
+  float_num_sig_bits = FLT_MANT_DIG - 1,
+  float_num_exp_bits = float_num_bits - float_num_sig_bits - 1,
+  float_exp_mask = (1 << float_num_exp_bits) - 1,
+  float_exp_bias = (1 << (float_num_exp_bits - 1)) - 1,
+  float_exp_offset = float_exp_bias + float_num_sig_bits,
 };
 
 typedef uint32_t float_sig_type;
-#define FLOAT_IMPLICIT_BIT \
-  ((float_sig_type)((float_sig_type)1 << FLOAT_NUM_SIG_BITS))
+#define float_implicit_bit \
+  ((float_sig_type)((float_sig_type)1 << float_num_sig_bits))
 
 static inline float_sig_type float_to_bits(float value) {
   uint32_t bits;
@@ -346,13 +346,13 @@ static inline float_sig_type float_to_bits(float value) {
 }
 
 static inline bool float_is_negative(float_sig_type bits) {
-  return bits >> (FLOAT_NUM_BITS - 1);
+  return bits >> (float_num_bits - 1);
 }
 static inline float_sig_type float_get_sig(float_sig_type bits) {
-  return bits & (FLOAT_IMPLICIT_BIT - 1);
+  return bits & (float_implicit_bit - 1);
 }
 static int64_t float_get_exp(float_sig_type bits) {
-  return (int64_t)((bits << 1) >> (FLOAT_NUM_SIG_BITS + 1));
+  return (int64_t)((bits << 1) >> (float_num_sig_bits + 1));
 }
 
 // 128-bit significands of powers of 10 rounded down.
@@ -1047,14 +1047,15 @@ static inline const char* digits2(size_t value) {
 }
 
 #define DIV_10K_EXP 40
-#define DIV10K_SIG ((uint32_t)((1ull << DIV_10K_EXP) / 10000 + 1))
-#define NEG10K ((uint32_t)((1ull << 32) - 10000))
+static const uint32_t div10k_sig =
+    ((uint32_t)((1ull << DIV_10K_EXP) / 10000 + 1));
+static const uint32_t NEG10K = ((uint32_t)((1ull << 32) - 10000));
 #define DIV100_EXP 19
-#define DIV100_SIG ((1 << DIV100_EXP) / 100 + 1)
-#define NEG100 ((1 << 16) - 100)
+static const uint32_t div100_sig = ((1 << DIV100_EXP) / 100 + 1);
+static const uint32_t neg100 = ((1 << 16) - 100);
 #define DIV10_EXP 10
-#define DIV10_SIG ((1 << DIV10_EXP) / 10 + 1)
-#define NEG10 ((1 << 8) - 10)
+static const uint32_t div10_sig = ((1 << DIV10_EXP) / 10 + 1);
+static const uint32_t neg10 = ((1 << 8) - 10);
 
 static const uint64_t ZEROS = 0x0101010101010101u * '0';
 
@@ -1067,13 +1068,13 @@ static uint64_t to_bcd8(uint64_t abcdefgh) {
   // where the division on the RHS is implemented by the usual multiply + shift
   // trick and the fractional bits are masked away.
   uint64_t abcd_efgh =
-      abcdefgh + NEG10K * ((abcdefgh * DIV10K_SIG) >> DIV_10K_EXP);
+      abcdefgh + NEG10K * ((abcdefgh * div10k_sig) >> DIV_10K_EXP);
   uint64_t ab_cd_ef_gh =
       abcd_efgh +
-      NEG100 * (((abcd_efgh * DIV100_SIG) >> DIV100_EXP) & 0x7f0000007f);
+      neg100 * (((abcd_efgh * div100_sig) >> DIV100_EXP) & 0x7f0000007f);
   uint64_t a_b_c_d_e_f_g_h =
       ab_cd_ef_gh +
-      NEG10 * (((ab_cd_ef_gh * DIV10_SIG) >> DIV10_EXP) & 0xf000f000f000f);
+      neg10 * (((ab_cd_ef_gh * div10_sig) >> DIV10_EXP) & 0xf000f000f000f);
   return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
@@ -1242,9 +1243,9 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t abcdefgh = value_div10 / (uint64_t)1e8;
   uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
 
-  const __m128i div10k = _mm_set1_epi64x(DIV10K_SIG);
+  const __m128i div10k = _mm_set1_epi64x(div10k_sig);
   const __m128i neg10k = _mm_set1_epi64x(NEG10K);
-  const __m128i div100 = _mm_set1_epi32(DIV100_SIG);
+  const __m128i div100 = _mm_set1_epi32(div100_sig);
   const __m128i div10 = _mm_set1_epi16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
   const __m128i neg100 = _mm_set1_epi32(NEG100);
@@ -1434,7 +1435,7 @@ static to_decimal_result to_decimal_schubfach64(uint64_t bin_sig,
 static ZMIJ_INLINE to_decimal_result to_decimal_normal32(uint32_t bin_sig,
                                                          int64_t raw_exp,
                                                          bool regular) {
-  int64_t bin_exp = raw_exp - FLOAT_EXP_OFFSET;
+  int64_t bin_exp = raw_exp - float_exp_offset;
   const int num_bits = 32;
   // An optimization from yy by Yaoyuan Guo:
   while (regular) {
@@ -1511,7 +1512,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_normal32(uint32_t bin_sig,
 static ZMIJ_INLINE to_decimal_result to_decimal_normal64(uint64_t bin_sig,
                                                          int64_t raw_exp,
                                                          bool regular) {
-  int64_t bin_exp = raw_exp - DOUBLE_EXP_OFFSET;
+  int64_t bin_exp = raw_exp - double_exp_offset;
   // An optimization from yy by Yaoyuan Guo:
   while (regular) {
     int dec_exp = use_umul128_hi64 ? umul128_hi64(bin_exp, 0x4d10500000000000)
@@ -1592,7 +1593,7 @@ char* zmij_detail_write_float(float value, char* buffer) {
   buffer += float_is_negative(bits);
 
   to_decimal_result dec;
-  if (bin_exp == 0 || bin_exp == FLOAT_EXP_MASK) {
+  if (bin_exp == 0 || bin_exp == float_exp_mask) {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
@@ -1601,9 +1602,9 @@ char* zmij_detail_write_float(float value, char* buffer) {
       memcpy(buffer, "0", 2);
       return buffer + 1;
     }
-    dec = to_decimal_schubfach32(bin_sig, 1 - FLOAT_EXP_OFFSET, true, true);
+    dec = to_decimal_schubfach32(bin_sig, 1 - float_exp_offset, true, true);
   } else {
-    dec = to_decimal_normal32(bin_sig | FLOAT_IMPLICIT_BIT, bin_exp,
+    dec = to_decimal_normal32(bin_sig | float_implicit_bit, bin_exp,
                               bin_sig != 0);
   }
   int dec_exp = dec.exp;
@@ -1642,7 +1643,7 @@ char* zmij_detail_write_double(double value, char* buffer) {
   buffer += double_is_negative(bits);
 
   to_decimal_result dec;
-  if (bin_exp == 0 || bin_exp == DOUBLE_EXP_MASK) {
+  if (bin_exp == 0 || bin_exp == double_exp_mask) {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
@@ -1651,9 +1652,9 @@ char* zmij_detail_write_double(double value, char* buffer) {
       memcpy(buffer, "0", 2);
       return buffer + 1;
     }
-    dec = to_decimal_schubfach64(bin_sig, 1 - DOUBLE_EXP_OFFSET, true, true);
+    dec = to_decimal_schubfach64(bin_sig, 1 - double_exp_offset, true, true);
   } else {
-    dec = to_decimal_normal64(bin_sig | DOUBLE_IMPLICIT_BIT, bin_exp,
+    dec = to_decimal_normal64(bin_sig | double_implicit_bit, bin_exp,
                               bin_sig != 0);
   }
   int dec_exp = dec.exp;
@@ -1716,7 +1717,7 @@ char* zmij_detail_write_double(double value, char* buffer) {
   // digit = dec_exp / 100
   uint32_t digit = use_umul128_hi64
                        ? umul128_hi64(dec_exp, 0x290000000000000)
-                       : ((uint32_t)dec_exp * DIV100_SIG) >> DIV100_EXP;
+                       : ((uint32_t)dec_exp * div100_sig) >> DIV100_EXP;
   uint32_t digit_with_nuls = '0' + digit;
   if (is_big_endian()) digit_with_nuls <<= 24;
   memcpy(buffer, &digit_with_nuls, 4);
