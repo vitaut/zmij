@@ -1249,7 +1249,8 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
 #  if ZMIJ_USE_SSE4_1
   const __m128i neg100 = _mm_set1_epi32(neg100);
   const __m128i neg10 = _mm_set1_epi16((1 << 8) - 10);
-  const __m128i bswap = _mm_set1_epi64x(0);
+  const __m128i bswap =
+      _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
 #  else
   const __m128i hundred = _mm_set1_epi32(100);
   const __m128i moddiv10 = _mm_set1_epi16(10 * (1 << 8) - 1);
@@ -1289,7 +1290,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   // is the last digit which we factored off. But in that case the number would
   // be printed with a different exponent that shifts the last digit into the
   // first position.
-  auto len = ((size_t)64) - clz(mask);  // size_t for native arithmetic
+  size_t len = ((size_t)64) - clz(mask);  // size_t for native arithmetic
 
   _mm_storeu_si128((__m128i*)buffer, digits);
   return buffer + (last_digit != 0 ? 17 : len);
