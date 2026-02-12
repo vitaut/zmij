@@ -110,7 +110,9 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #  define ZMIJ_ASM(x)
 #endif
 
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
+#if defined(ZMIJ_ALIGNAS)
+// Use the provided definition
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
 #  define ZMIJ_ALIGNAS(x) _Alignas(x)
 #elif ZMIJ_MSC_VER
 #  define ZMIJ_ALIGNAS(x) __declspec(align(x))
