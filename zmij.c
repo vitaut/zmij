@@ -298,16 +298,16 @@ uint32_t umulhi_inexact_to_odd32(uint64_t x_hi, uint64_t _, uint32_t y) {
 
 enum
 {
- double_num_bits = 64,
- double_num_sig_bits = DBL_MANT_DIG - 1,
- double_num_exp_bits = double_num_bits - double_num_sig_bits - 1,
- double_exp_mask = (1 << double_num_exp_bits) - 1,
- double_exp_bias = (1 << (double_num_exp_bits - 1)) - 1,
- double_exp_offset = double_exp_bias + double_num_sig_bits,
+ DOUBLE_NUM_BITS = 64,
+ DOUBLE_NUM_SIG_BITS = DBL_MANT_DIG - 1,
+ DOUBLE_NUM_EXP_BITS = DOUBLE_NUM_BITS - DOUBLE_NUM_SIG_BITS - 1,
+ DOUBLE_EXP_MASK = (1 << DOUBLE_NUM_EXP_BITS) - 1,
+ DOUBLE_EXP_BIAS = (1 << (DOUBLE_NUM_EXP_BITS - 1)) - 1,
+ DOUBLE_EXP_OFFSET = DOUBLE_EXP_BIAS + DOUBLE_NUM_SIG_BITS,
 };
 
 typedef uint64_t double_sig_type;
-#define double_implicit_bit ((double_sig_type)((double_sig_type)1 << double_num_sig_bits))
+#define DOUBLE_IMPLICIT_BIT ((double_sig_type)((double_sig_type)1 << DOUBLE_NUM_SIG_BITS))
 
 static inline double_sig_type double_to_bits(double value) {
   uint64_t bits;
@@ -316,27 +316,27 @@ static inline double_sig_type double_to_bits(double value) {
 }
 
 static inline bool double_is_negative(double_sig_type bits) {
-  return bits >> (double_num_bits - 1);
+  return bits >> (DOUBLE_NUM_BITS - 1);
 }
 static inline double_sig_type double_get_sig(double_sig_type bits) {
-  return bits & (double_implicit_bit - 1);
+  return bits & (DOUBLE_IMPLICIT_BIT - 1);
 }
 static int64_t double_get_exp(double_sig_type bits) {
-  return (int64_t)((bits << 1) >> (double_num_sig_bits + 1));
+  return (int64_t)((bits << 1) >> (DOUBLE_NUM_SIG_BITS + 1));
 }
 
 enum
 {
- float_num_bits = 32,
- float_num_sig_bits = FLT_MANT_DIG - 1,
- float_num_exp_bits = float_num_bits - float_num_sig_bits - 1,
- float_exp_mask = (1 << float_num_exp_bits) - 1,
- float_exp_bias = (1 << (float_num_exp_bits - 1)) - 1,
- float_exp_offset = float_exp_bias + float_num_sig_bits,
+ FLOAT_NUM_BITS = 32,
+ FLOAT_NUM_SIG_BITS = FLT_MANT_DIG - 1,
+ FLOAT_NUM_EXP_BITS = FLOAT_NUM_BITS - FLOAT_NUM_SIG_BITS - 1,
+ FLOAT_EXP_MASK = (1 << FLOAT_NUM_EXP_BITS) - 1,
+ FLOAT_EXP_BIAS = (1 << (FLOAT_NUM_EXP_BITS - 1)) - 1,
+ FLOAT_EXP_OFFSET = FLOAT_EXP_BIAS + FLOAT_NUM_SIG_BITS,
 };
 
 typedef uint32_t float_sig_type;
-#define float_implicit_bit ((float_sig_type)((float_sig_type)1 << float_num_sig_bits))
+#define FLOAT_IMPLICIT_BIT ((float_sig_type)((float_sig_type)1 << FLOAT_NUM_SIG_BITS))
 
 static inline float_sig_type float_to_bits(float value) {
   uint32_t bits;
@@ -345,13 +345,13 @@ static inline float_sig_type float_to_bits(float value) {
 }
 
 static inline bool float_is_negative(float_sig_type bits) {
-  return bits >> (float_num_bits - 1);
+  return bits >> (FLOAT_NUM_BITS - 1);
 }
 static inline float_sig_type float_get_sig(float_sig_type bits) {
-  return bits & (float_implicit_bit - 1);
+  return bits & (FLOAT_IMPLICIT_BIT - 1);
 }
 static int64_t float_get_exp(float_sig_type bits) {
-  return (int64_t)((bits << 1) >> (float_num_sig_bits + 1));
+  return (int64_t)((bits << 1) >> (FLOAT_NUM_SIG_BITS + 1));
 }
 
 // 128-bit significands of powers of 10 rounded down.
@@ -1043,17 +1043,17 @@ static inline const char* digits2(size_t value) {
   return &data[value * 2];
 }
 
-#define div10k_exp 40
-static const uint32_t div10k_sig = (uint32_t)((1ull << div10k_exp) / 10000 + 1);
-static const uint32_t neg10k = (uint32_t)((1ull << 32) - 10000);
-#define div100_exp 19
-static const uint32_t div100_sig = (1 << div100_exp) / 100 + 1;
-static const uint32_t neg100 = (1 << 16) - 100;
-#define div10_exp 10
-static const uint32_t div10_sig = (1 << div10_exp) / 10 + 1;
-static const uint32_t neg10 = (1 << 8) - 10;
+#define DIV_10K_EXP 40
+#define DIV10K_SIG ((uint32_t)((1ull << DIV_10K_EXP) / 10000 + 1))
+#define NEG10K ((uint32_t)((1ull << 32) - 10000))
+#define DIV100_EXP 19
+#define DIV100_SIG ((1 << DIV100_EXP) / 100 + 1)
+#define NEG100 ((1 << 16) - 100)
+#define DIV10_EXP 10
+#define DIV10_SIG ((1 << DIV10_EXP) / 10 + 1)
+#define NEG10 ((1 << 8) - 10)
 
-static const uint64_t zeros = 0x0101010101010101u * '0';
+static const uint64_t ZEROS = 0x0101010101010101u * '0';
 
 static uint64_t to_bcd8(uint64_t abcdefgh) {
   // An optimization from Xiang JunBo.
@@ -1064,13 +1064,13 @@ static uint64_t to_bcd8(uint64_t abcdefgh) {
   // where the division on the RHS is implemented by the usual multiply + shift
   // trick and the fractional bits are masked away.
   uint64_t abcd_efgh =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+      abcdefgh + NEG10K * ((abcdefgh * DIV10K_SIG) >> DIV_10K_EXP);
   uint64_t ab_cd_ef_gh =
       abcd_efgh +
-      neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
+      NEG100 * (((abcd_efgh * DIV100_SIG) >> DIV100_EXP) & 0x7f0000007f);
   uint64_t a_b_c_d_e_f_g_h =
       ab_cd_ef_gh +
-      neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
+      NEG10 * (((ab_cd_ef_gh * DIV10_SIG) >> DIV10_EXP) & 0xf000f000f000f);
   return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
@@ -1116,7 +1116,7 @@ static char* write_significand9(char* buffer, uint32_t value, bool has9digits) {
   char* start = buffer;
   buffer = write_if(buffer, value / 100000000, has9digits);
   uint64_t bcd = to_bcd8(value % 100000000);
-  write8(buffer, bcd | zeros);
+  write8(buffer, bcd | ZEROS);
   buffer += count_trailing_nonzeros(bcd);
   return buffer - (int)(buffer - start == 1);
 }
@@ -1133,13 +1133,13 @@ static char* write_significand17_no_simd(char* buffer, uint64_t value,
     uint32_t ffgghhii = (uint32_t)(value % 100000000);
     buffer = write_if(buffer, abbccddee / 100000000, has17digits);
     uint64_t bcd = to_bcd8(abbccddee % 100000000);
-    write8(buffer, bcd | zeros);
+    write8(buffer, bcd | ZEROS);
     if (ffgghhii == 0) {
-      write8(buffer + 8, zeros);
+      write8(buffer + 8, ZEROS);
       return buffer + count_trailing_nonzeros(bcd);
     }
     bcd = to_bcd8(ffgghhii);
-    write8(buffer + 8, bcd | zeros);
+    write8(buffer + 8, bcd | ZEROS);
     return buffer + 8 + count_trailing_nonzeros(bcd);
   }
 }
@@ -1168,8 +1168,8 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   static const mul_constants constants = {
       0xabcc77118461cefd,
       100000000,
-      {div10k_sig, neg10k, div100_sig << 12, neg100},
-      {0xce0, neg10}};
+      {DIV10K_SIG, NEG10K, DIV100_SIG << 12, NEG100},
+      {0xce0, NEG10}};
   const mul_constants* c = &constants;
 
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
@@ -1239,56 +1239,25 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t abcdefgh = value_div10 / (uint64_t)1e8;
   uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
 
-  ZMIJ_ALIGNAS(64) static const struct {
-    m128i div10k;
-    m128i neg10k;
-    m128i div100;
-    m128i div10;
+  const __m128i div10k = _mm_set1_epi64x(DIV10K_SIG);
+  const __m128i neg10k = _mm_set1_epi64x(NEG10K);
+  const __m128i div100 = _mm_set1_epi32(DIV100_SIG);
+  const __m128i div10 = _mm_set1_epi16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
-    m128i neg100;
-    m128i neg10;
-    m128i bswap;
+  const __m128i neg100 = _mm_set1_epi32(neg100);
+  const __m128i neg10 = _mm_set1_epi16((1 << 8) - 10);
+  const __m128i bswap = _mm_set1_epi64x(0);
 #  else
-    m128i hundred;
-    m128i moddiv10;
+  const __m128i hundred = _mm_set1_epi32(100);
+  const __m128i moddiv10 = _mm_set1_epi16(10 * (1 << 8) - 1);
 #  endif
-    m128i zeros;
-  } consts = {
-    .div10k = splat64(div10k_sig),
-    .neg10k = splat64(neg10k),
-    .div100 = splat32(div100_sig),
-    .div10 = splat16((1 << 16) / 10 + 1),
-#  if ZMIJ_USE_SSE4_1
-    .neg100 = splat32(neg100),
-    .neg10 = splat16((1 << 8) - 10),
-    .bswap = m128i{pack8(15, 14, 13, 12, 11, 10, 9, 8),
-                        pack8(7, 6, 5, 4, 3, 2, 1, 0)},
-#  else
-    .hundred = splat32(100),
-    .moddiv10 = splat16(10 * (1 << 8) - 1),
-#  endif
-    .zeros = splat64(zeros),
-  };
-
-  const __m128i div10k = _mm_load_si128((__m128i*)&consts.div10k);
-  const __m128i neg10k = _mm_load_si128((__m128i*)&consts.neg10k);
-  const __m128i div100 = _mm_load_si128((__m128i*)&consts.div100);
-  const __m128i div10 = _mm_load_si128((__m128i*)&consts.div10);
-#  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_load_si128((__m128i*)&consts.neg100);
-  const __m128i neg10 = _mm_load_si128((__m128i*)&consts.neg10);
-  const __m128i bswap = _mm_load_si128((__m128i*)&consts.bswap);
-#  else
-  const __m128i hundred = _mm_load_si128((__m128i*)&consts.hundred);
-  const __m128i moddiv10 = _mm_load_si128((__m128i*)&consts.moddiv10);
-#  endif
-  const __m128i zeros = _mm_load_si128((__m128i*)&consts.zeros);
+  const __m128i zeros = _mm_set1_epi64x(ZEROS);
 
   // The BCD sequences are based on ones provided by Xiang JunBo.
   __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
-                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
+                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), DIV_10K_EXP)));
 #  if ZMIJ_USE_SSE4_1
   // _mm_mullo_epi32 is SSE 4.1
   __m128i z = _mm_add_epi64(
@@ -1307,7 +1276,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   __m128i bcd = _mm_shuffle_epi32(bcd_shuffled, _MM_SHUFFLE(0, 1, 2, 3));
 #  endif  // ZMIJ_USE_SSE4_1
 
-  auto digits = _mm_or_si128(bcd, zeros);
+  __m128i digits = _mm_or_si128(bcd, zeros);
 
   // determine number of leading zeros
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
@@ -1317,9 +1286,9 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   // is the last digit which we factored off. But in that case the number would
   // be printed with a different exponent that shifts the last digit into the
   // first position.
-  auto len = size_t(64) - clz(mask);  // size_t for native arithmetic
+  auto len = ((size_t)64) - clz(mask);  // size_t for native arithmetic
 
-  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
+  _mm_storeu_si128((__m128i*)buffer, digits);
   return buffer + (last_digit != 0 ? 17 : len);
 #endif    // ZMIJ_USE_SSE
 }
@@ -1461,7 +1430,7 @@ static to_decimal_result to_decimal_schubfach64(uint64_t bin_sig,
 static ZMIJ_INLINE to_decimal_result to_decimal_normal32(uint32_t bin_sig,
                                                          int64_t raw_exp,
                                                          bool regular) {
-  int64_t bin_exp = raw_exp - float_exp_offset;
+  int64_t bin_exp = raw_exp - FLOAT_EXP_OFFSET;
   const int num_bits = 32;
   // An optimization from yy by Yaoyuan Guo:
   while (regular) {
@@ -1538,7 +1507,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_normal32(uint32_t bin_sig,
 static ZMIJ_INLINE to_decimal_result to_decimal_normal64(uint64_t bin_sig,
                                                          int64_t raw_exp,
                                                          bool regular) {
-  int64_t bin_exp = raw_exp - double_exp_offset;
+  int64_t bin_exp = raw_exp - DOUBLE_EXP_OFFSET;
   // An optimization from yy by Yaoyuan Guo:
   while (regular) {
     int dec_exp = use_umul128_hi64 ? umul128_hi64(bin_exp, 0x4d10500000000000)
@@ -1619,7 +1588,7 @@ char* zmij_detail_write_float(float value, char* buffer) {
   buffer += float_is_negative(bits);
 
   to_decimal_result dec;
-  if (bin_exp == 0 || bin_exp == float_exp_mask) {
+  if (bin_exp == 0 || bin_exp == FLOAT_EXP_MASK) {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
@@ -1628,9 +1597,9 @@ char* zmij_detail_write_float(float value, char* buffer) {
       memcpy(buffer, "0", 2);
       return buffer + 1;
     }
-    dec = to_decimal_schubfach32(bin_sig, 1 - float_exp_offset, true, true);
+    dec = to_decimal_schubfach32(bin_sig, 1 - FLOAT_EXP_OFFSET, true, true);
   } else {
-    dec = to_decimal_normal32(bin_sig | float_implicit_bit, bin_exp,
+    dec = to_decimal_normal32(bin_sig | FLOAT_IMPLICIT_BIT, bin_exp,
                               bin_sig != 0);
   }
   int dec_exp = dec.exp;
@@ -1669,7 +1638,7 @@ char* zmij_detail_write_double(double value, char* buffer) {
   buffer += double_is_negative(bits);
 
   to_decimal_result dec;
-  if (bin_exp == 0 || bin_exp == double_exp_mask) {
+  if (bin_exp == 0 || bin_exp == DOUBLE_EXP_MASK) {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
@@ -1678,9 +1647,9 @@ char* zmij_detail_write_double(double value, char* buffer) {
       memcpy(buffer, "0", 2);
       return buffer + 1;
     }
-    dec = to_decimal_schubfach64(bin_sig, 1 - double_exp_offset, true, true);
+    dec = to_decimal_schubfach64(bin_sig, 1 - DOUBLE_EXP_OFFSET, true, true);
   } else {
-    dec = to_decimal_normal64(bin_sig | double_implicit_bit, bin_exp,
+    dec = to_decimal_normal64(bin_sig | DOUBLE_IMPLICIT_BIT, bin_exp,
                               bin_sig != 0);
   }
   int dec_exp = dec.exp;
@@ -1743,7 +1712,7 @@ char* zmij_detail_write_double(double value, char* buffer) {
   // digit = dec_exp / 100
   uint32_t digit = use_umul128_hi64
                        ? umul128_hi64(dec_exp, 0x290000000000000)
-                       : ((uint32_t)dec_exp * div100_sig) >> div100_exp;
+                       : ((uint32_t)dec_exp * DIV100_SIG) >> DIV100_EXP;
   uint32_t digit_with_nuls = '0' + digit;
   if (is_big_endian()) digit_with_nuls <<= 24;
   memcpy(buffer, &digit_with_nuls, 4);
