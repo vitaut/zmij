@@ -171,8 +171,7 @@ ZMIJ_MAYBE_UNUSED static inline uint64_t uint128_to_uint64(uint128 u) {
   return u.lo;
 }
 
-ZMIJ_MAYBE_UNUSED static inline uint128 uint128_add(uint128 lhs,
-                                                        uint128 rhs) {
+ZMIJ_MAYBE_UNUSED static inline uint128 uint128_add(uint128 lhs, uint128 rhs) {
 #ifdef _M_AMD64
   uint64_t lo, hi;
   _addcarry_u64(_addcarry_u64(0, lhs.lo, rhs.lo, &lo), lhs.hi, rhs.hi, &hi);
@@ -200,7 +199,7 @@ typedef uint128 uint128_t;
 #endif  // ZMIJ_USE_INT128
 
 ZMIJ_MAYBE_UNUSED static inline uint128_t uint128_rshift(uint128_t u,
-                                                             int shift) {
+                                                         int shift) {
 #if ZMIJ_USE_INT128
   return u >> shift;
 #else
@@ -296,18 +295,18 @@ uint32_t umulhi_inexact_to_odd32(uint64_t x_hi, uint64_t _, uint32_t y) {
   return (uint32_t)(p >> 32) | (((uint32_t)p >> 1) != 0);
 }
 
-enum
-{
- DOUBLE_NUM_BITS = 64,
- DOUBLE_NUM_SIG_BITS = DBL_MANT_DIG - 1,
- DOUBLE_NUM_EXP_BITS = DOUBLE_NUM_BITS - DOUBLE_NUM_SIG_BITS - 1,
- DOUBLE_EXP_MASK = (1 << DOUBLE_NUM_EXP_BITS) - 1,
- DOUBLE_EXP_BIAS = (1 << (DOUBLE_NUM_EXP_BITS - 1)) - 1,
- DOUBLE_EXP_OFFSET = DOUBLE_EXP_BIAS + DOUBLE_NUM_SIG_BITS,
+enum {
+  DOUBLE_NUM_BITS = 64,
+  DOUBLE_NUM_SIG_BITS = DBL_MANT_DIG - 1,
+  DOUBLE_NUM_EXP_BITS = DOUBLE_NUM_BITS - DOUBLE_NUM_SIG_BITS - 1,
+  DOUBLE_EXP_MASK = (1 << DOUBLE_NUM_EXP_BITS) - 1,
+  DOUBLE_EXP_BIAS = (1 << (DOUBLE_NUM_EXP_BITS - 1)) - 1,
+  DOUBLE_EXP_OFFSET = DOUBLE_EXP_BIAS + DOUBLE_NUM_SIG_BITS,
 };
 
 typedef uint64_t double_sig_type;
-#define DOUBLE_IMPLICIT_BIT ((double_sig_type)((double_sig_type)1 << DOUBLE_NUM_SIG_BITS))
+#define DOUBLE_IMPLICIT_BIT \
+  ((double_sig_type)((double_sig_type)1 << DOUBLE_NUM_SIG_BITS))
 
 static inline double_sig_type double_to_bits(double value) {
   uint64_t bits;
@@ -325,18 +324,18 @@ static int64_t double_get_exp(double_sig_type bits) {
   return (int64_t)((bits << 1) >> (DOUBLE_NUM_SIG_BITS + 1));
 }
 
-enum
-{
- FLOAT_NUM_BITS = 32,
- FLOAT_NUM_SIG_BITS = FLT_MANT_DIG - 1,
- FLOAT_NUM_EXP_BITS = FLOAT_NUM_BITS - FLOAT_NUM_SIG_BITS - 1,
- FLOAT_EXP_MASK = (1 << FLOAT_NUM_EXP_BITS) - 1,
- FLOAT_EXP_BIAS = (1 << (FLOAT_NUM_EXP_BITS - 1)) - 1,
- FLOAT_EXP_OFFSET = FLOAT_EXP_BIAS + FLOAT_NUM_SIG_BITS,
+enum {
+  FLOAT_NUM_BITS = 32,
+  FLOAT_NUM_SIG_BITS = FLT_MANT_DIG - 1,
+  FLOAT_NUM_EXP_BITS = FLOAT_NUM_BITS - FLOAT_NUM_SIG_BITS - 1,
+  FLOAT_EXP_MASK = (1 << FLOAT_NUM_EXP_BITS) - 1,
+  FLOAT_EXP_BIAS = (1 << (FLOAT_NUM_EXP_BITS - 1)) - 1,
+  FLOAT_EXP_OFFSET = FLOAT_EXP_BIAS + FLOAT_NUM_SIG_BITS,
 };
 
 typedef uint32_t float_sig_type;
-#define FLOAT_IMPLICIT_BIT ((float_sig_type)((float_sig_type)1 << FLOAT_NUM_SIG_BITS))
+#define FLOAT_IMPLICIT_BIT \
+  ((float_sig_type)((float_sig_type)1 << FLOAT_NUM_SIG_BITS))
 
 static inline float_sig_type float_to_bits(float value) {
   uint32_t bits;
@@ -355,7 +354,8 @@ static int64_t float_get_exp(float_sig_type bits) {
 }
 
 // 128-bit significands of powers of 10 rounded down.
-ZMIJ_ALIGNAS(64) const uint128 pow10_significands_data[] = {
+ZMIJ_ALIGNAS(64)
+const uint128 pow10_significands_data[] = {
     {0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a},  // -292
     {0x9faacf3df73609b1, 0x77b191618c54e9ac},  // -291
     {0xc795830d75038c1d, 0xd59df5b9ef6a2417},  // -290
@@ -1034,7 +1034,8 @@ static inline int count_trailing_nonzeros(uint64_t x) {
 static inline const char* digits2(size_t value) {
   // Align data since unaligned access may be slower when crossing a
   // hardware-specific boundary.
-  ZMIJ_ALIGNAS(2) static const char data[] =
+  ZMIJ_ALIGNAS(2)
+  static const char data[] =
       "0001020304050607080910111213141516171819"
       "2021222324252627282930313233343536373839"
       "4041424344454647484950515253545556575859"
