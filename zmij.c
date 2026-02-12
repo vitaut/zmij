@@ -1247,7 +1247,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   const __m128i div100 = _mm_set1_epi32(DIV100_SIG);
   const __m128i div10 = _mm_set1_epi16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_set1_epi32(neg100);
+  const __m128i neg100 = _mm_set1_epi32(NEG100);
   const __m128i neg10 = _mm_set1_epi16((1 << 8) - 10);
   const __m128i bswap =
       _mm_setr_epi8(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0);
