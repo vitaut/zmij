@@ -1044,16 +1044,21 @@ static inline const char* digits2(size_t value) {
   return &data[value * 2];
 }
 
-#define div_10k_exp 40
-static const uint32_t div10k_sig =
-    ((uint32_t)((1ull << div_10k_exp) / 10000 + 1));
-static const uint32_t neg10k = ((uint32_t)((1ull << 32) - 10000));
-#define div100_exp 19
-static const uint32_t div100_sig = ((1 << div100_exp) / 100 + 1);
-static const uint32_t neg100 = ((1 << 16) - 100);
-#define div10_exp 10
-static const uint32_t div10_sig = ((1 << div10_exp) / 10 + 1);
-static const uint32_t neg10 = ((1 << 8) - 10);
+enum {
+  div10k_exp = 40,
+};
+static const uint32_t div10k_sig = (uint32_t)((1ull << div10k_exp) / 10000 + 1);
+static const uint32_t neg10k = (uint32_t)((1ull << 32) - 10000);
+enum {
+  div100_exp = 19,
+};
+static const uint32_t div100_sig = (1 << div100_exp) / 100 + 1;
+static const uint32_t neg100 = (1 << 16) - 100;
+enum {
+  div10_exp = 10,
+};
+static const uint32_t div10_sig = (1 << div10_exp) / 10 + 1;
+static const uint32_t neg10 = (1 << 8) - 10;
 
 static const uint64_t zeros = 0x0101010101010101u * '0';
 
@@ -1066,7 +1071,7 @@ static uint64_t to_bcd8(uint64_t abcdefgh) {
   // where the division on the RHS is implemented by the usual multiply + shift
   // trick and the fractional bits are masked away.
   uint64_t abcd_efgh =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div_10k_exp);
+      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
   uint64_t ab_cd_ef_gh =
       abcd_efgh +
       neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
@@ -1260,7 +1265,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k_wide,
-                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), div_10k_exp)));
+                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 #  if ZMIJ_USE_SSE4_1
   // _mm_mullo_epi32 is SSE 4.1
   __m128i z = _mm_add_epi64(
