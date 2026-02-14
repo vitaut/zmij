@@ -119,7 +119,7 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #elif __GNUC__
 #  define ZMIJ_ALIGNAS(x) __attribute__((aligned(x)))
 #else
-#  error Failed to define ZMIJ_ALIGNAS
+#  define ZMIJ_ALIGNAS(x)
 #endif
 
 static inline bool is_big_endian() {
