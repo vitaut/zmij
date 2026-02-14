@@ -307,8 +307,7 @@ enum {
 };
 
 typedef uint64_t double_sig_type;
-#define double_implicit_bit \
-  ((double_sig_type)((double_sig_type)1 << double_num_sig_bits))
+static const double_sig_type double_implicit_bit = 0x10000000000000;
 
 static inline double_sig_type double_to_bits(double value) {
   uint64_t bits;
@@ -336,8 +335,7 @@ enum {
 };
 
 typedef uint32_t float_sig_type;
-#define float_implicit_bit \
-  ((float_sig_type)((float_sig_type)1 << float_num_sig_bits))
+static const float_sig_type float_implicit_bit = 0x800000;
 
 static inline float_sig_type float_to_bits(float value) {
   uint32_t bits;
