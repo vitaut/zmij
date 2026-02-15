@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(zmij CXX)
 
-set(ZMIJ_STANDARD cxx_std_20)
+set(ZMIJ_STANDARD cxx_std_14)
 
 add_library(zmij zmij.cc zmij.h)
 target_include_directories(zmij PUBLIC .)
