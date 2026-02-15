@@ -1240,7 +1240,7 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
 
   buffer += 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2);
   return buffer;
-#elif 1
+#elif ZMIJ_USE_SSE
   uint32_t last_digit = value - value_div10 * 10;
 
   // We always write 17 digits into the buffer, but the first one can be zero.
