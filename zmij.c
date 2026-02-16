@@ -49,7 +49,8 @@
 
 #ifdef ZMIJ_USE_SSE4_1
 // Use the provided definition.
-static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "ZMIJ_USE_SSE should be enabled if ZMIJ_USE_SSE4_1 is enabled");
+static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
+              "ZMIJ_USE_SSE should be enabled if ZMIJ_USE_SSE4_1 is enabled");
 #elif defined(__SSE4_1__) || defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
 #  define ZMIJ_USE_SSE4_1 ZMIJ_USE_SSE
@@ -1081,25 +1082,22 @@ static inline uint64_t read8(char* buffer) {
 }
 
 #if ZMIJ_USE_SSE && !ZMIJ_MSC_VER
-#  define m128i __m128i
+typedef __m128i m128i;
 #else
 typedef struct {
   long long data[2];
 } m128i;
 #endif
 
-static m128i splat64(uint64_t x) {
-  m128i result = {(long long)x, (long long)x};
-  return result;
-}
-static m128i splat32(uint32_t x) { return splat64((uint64_t)x << 32 | x); }
-static m128i splat16(uint16_t x) { return splat32((uint32_t)x << 16 | x); }
-static uint64_t pack8(uint8_t a, uint8_t b, uint8_t c, uint8_t d,  //
-                      uint8_t e, uint8_t f, uint8_t g, uint8_t h) {
-  typedef uint64_t u64;
-  return (u64)h << 56 | (u64)g << 48 | (u64)f << 40 | (u64)e << 32 |
-         (u64)d << 24 | (u64)c << 16 | (u64)b << +8 | (u64)a;
-}
+#define ZMIJ_SPLAT64(x) {(long long)(x), (long long)(x)}
+#define ZMIJ_SPLAT32(x) \
+  ZMIJ_SPLAT64((uint64_t)(uint32_t)(x) << 32 | (uint32_t)(x))
+#define ZMIJ_SPLAT16(x) \
+  ZMIJ_SPLAT32((uint32_t)(uint16_t)(x) << 16 | (uint16_t)(x))
+#define ZMIJ_PACK8(a, b, c, d, e, f, g, h)                           \
+  ((uint64_t)(h) << 56 | (uint64_t)(g) << 48 | (uint64_t)(f) << 40 | \
+   (uint64_t)(e) << 32 | (uint64_t)(d) << 24 | (uint64_t)(c) << 16 | \
+   (uint64_t)(b) << 8 | (uint64_t)(a))
 
 // Writes a significand consisting of up to 9 decimal digits (7-9 for normals)
 // and removes trailing zeros.
@@ -1230,7 +1228,8 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t abcdefgh = value_div10 / (uint64_t)1e8;
   uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
 
-  typedef struct {
+  ZMIJ_ALIGNAS(64)
+  static const struct {
     m128i div10k;
     m128i neg10k;
     m128i div100;
@@ -1244,33 +1243,19 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
     m128i moddiv10;
 #  endif
     m128i zeros;
-  } mul_constants;
-
-#  define ZMIJ_SSE_SPLAT64(x) {(long long)(x), (long long)(x)}
-#  define ZMIJ_SSE_SPLAT32(x) \
-    ZMIJ_SSE_SPLAT64((uint64_t)(uint32_t)(x) << 32 | (uint32_t)(x))
-#  define ZMIJ_SSE_SPLAT16(x) \
-    ZMIJ_SSE_SPLAT32((uint32_t)(uint16_t)(x) << 16 | (uint16_t)(x))
-#  define ZMIJ_SSE_PACK8(a, b, c, d, e, f, g, h)                       \
-    ((uint64_t)(h) << 56 | (uint64_t)(g) << 48 | (uint64_t)(f) << 40 | \
-     (uint64_t)(e) << 32 | (uint64_t)(d) << 24 | (uint64_t)(c) << 16 | \
-     (uint64_t)(b) << 8 | (uint64_t)(a))
-
-  ZMIJ_ALIGNAS(64)
-  static const mul_constants consts = {
-      ZMIJ_SSE_SPLAT64(div10k_sig),
-      ZMIJ_SSE_SPLAT64(neg10k),
-      ZMIJ_SSE_SPLAT32(div100_sig),
-      ZMIJ_SSE_SPLAT16((1 << 16) / 10 + 1),
+  } consts = {ZMIJ_SPLAT64(div10k_sig),
+              ZMIJ_SPLAT64(neg10k),
+              ZMIJ_SPLAT32(div100_sig),
+              ZMIJ_SPLAT16((1 << 16) / 10 + 1),
 #  if ZMIJ_USE_SSE4_1
-      ZMIJ_SSE_SPLAT32(neg100),
-      ZMIJ_SSE_SPLAT16((1 << 8) - 10),
-      {ZMIJ_SSE_PACK8(15, 14, 13, 12, 11, 10, 9, 8),
-       ZMIJ_SSE_PACK8(7, 6, 5, 4, 3, 2, 1, 0)},
+              ZMIJ_SPLAT32(neg100),
+              ZMIJ_SPLAT16((1 << 8) - 10),
+              {ZMIJ_PACK8(15, 14, 13, 12, 11, 10, 9, 8),
+               ZMIJ_PACK8(7, 6, 5, 4, 3, 2, 1, 0)},
 #  else
-      ZMIJ_SSE_SPLAT32(100),        ZMIJ_SSE_SPLAT16(10 * (1 << 8) - 1),
+              ZMIJ_SPLAT32(100),        ZMIJ_SPLAT16(10 * (1 << 8) - 1),
 #  endif
-      ZMIJ_SSE_SPLAT64(zeros)};
+              ZMIJ_SPLAT64(zeros)};
 
   const __m128i div10k = _mm_load_si128((__m128i*)&consts.div10k);
   const __m128i neg10k = _mm_load_si128((__m128i*)&consts.neg10k);
