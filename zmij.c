@@ -49,7 +49,7 @@
 
 #ifdef ZMIJ_USE_SSE4_1
 // Use the provided definition.
-static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
+static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "ZMIJ_USE_SSE should be enabled if ZMIJ_USE_SSE4_1 is enabled");
 #elif defined(__SSE4_1__) || defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
 #  define ZMIJ_USE_SSE4_1 ZMIJ_USE_SSE
@@ -154,9 +154,7 @@ typedef struct {
   uint64_t lo;
 } uint128;
 
-static inline uint64_t uint128_to_uint64(uint128 u) {
-  return u.lo;
-}
+static inline uint64_t uint128_to_uint64(uint128 u) { return u.lo; }
 
 static inline uint128 uint128_add(uint128 lhs, uint128 rhs) {
 #ifdef _M_AMD64
@@ -1083,7 +1081,7 @@ static inline uint64_t read8(char* buffer) {
 }
 
 #if ZMIJ_USE_SSE && !ZMIJ_MSC_VER
-using m128i = __m128i;
+#  define m128i __m128i
 #else
 typedef struct {
   long long data[2];
@@ -1232,22 +1230,47 @@ static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
   uint32_t abcdefgh = value_div10 / (uint64_t)1e8;
   uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
 
-  ZMIJ_ALIGNAS(64) static const struct {
-    m128i div10k = splat64(div10k_sig);
-    m128i neg10k = splat64(::neg10k);
-    m128i div100 = splat32(div100_sig);
-    m128i div10 = splat16((1 << 16) / 10 + 1);
+  typedef struct {
+    m128i div10k;
+    m128i neg10k;
+    m128i div100;
+    m128i div10;
 #  if ZMIJ_USE_SSE4_1
-    m128i neg100 = splat32(::neg100);
-    m128i neg10 = splat16((1 << 8) - 10);
-    m128i bswap = m128i{pack8(15, 14, 13, 12, 11, 10, 9, 8),
-                        pack8(7, 6, 5, 4, 3, 2, 1, 0)};
+    m128i neg100;
+    m128i neg10;
+    m128i bswap;
 #  else
-    m128i hundred = splat32(100);
-    m128i moddiv10 = splat16(10 * (1 << 8) - 1);
+    m128i hundred;
+    m128i moddiv10;
 #  endif
-    m128i zeros = splat64(::zeros);
-  } consts;
+    m128i zeros;
+  } mul_constants;
+
+#  define ZMIJ_SSE_SPLAT64(x) {(long long)(x), (long long)(x)}
+#  define ZMIJ_SSE_SPLAT32(x) \
+    ZMIJ_SSE_SPLAT64((uint64_t)(uint32_t)(x) << 32 | (uint32_t)(x))
+#  define ZMIJ_SSE_SPLAT16(x) \
+    ZMIJ_SSE_SPLAT32((uint32_t)(uint16_t)(x) << 16 | (uint16_t)(x))
+#  define ZMIJ_SSE_PACK8(a, b, c, d, e, f, g, h)                       \
+    ((uint64_t)(h) << 56 | (uint64_t)(g) << 48 | (uint64_t)(f) << 40 | \
+     (uint64_t)(e) << 32 | (uint64_t)(d) << 24 | (uint64_t)(c) << 16 | \
+     (uint64_t)(b) << 8 | (uint64_t)(a))
+
+  ZMIJ_ALIGNAS(64)
+  static const mul_constants consts = {
+      ZMIJ_SSE_SPLAT64(div10k_sig),
+      ZMIJ_SSE_SPLAT64(neg10k),
+      ZMIJ_SSE_SPLAT32(div100_sig),
+      ZMIJ_SSE_SPLAT16((1 << 16) / 10 + 1),
+#  if ZMIJ_USE_SSE4_1
+      ZMIJ_SSE_SPLAT32(neg100),
+      ZMIJ_SSE_SPLAT16((1 << 8) - 10),
+      {ZMIJ_SSE_PACK8(15, 14, 13, 12, 11, 10, 9, 8),
+       ZMIJ_SSE_PACK8(7, 6, 5, 4, 3, 2, 1, 0)},
+#  else
+      ZMIJ_SSE_SPLAT32(100),        ZMIJ_SSE_SPLAT16(10 * (1 << 8) - 1),
+#  endif
+      ZMIJ_SSE_SPLAT64(zeros)};
 
   const __m128i div10k = _mm_load_si128((__m128i*)&consts.div10k);
   const __m128i neg10k = _mm_load_si128((__m128i*)&consts.neg10k);
