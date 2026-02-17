@@ -1090,10 +1090,8 @@ typedef struct {
 #endif
 
 #define ZMIJ_SPLAT64(x) {(long long)(x), (long long)(x)}
-#define ZMIJ_SPLAT32(x) \
-  ZMIJ_SPLAT64((uint64_t)(uint32_t)(x) << 32 | (uint32_t)(x))
-#define ZMIJ_SPLAT16(x) \
-  ZMIJ_SPLAT32((uint32_t)(uint16_t)(x) << 16 | (uint16_t)(x))
+#define ZMIJ_SPLAT32(x) ZMIJ_SPLAT64((uint64_t)(x) << 32 | (uint64_t)(x))
+#define ZMIJ_SPLAT16(x) ZMIJ_SPLAT32((uint64_t)(x) << 16 | (uint64_t)(x))
 #define ZMIJ_PACK8(a, b, c, d, e, f, g, h)                           \
   ((uint64_t)(h) << 56 | (uint64_t)(g) << 48 | (uint64_t)(f) << 40 | \
    (uint64_t)(e) << 32 | (uint64_t)(d) << 24 | (uint64_t)(c) << 16 | \
