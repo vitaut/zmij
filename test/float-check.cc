@@ -55,8 +55,12 @@ auto main() -> int {
         memcpy(&value, &bits, sizeof(float));
 
         zmij::write(actual, sizeof(actual), value);
-        auto dec = jkj::dragonbox::to_decimal(std::fabs(value));
-        int exp = dec.exponent + fmt::detail::count_digits(dec.significand) - 1;
+        int exp = 7;
+        decltype(jkj::dragonbox::to_decimal(0.0f)) dec;
+        if (value != 0 && std::isfinite(value)) {
+          dec = jkj::dragonbox::to_decimal(std::fabs(value));
+          exp = dec.exponent + fmt::detail::count_digits(dec.significand) - 1;
+        }
         if (exp >= -4 && exp < 7) {
           // Dragonbox only support exponential format so handle fixed
           // ourselves.
