@@ -23,7 +23,7 @@ add_zmij_test(zmij-no-simd-test)
 target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_USE_SIMD=0)
 
 add_zmij_test(zmij-no-builtins-test)
-target_compile_definitions(zmij-no-simd-test PRIVATE ZMIJ_NO_BUILTINS=1)
+target_compile_definitions(zmij-no-builtins-test PRIVATE ZMIJ_NO_BUILTINS=1)
 
 add_zmij_test(zmij-optimize-size-test)
 target_compile_definitions(zmij-optimize-size-test PRIVATE ZMIJ_OPTIMIZE_SIZE=1)
