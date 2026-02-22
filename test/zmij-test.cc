@@ -177,14 +177,6 @@ TEST(dtoa_test, single_candidate) {
   EXPECT_EQ(dtoa(6.079537928711555e+61), "6.079537928711555e+61");
 }
 
-TEST(dtoa_test, null_terminated) {
-  char buffer[zmij::double_buffer_size] = {};
-  zmij::write(buffer, sizeof(buffer), 9.061488e+15);
-  EXPECT_STREQ(buffer, "9061488000000000");
-  zmij::write(buffer, sizeof(buffer), std::numeric_limits<double>::quiet_NaN());
-  EXPECT_STREQ(buffer, "nan");
-}
-
 #if !ZMIJ_C
 TEST(dtoa_test, no_buffer) {
   double value = 6.62607015e-34;
@@ -231,10 +223,10 @@ TEST(dtoa_test, to_decimal) {
 TEST(dtoa_test, no_overrun) {
   char buffer[zmij::double_buffer_size + 1];
   memset(buffer, '?', sizeof(buffer));
-  zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
-  EXPECT_EQ(buffer, std::string("-1.2345678901234567e+123"));
+  auto n = zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
+  EXPECT_EQ(std::string(buffer, n), std::string("-1.2345678901234567e+123"));
   EXPECT_EQ(buffer[zmij::double_buffer_size], '?');
-  EXPECT_EQ(buffer[zmij::double_buffer_size - 1], '\0');
+  //EXPECT_EQ(buffer[zmij::double_buffer_size - 1], '?');
 }
 
 TEST(dtoa_test, no_underrun) {
@@ -254,10 +246,10 @@ TEST(ftoa_test, subnormal) {
 TEST(ftoa_test, no_overrun) {
   char buffer[zmij::float_buffer_size + 1];
   memset(buffer, '?', sizeof(buffer));
-  zmij::write(buffer, zmij::float_buffer_size, -1.00000005e+15f);
-  EXPECT_EQ(buffer, std::string("-1.00000005e+15"));
+  auto n = zmij::write(buffer, zmij::float_buffer_size, -1.00000005e+15f);
+  EXPECT_EQ(std::string(buffer, n), std::string("-1.00000005e+15"));
   EXPECT_EQ(buffer[zmij::float_buffer_size], '?');
-  EXPECT_EQ(buffer[zmij::float_buffer_size - 1], '\0');
+  //EXPECT_EQ(buffer[zmij::float_buffer_size - 1], '?');
 }
 
 auto main(int argc, char** argv) -> int {

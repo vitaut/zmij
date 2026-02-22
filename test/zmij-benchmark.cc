@@ -12,19 +12,20 @@ int to_string(...);
 int write(...);
 }  // namespace zmij
 
-void dtoa_zmij(double value, char* buffer) {
+auto dtoa_zmij(double value, char* buffer) -> char* {
   if constexpr (!std::is_same_v<decltype(zmij::dtoa(value, buffer)), int>)
     zmij::dtoa(value, buffer);
   if constexpr (!std::is_same_v<decltype(zmij::to_string(value, buffer)), int>)
     zmij::to_string(value, buffer);
   if constexpr (!std::is_same_v<decltype(zmij::write(buffer, 25, value)), int>)
-    zmij::write(buffer, 25, value);
+    return buffer + zmij::write(buffer, 25, value);
+  return nullptr;
 }
 
 REGISTER_METHOD(zmij);
 
-void dtoa_dragonbox(double value, char* buffer) {
-  jkj::dragonbox::to_chars(value, buffer, jkj::dragonbox::policy::cache::full);
+auto dtoa_dragonbox(double value, char* buffer) -> char* {
+  return jkj::dragonbox::to_chars(value, buffer, jkj::dragonbox::policy::cache::full);
 }
 
 REGISTER_METHOD(dragonbox);

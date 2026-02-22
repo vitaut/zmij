@@ -920,17 +920,15 @@ auto write_fixed(char* buffer, uint64_t dec_sig, int dec_exp,
                  bool extra_digit) noexcept -> char* {
   if (dec_exp < 0) {
     memcpy(buffer, "0.000000", 8);
-    buffer =
+    return
         write_significand<num_bits>(buffer + 1 - dec_exp, dec_sig, extra_digit);
-    *buffer = '\0';
-    return buffer;
   }
 
   // Avoid reading uninitialized memory (would be unnecessary in asm).
   write8(buffer + (num_bits == 64 ? 16 : 7), 0);
 
   char* start = buffer;
-  buffer = write_significand<num_bits, false>(buffer, dec_sig, extra_digit);
+  buffer = write_significand<num_bits>(buffer, dec_sig, extra_digit);
 
   // Branchless move to make space for the '.' without OOB accesses.
   char* part1 = start + dec_exp + (dec_exp < 2);
@@ -946,10 +944,7 @@ auto write_fixed(char* buffer, uint64_t dec_sig, int dec_exp,
 
   char* point = start + dec_exp + 1;
   *point = '.';
-
-  buffer = buffer > point ? buffer + 1 : point;
-  *buffer = '\0';
-  return buffer;
+  return buffer > point ? buffer + 1 : point;
 }
 
 }  // namespace
@@ -1033,7 +1028,6 @@ auto write(Float value, char* buffer) noexcept -> char* {
   dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
   if (traits::max_exponent10 < 100) {
     memcpy(buffer, digits2(dec_exp), 2);
-    buffer[2] = '\0';
     return buffer + 2;
   }
   // digit = dec_exp / 100
