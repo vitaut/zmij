@@ -10,7 +10,7 @@
 
 struct method {
   std::string name;
-  void (*dtoa)(double, char*);
+  auto (*dtoa)(double, char*) -> char*;
 };
 
 extern std::vector<method> methods;

@@ -85,7 +85,7 @@ struct benchmark_result {
 
 // Modeled after https://github.com/fmtlib/dtoa-benchmark but using medians and
 // retries to be more robust to noise and avoid the downward bias of minima.
-auto bench_random_digit(void (*dtoa)(double, char*), const std::string& name)
+auto bench_random_digit(auto (*dtoa)(double, char*) -> char*, const std::string& name)
     -> benchmark_result {
   char buffer[256] = {};
   constexpr int num_retries = 15;
