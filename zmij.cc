@@ -1034,9 +1034,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   uint32_t digit = use_umul128_hi64
                        ? umul128_hi64(dec_exp, 0x290000000000000)
                        : (uint32_t(dec_exp) * div100_sig) >> div100_exp;
-  uint32_t digit_with_nuls = '0' + digit;
-  if (is_big_endian()) digit_with_nuls <<= 24;
-  memcpy(buffer, &digit_with_nuls, 4);
+  *buffer = '0' + digit;
   buffer += dec_exp >= 100;
   memcpy(buffer, digits2(dec_exp - digit * 100), 2);
   return buffer + 2;
