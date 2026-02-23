@@ -1026,17 +1026,16 @@ auto write(Float value, char* buffer) noexcept -> char* {
   memcpy(buffer, &e_sign, 2);
   buffer += 2;
   dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
-  if (traits::max_exponent10 < 100) {
-    memcpy(buffer, digits2(dec_exp), 2);
-    return buffer + 2;
+  if (traits::max_exponent10 >= 100) {
+    // digit = dec_exp / 100
+    uint32_t digit = use_umul128_hi64
+                         ? umul128_hi64(dec_exp, 0x290000000000000)
+                         : (uint32_t(dec_exp) * div100_sig) >> div100_exp;
+    *buffer = '0' + digit;
+    buffer += dec_exp >= 100;
+    dec_exp -= digit * 100;
   }
-  // digit = dec_exp / 100
-  uint32_t digit = use_umul128_hi64
-                       ? umul128_hi64(dec_exp, 0x290000000000000)
-                       : (uint32_t(dec_exp) * div100_sig) >> div100_exp;
-  *buffer = '0' + digit;
-  buffer += dec_exp >= 100;
-  memcpy(buffer, digits2(dec_exp - digit * 100), 2);
+  memcpy(buffer, digits2(dec_exp), 2);
   return buffer + 2;
 }
 
