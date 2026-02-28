@@ -1026,10 +1026,11 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 
   auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
       dec_sig, extra_digit, bbccddee, ffgghhii, c);
+  auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
   const __m128i shuffler = _mm_load_si128(
       (const __m128i*)&double_sse4_shuffle_table[dec_exp | (extra_digit << 4)]);
-  auto bcd =
-      _mm_shuffle_epi8(unshuffled_bcd, shuffler);  // SSSE3 for _mm_shuffle_epi8
+  auto digits = _mm_shuffle_epi8(unshuffled_digits,
+                                 shuffler);  // SSSE3 for _mm_shuffle_epi8
 
   // Count leading zeros.
   __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
@@ -1040,10 +1041,9 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
   auto len = 16 - ctz32(mask);
 #  endif
 
-  auto digits = _mm_or_si128(bcd, zeros);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
   // only the byte at buffer + 16 is actually needed
-  write8(buffer + 16, unshuffled_bcd[0] | uint64_t(::zeros));
+  write8(buffer + 16, unshuffled_digits[0]);
   buffer += len;
 
   char* point = start + dec_exp + 1;
