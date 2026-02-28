@@ -965,6 +965,49 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
 }
 
 #if ZMIJ_USE_SSE4_1
+static_assert(compute_dec_exp(float_traits<double>::digits + 1) == 16);
+
+#  define ZMIJ_PACK16(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)  \
+    uint128 {                                                          \
+      sse_constants::pack8((a), (b), (c), (d), (e), (f), (g), (h)),    \
+          sse_constants::pack8((i), (j), (k), (l), (m), (n), (o), (p)) \
+    }
+constexpr uint128 double_sse4_shuffle_table[32] = {
+    // extra_digit == false
+    ZMIJ_PACK16(15, 14, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+    // extra_digit == true
+    ZMIJ_PACK16(15, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1)};
+
 auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
                              bool extra_digit) noexcept -> char* {
   char* start = buffer;
@@ -983,7 +1026,10 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 
   auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
       dec_sig, extra_digit, bbccddee, ffgghhii, c);
-  auto bcd = _mm_shuffle_epi8(unshuffled_bcd, bswap);  // SSSE3
+  const __m128i shuffler = _mm_load_si128(
+      (const __m128i*)&double_sse4_shuffle_table[dec_exp | (extra_digit << 4)]);
+  auto bcd =
+      _mm_shuffle_epi8(unshuffled_bcd, shuffler);  // SSSE3 for _mm_shuffle_epi8
 
   // Count leading zeros.
   __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
@@ -996,16 +1042,9 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 
   auto digits = _mm_or_si128(bcd, zeros);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
-
+  // only the byte at buffer + 16 is actually needed
+  write8(buffer + 16, unshuffled_bcd[0] | uint64_t(::zeros));
   buffer += len;
-
-  // Branchless move to make space for the '.' without OOB accesses.
-  char* part1 = start + dec_exp + (dec_exp < 2);
-  char* part2 = part1 + (dec_exp < 2) + (dec_exp < 9 ? 7 : 0);
-  uint64_t value1 = read8(part1);
-  uint64_t value2 = read8(part2);
-  write8(part1 + 1, value1);
-  write8(part2 + 1, value2);
 
   char* point = start + dec_exp + 1;
   *point = '.';
