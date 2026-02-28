@@ -986,13 +986,14 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
   auto bcd = _mm_shuffle_epi8(unshuffled_bcd, bswap);  // SSSE3
 
   // Count leading zeros.
-  __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
-  uint64_t mask = _mm_movemask_epi8(mask128);
-#  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
-  auto len = 32 - _lzcnt_u32(mask);
+  __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
+  uint32_t mask = _mm_movemask_epi8(mask128) | (1u << 16);
+#  if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
+  auto len = 16 - _tzcnt_u32(mask);
 #  else
-  auto len = 63 - clz((mask << 1) | 1);
+  auto len = 16 - ctz32(mask);
 #  endif
+
   auto digits = _mm_or_si128(bcd, zeros);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
 
