@@ -191,6 +191,31 @@ inline auto clz(uint64_t x) noexcept -> int {
 #endif
 }
 
+inline auto ctz32(uint32_t x) noexcept -> int {
+  assert(x != 0);
+#if ZMIJ_HAS_BUILTIN(__builtin_ctz)
+  return __builtin_ctz(x);
+#elif ZMIJ_MSC_VER >= 1400 && (defined(_M_AMD64) || defined(_M_ARM64) || \
+                               defined(_M_IX86) || defined(_M_ARM))
+  unsigned long r;
+  _BitScanForward(&r, x);
+  return r;
+#else
+  /*
+  branchless, use de Bruijn sequences
+  see: https://www.chessprogramming.org/BitScan
+  */
+  constexpr int table[64] = {0,  1,  2,  53, 3,  7,  54, 27, 4,  38, 41, 8,  34,
+                             55, 48, 28, 62, 5,  39, 46, 44, 42, 22, 9,  24, 35,
+                             59, 56, 49, 18, 29, 11, 63, 52, 6,  26, 37, 40, 33,
+                             47, 61, 45, 43, 21, 23, 58, 17, 10, 51, 25, 36, 32,
+                             60, 20, 57, 16, 50, 31, 19, 15, 30, 14, 13, 12};
+  return table[(((uint64_t)x & (~(uint64_t)x + 1)) *
+                ((((uint64_t)0x022FDD63UL) << 32U) + 0xCC95386DUL)) >>
+               58];
+#endif
+}
+
 // Returns true_value if lhs < rhs, else false_value, without branching.
 ZMIJ_INLINE auto select_if_less(uint64_t lhs, uint64_t rhs, int64_t true_value,
                                 int64_t false_value) -> int64_t {
