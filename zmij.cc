@@ -1032,7 +1032,7 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
   auto digits = _mm_shuffle_epi8(unshuffled_digits,
                                  shuffler);  // SSSE3 for _mm_shuffle_epi8
 
-  // Count leading zeros.
+  // Count trailing zeros.
   __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
   uint32_t mask = _mm_movemask_epi8(mask128) | (1u << 16);
 #  if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
