@@ -340,10 +340,6 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
   }
 };
 
-constexpr auto floor_log2_pow10(int e) noexcept -> int {
-  return e * 1741647 >> 19;
-}
-
 constexpr uint64_t pow10s[] = {
     0x8000000000000000, 0xa000000000000000, 0xc800000000000000,
     0xfa00000000000000, 0x9c40000000000000, 0xc350000000000000,
