@@ -448,8 +448,7 @@ constexpr auto compute_dec_exp(int bin_exp, bool regular = true) noexcept
   // log10_3_over_4_sig = -log10(3/4) * 2**log10_2_exp rounded to a power of 2
   constexpr int log10_3_over_4_sig = 131'072;
   // log10_2_sig = round(log10(2) * 2**log10_2_exp)
-  constexpr int log10_2_sig = 315'653;
-  constexpr int log10_2_exp = 20;
+  constexpr int log10_2_sig = 315'653, log10_2_exp = 20;
   return (bin_exp * log10_2_sig - !regular * log10_3_over_4_sig) >> log10_2_exp;
 }
 
@@ -829,8 +828,11 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   // An optimization from yy by Yaoyuan Guo:
   while (regular) [[ZMIJ_LIKELY]] {
-    int dec_exp = use_umul128_hi64 ? umul128_hi64(bin_exp, 0x4d10500000000000)
-                                   : compute_dec_exp(bin_exp);
+    constexpr uint64_t log10_2_sig = 78'913;
+    constexpr int log10_2_exp = 18;
+    int dec_exp = use_umul128_hi64
+                      ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
+                      : compute_dec_exp(bin_exp);
     unsigned char exp_shift =
         compute_exp_shift<num_bits, true>(bin_exp, dec_exp);
     uint128 pow10 = pow10_significands[-dec_exp];
@@ -900,13 +902,14 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
 
     // Check for near-boundary case when rounding up to nearest 10.
     // Case where upper == ten is insufficient: 1.342178e+08f.
-    if (ten - upper <= 1u) [[ZMIJ_UNLIKELY]] break; // upper == ten || upper == ten - 1
+    if (ten - upper <= 1u) [[ZMIJ_UNLIKELY]] // upper == ten || upper == ten - 1
+      break;
 
     uint64_t even = 1 - (bin_sig & 1);
     int64_t shorter = int64_t(integral - digit);
     int64_t longer = int64_t(integral + (cmp >= 0));
-    int64_t dec_sig =
-        select_if_less(scaled_sig_mod10, scaled_half_ulp + even, shorter, longer);
+    int64_t dec_sig = select_if_less(scaled_sig_mod10, scaled_half_ulp + even,
+                                     shorter, longer);
     return {select_if_less(ten, upper, shorter + 10, dec_sig), dec_exp};
   }
   return to_decimal_schubfach(bin_sig, bin_exp, regular);
@@ -917,8 +920,8 @@ auto write_fixed(char* buffer, uint64_t dec_sig, int dec_exp,
                  bool extra_digit) noexcept -> char* {
   if (dec_exp < 0) {
     memcpy(buffer, "0.000000", 8);
-    return
-        write_significand<num_bits>(buffer + 1 - dec_exp, dec_sig, extra_digit);
+    return write_significand<num_bits>(buffer + 1 - dec_exp, dec_sig,
+                                       extra_digit);
   }
 
   // Avoid reading uninitialized memory (would be unnecessary in asm).
