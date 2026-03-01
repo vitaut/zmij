@@ -29,7 +29,7 @@ struct dec_fp {
 #endif
 
 #ifdef ZMIJ_USE_NEON
-// Use the provided definition
+// Use the provided definition.
 #elif defined(__ARM_NEON) || defined(_M_ARM64)
 #  define ZMIJ_USE_NEON ZMIJ_USE_SIMD
 #else
@@ -40,7 +40,7 @@ struct dec_fp {
 #endif
 
 #ifdef ZMIJ_USE_SSE
-// Use the provided definition
+// Use the provided definition.
 #elif defined(__SSE2__)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86FP == 2)
@@ -53,7 +53,7 @@ struct dec_fp {
 #endif
 
 #ifdef ZMIJ_USE_SSE4_1
-// Use the provided definition
+// Use the provided definition.
 static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #elif defined(__SSE4_1__) || defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
@@ -118,11 +118,14 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #endif
 
 #ifdef ZMIJ_OPTIMIZE_SIZE
-// Use the provided definition
+// Use the provided definition.
 #elif defined(__OPTIMIZE_SIZE__)
 #  define ZMIJ_OPTIMIZE_SIZE 1
 #else
 #  define ZMIJ_OPTIMIZE_SIZE 0
+#endif
+#ifndef ZMIJ_USE_EXP_STRING_TABLE
+#  define ZMIJ_USE_EXP_STRING_TABLE 0
 #endif
 
 #if ZMIJ_HAS_ATTRIBUTE(always_inline) && !ZMIJ_OPTIMIZE_SIZE
@@ -478,6 +481,29 @@ struct exp_shift_table {
   }
 };
 constexpr exp_shift_table exp_shifts;
+
+// An optional table of precomputed exponent strings for scientific notation.
+// Each entry packs "e+dd" or "e+ddd" into a uint64_t with the length in byte 7.
+struct exp_string_table {
+  static constexpr bool enable = ZMIJ_USE_EXP_STRING_TABLE;
+  static constexpr int min_dec_exp =
+      float_traits<double>::min_exponent10 - float_traits<double>::max_digits10;
+  static constexpr int max_dec_exp = float_traits<double>::max_exponent10;
+  static constexpr int offset = -min_dec_exp;
+  uint64_t data[enable ? max_dec_exp - min_dec_exp + 1 : 1] = {};
+
+  constexpr exp_string_table() {
+    for (int e = min_dec_exp; e <= max_dec_exp && enable; ++e) {
+      uint64_t abs_e = e >= 0 ? e : -e;
+      uint64_t bc = abs_e % 100;
+      uint64_t val = ((bc % 10 + '0') << 8) | (bc / 10 + '0');
+      if (uint64_t a = abs_e / 100) val = (val << 8) | (a + '0');
+      data[e + offset] = (uint64_t(abs_e >= 100 ? 5 : 4) << 48) | (val << 16) |
+                         (uint64_t(e >= 0 ? '+' : '-') << 8) | 'e';
+    }
+  }
+};
+constexpr exp_string_table exp_strings;
 
 // Computes a shift so that, after scaling by a power of 10, the intermediate
 // result always has a fixed 128-bit fractional part (for double).
@@ -900,9 +926,10 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
     // s - shorter underestimate, S - shorter overestimate
     // l - longer underestimate,  L - longer overestimate
 
-    // Check for near-boundary case when rounding up to nearest 10.
+    // Check for near-boundary case when rounding up to nearest 10
+    // equivalent to upper == ten || upper == ten - 1.
     // Case where upper == ten is insufficient: 1.342178e+08f.
-    if (ten - upper <= 1u) [[ZMIJ_UNLIKELY]] // upper == ten || upper == ten - 1
+    if (ten - upper <= 1u) [[ZMIJ_UNLIKELY]]
       break;
 
     uint64_t even = 1 - (bin_sig & 1);
@@ -1021,6 +1048,13 @@ auto write(Float value, char* buffer) noexcept -> char* {
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
 
   // Write exponent.
+  if (exp_string_table::enable) {
+    uint64_t exp_data = exp_strings.data[dec_exp + exp_string_table::offset];
+    int len = int(exp_data >> 48);
+    if (is_big_endian()) exp_data = bswap64(exp_data);
+    memcpy(buffer, &exp_data, 5);
+    return buffer + len;
+  }
   uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
   if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
   memcpy(buffer, &e_sign, 2);
