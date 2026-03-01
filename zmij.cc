@@ -225,18 +225,6 @@ struct uint128 {
   }
 };
 
-[[ZMIJ_MAYBE_UNUSED]] inline auto operator+(uint128 lhs, uint128 rhs) noexcept
-    -> uint128 {
-#ifdef _M_AMD64
-  uint64_t lo, hi;
-  _addcarry_u64(_addcarry_u64(0, lhs.lo, rhs.lo, &lo), lhs.hi, rhs.hi, &hi);
-  return {hi, lo};
-#else
-  uint64_t lo = lhs.lo + rhs.lo;
-  return {lhs.hi + rhs.hi + (lo < lhs.lo), lo};
-#endif  // _M_AMD64
-}
-
 #ifdef ZMIJ_USE_INT128
 // Use the provided definition.
 #elif defined(__SIZEOF_INT128__)
