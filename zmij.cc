@@ -328,7 +328,7 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
   }
 };
 
-constexpr uint64_t pow10s[] = {
+constexpr uint64_t pow10_minor[] = {
     0x8000000000000000, 0xa000000000000000, 0xc800000000000000,
     0xfa00000000000000, 0x9c40000000000000, 0xc350000000000000,
     0xf424000000000000, 0x9896800000000000, 0xbebc200000000000,
@@ -340,48 +340,49 @@ constexpr uint64_t pow10s[] = {
     0xd3c21bcecceda100, 0x84595161401484a0, 0xa56fa5b99019a5c8,
     0xcecb8f27f4200f3a,
 };
-constexpr uint128 high_parts[] = {
-    {0xaf8e5410288e1b6f, 0x07ecf0ae5ee44dda},
-    {0xb1442798f49ffb4a, 0x99cd11cfdf41779d},
-    {0xb2fe3f0b8599ef07, 0x861fa7e6dcb4aa15},
-    {0xb4bca50b065abe63, 0x0fed077a756b53aa},
-    {0xb67f6455292cbf08, 0x1a3bc84c17b1d543},
-    {0xb84687c269ef3bfb, 0x3d5d514f40eea742},
-    {0xba121a4650e4ddeb, 0x92f34d62616ce413},
-    {0xbbe226efb628afea, 0x890489f70a55368c},
-    {0xbdb6b8e905cb600f, 0x5400e987bbc1c921},
-    {0xbf8fdb78849a5f96, 0xde98520472bdd034},
-    {0xc16d9a0095928a27, 0x75b7053c0f178294},
-    {0xc350000000000000, 0x0000000000000000},
-    {0xc5371912364ce305, 0x6c28000000000000},
-    {0xc722f0ef9d80aad6, 0x424d3ad2b7b97ef6},
-    {0xc913936dd571c84c, 0x03bc3a19cd1e38ea},
-    {0xcb090c8001ab551c, 0x5cadf5bfd3072cc6},
-    {0xcd036837130890a1, 0x36dba887c37a8c10},
-    {0xcf02b2c21207ef2e, 0x94f967e45e03f4bc},
-    {0xd106f86e69d785c7, 0xe13336d701beba52},
-    {0xd31045a8341ca07c, 0x1ede48111209a051},
-    {0xd51ea6fa85785631, 0x552a74227f3ea566},
-    {0xd732290fbacaf133, 0xa97c177947ad4096},
-    {0xd94ad8b1c7380874, 0x18375281ae7822bc},
+constexpr uint128 pow10_major[] = {
+    {0xaf8e5410288e1b6f, 0x07ecf0ae5ee44dda},  // -303
+    {0xb1442798f49ffb4a, 0x99cd11cfdf41779d},  // -275
+    {0xb2fe3f0b8599ef07, 0x861fa7e6dcb4aa15},  // -247
+    {0xb4bca50b065abe63, 0x0fed077a756b53aa},  // -219
+    {0xb67f6455292cbf08, 0x1a3bc84c17b1d543},  // -191
+    {0xb84687c269ef3bfb, 0x3d5d514f40eea742},  // -163
+    {0xba121a4650e4ddeb, 0x92f34d62616ce413},  // -135
+    {0xbbe226efb628afea, 0x890489f70a55368c},  // -107
+    {0xbdb6b8e905cb600f, 0x5400e987bbc1c921},  //  -79
+    {0xbf8fdb78849a5f96, 0xde98520472bdd034},  //  -51
+    {0xc16d9a0095928a27, 0x75b7053c0f178294},  //  -23
+    {0xc350000000000000, 0x0000000000000000},  //    5
+    {0xc5371912364ce305, 0x6c28000000000000},  //   33
+    {0xc722f0ef9d80aad6, 0x424d3ad2b7b97ef6},  //   61
+    {0xc913936dd571c84c, 0x03bc3a19cd1e38ea},  //   89
+    {0xcb090c8001ab551c, 0x5cadf5bfd3072cc6},  //  117
+    {0xcd036837130890a1, 0x36dba887c37a8c10},  //  145
+    {0xcf02b2c21207ef2e, 0x94f967e45e03f4bc},  //  173
+    {0xd106f86e69d785c7, 0xe13336d701beba52},  //  201
+    {0xd31045a8341ca07c, 0x1ede48111209a051},  //  229
+    {0xd51ea6fa85785631, 0x552a74227f3ea566},  //  257
+    {0xd732290fbacaf133, 0xa97c177947ad4096},  //  285
+    {0xd94ad8b1c7380874, 0x18375281ae7822bc},  //  313
 };
-constexpr uint32_t fixups[] = {0x05271b1f, 0x00000c20, 0x00003200, 0x12100020,
-                               0x00000000, 0x06000000, 0xc16409c0, 0xaf26700f,
-                               0xeb987b07, 0x0000000d, 0x00000000, 0x66fbfffe,
-                               0xb74100ec, 0xa0669fe8, 0xedb21280, 0x00000686,
-                               0x0a021200, 0x29b89c20, 0x08bc0eda, 0x00000000};
+constexpr uint32_t pow10_fixups[] = {
+    0x05271b1f, 0x00000c20, 0x00003200, 0x12100020, 0x00000000,
+    0x06000000, 0xc16409c0, 0xaf26700f, 0xeb987b07, 0x0000000d,
+    0x00000000, 0x66fbfffe, 0xb74100ec, 0xa0669fe8, 0xedb21280,
+    0x00000686, 0x0a021200, 0x29b89c20, 0x08bc0eda, 0x00000000};
 
 // 128-bit significands of powers of 10 rounded down.
 struct pow10_significands_table {
   static constexpr bool compress = ZMIJ_OPTIMIZE_SIZE != 0;
   static constexpr bool split_tables = !compress && ZMIJ_AARCH64 != 0;
-  static constexpr int num_pow10 = 617;
-  uint64_t data[compress ? 1 : num_pow10 * 2] = {};
+  static constexpr int num_pow10s = 617;
+  uint64_t data[compress ? 1 : num_pow10s * 2] = {};
 
   // Computes the 128-bit significand of 10**i using method by Dougall Johnson.
   static constexpr auto compute(unsigned i) noexcept -> uint128 {
-    uint64_t m = pow10s[(i + 11) % 28];
-    uint128 h = high_parts[(i + 11) / 28];
+    constexpr int stride = sizeof(pow10_minor) / sizeof(*pow10_minor);
+    auto m = pow10_minor[(i + 11) % stride];
+    auto h = pow10_major[(i + 11) / stride];
 
     uint64_t h1 = umul128_hi64(h.lo, m);
 
@@ -392,16 +393,16 @@ struct pow10_significands_table {
     uint128 result = (c2 >> 63) != 0
                          ? uint128{c2, c1}
                          : uint128{c2 << 1 | c1 >> 63, c1 << 1 | c0 >> 63};
-    result.lo -= (fixups[i >> 5] >> (i & 31)) & 1;
+    result.lo -= (pow10_fixups[i >> 5] >> (i & 31)) & 1;
     return result;
   }
 
   constexpr pow10_significands_table() {
-    for (int i = 0; i < num_pow10 && !compress; ++i) {
+    for (int i = 0; i < num_pow10s && !compress; ++i) {
       uint128 result = compute(i);
       if (split_tables) {
-        data[num_pow10 - i - 1] = result.hi;
-        data[num_pow10 * 2 - i - 1] = result.lo;
+        data[num_pow10s - i - 1] = result.hi;
+        data[num_pow10s * 2 - i - 1] = result.lo;
       } else {
         data[i * 2] = result.hi;
         data[i * 2 + 1] = result.lo;
@@ -417,8 +418,8 @@ struct pow10_significands_table {
       return {data[index], data[index + 1]};
     }
 
-    const uint64_t* hi = data + num_pow10 + dec_exp_min - 1;
-    const uint64_t* lo = hi + num_pow10;
+    const uint64_t* hi = data + num_pow10s + dec_exp_min - 1;
+    const uint64_t* lo = hi + num_pow10s;
 
     // Force indexed loads.
     if (!is_constant_evaluated()) ZMIJ_ASM(volatile("" : "+r"(hi), "+r"(lo)));
@@ -470,14 +471,14 @@ constexpr exp_shift_table exp_shifts;
 // Each entry packs "e+dd" or "e+ddd" into a uint64_t with the length in byte 7.
 struct exp_string_table {
   static constexpr bool enable = ZMIJ_USE_EXP_STRING_TABLE;
+  using traits = float_traits<double>;
   static constexpr int min_dec_exp =
-      float_traits<double>::min_exponent10 - float_traits<double>::max_digits10;
-  static constexpr int max_dec_exp = float_traits<double>::max_exponent10;
+      traits::min_exponent10 - traits::max_digits10;
   static constexpr int offset = -min_dec_exp;
-  uint64_t data[enable ? max_dec_exp - min_dec_exp + 1 : 1] = {};
+  uint64_t data[enable ? traits::max_exponent10 - min_dec_exp + 1 : 1] = {};
 
   constexpr exp_string_table() {
-    for (int e = min_dec_exp; e <= max_dec_exp && enable; ++e) {
+    for (int e = min_dec_exp; e <= traits::max_exponent10 && enable; ++e) {
       uint64_t abs_e = e >= 0 ? e : -e;
       uint64_t bc = abs_e % 100;
       uint64_t val = ((bc % 10 + '0') << 8) | (bc / 10 + '0');
