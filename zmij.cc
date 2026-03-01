@@ -898,18 +898,15 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
     // s - shorter underestimate, S - shorter overestimate
     // l - longer underestimate,  L - longer overestimate
 
-    // Check for boundary case when rounding down to nearest 10 and
-    // near-boundary case when rounding up to nearest 10.
+    // Check for near-boundary case when rounding up to nearest 10.
     // Case where upper == ten is insufficient: 1.342178e+08f.
-    if (ten - upper <= 1u ||  // upper == ten || upper == ten - 1
-        scaled_sig_mod10 == scaled_half_ulp) [[ZMIJ_UNLIKELY]] {
-      break;
-    }
+    if (ten - upper <= 1u) [[ZMIJ_UNLIKELY]] break; // upper == ten || upper == ten - 1
 
+    uint64_t even = 1 - (bin_sig & 1);
     int64_t shorter = int64_t(integral - digit);
     int64_t longer = int64_t(integral + (cmp >= 0));
     int64_t dec_sig =
-        select_if_less(scaled_sig_mod10, scaled_half_ulp, shorter, longer);
+        select_if_less(scaled_sig_mod10, scaled_half_ulp + even, shorter, longer);
     return {select_if_less(ten, upper, shorter + 10, dec_sig), dec_exp};
   }
   return to_decimal_schubfach(bin_sig, bin_exp, regular);
