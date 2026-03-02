@@ -32,7 +32,7 @@ with implementations in C and C++
 #include <stdio.h>
 
 int main() {
-  char buf[zmij::double_buffer_size];
+  char buf[zmij::double_buffer_size] = {};
   zmij::write(buf, sizeof(buf), 5.0507837461e-27);
   puts(buf);
 }
