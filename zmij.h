@@ -38,7 +38,9 @@ enum {
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
-/// `out`. `out` should point to a buffer of size `n` or larger.
+/// `out` without a null terminator. Returns the length of the full
+/// representation; if this exceeds `n`, only the first `n` characters are
+/// written.
 inline auto write(char* out, size_t n, float value) noexcept -> size_t {
   if (n >= float_buffer_size) return detail::write(value, out) - out;
   char buffer[float_buffer_size];
@@ -48,7 +50,9 @@ inline auto write(char* out, size_t n, float value) noexcept -> size_t {
 }
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
-/// `out`. `out` should point to a buffer of size `n` or larger.
+/// `out` without a null terminator. Returns the length of the full
+/// representation; if this exceeds `n`, only the first `n` characters are
+/// written.
 inline auto write(char* out, size_t n, double value) noexcept -> size_t {
   if (n >= double_buffer_size) return detail::write(value, out) - out;
   char buffer[double_buffer_size];
