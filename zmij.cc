@@ -43,7 +43,7 @@ struct dec_fp {
 // Use the provided definition.
 #elif defined(__SSE2__)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86FP == 2)
+#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_SSE 0
@@ -152,9 +152,12 @@ auto is_constant_evaluated() -> bool { return false; }
 #  define ZMIJ_CONSTEXPR
 #endif
 
-inline auto is_big_endian() noexcept -> bool {
-  int n = 1;
-  return *reinterpret_cast<char*>(&n) != 1;
+inline constexpr auto is_big_endian() noexcept -> bool {
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+  return true;
+#else
+  return false;
+#endif
 }
 
 inline auto bswap64(uint64_t x) noexcept -> uint64_t {
