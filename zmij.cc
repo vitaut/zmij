@@ -219,10 +219,7 @@ struct uint128 {
 
   [[ZMIJ_MAYBE_UNUSED]] constexpr auto operator>>(int shift) const noexcept
       -> uint128 {
-    if (shift == 32) {
-      uint64_t hilo = uint32_t(hi);
-      return {hi >> 32, (hilo << 32) | (lo >> 32)};
-    }
+    if (shift == 32) return {hi >> 32, (hi << 32) | (lo >> 32)};
     assert(shift >= 64 && shift < 128);
     return {0, hi >> (shift - 64)};
   }
