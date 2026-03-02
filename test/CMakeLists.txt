@@ -1,3 +1,6 @@
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-msse4.1 ZMIJ_HAS_SSE4_1)
+
 add_subdirectory(gtest)
 
 add_library(dragonbox dragonbox/dragonbox_to_chars.cpp)
@@ -12,6 +15,12 @@ endfunction()
 
 add_zmij_test(zmij-test)
 target_sources(zmij-test PRIVATE pow10-test.cc)
+
+if(ZMIJ_HAS_SSE4_1)
+  add_zmij_test(zmij-sse4-test)
+  target_compile_options(zmij-sse4-test PRIVATE -msse4.1)
+  target_compile_definitions(zmij-sse4-test PRIVATE ZMIJ_USE_SSE4_1=1)
+endif()
 
 add_zmij_test(zmij-c-test)
 target_compile_definitions(zmij-c-test PRIVATE ZMIJ_C=1)
