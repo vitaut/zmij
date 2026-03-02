@@ -972,8 +972,8 @@ static_assert(compute_dec_exp(float_traits<double>::digits + 1) == 16);
       sse_constants::pack8((a), (b), (c), (d), (e), (f), (g), (h)),    \
           sse_constants::pack8((i), (j), (k), (l), (m), (n), (o), (p)) \
     }
-constexpr uint128 double_sse4_shuffle_table[32] = {
-    // extra_digit == false
+constexpr uint128 double_sse4_shuffle_table[17] = {
+    ZMIJ_PACK16(15, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
     ZMIJ_PACK16(15, 14, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
     ZMIJ_PACK16(15, 14, 13, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
     ZMIJ_PACK16(15, 14, 13, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
@@ -990,23 +990,7 @@ constexpr uint128 double_sse4_shuffle_table[32] = {
     ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 2, 1),
     ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1),
     ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
-    // extra_digit == true
-    ZMIJ_PACK16(15, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 1)};
+};
 
 auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
                              bool extra_digit) noexcept -> char* {
@@ -1028,7 +1012,7 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
       dec_sig, extra_digit, bbccddee, ffgghhii, c);
   auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
   const __m128i shuffler = _mm_load_si128(
-      (const __m128i*)&double_sse4_shuffle_table[dec_exp | (extra_digit << 4)]);
+      (const __m128i*)&double_sse4_shuffle_table[dec_exp  + !extra_digit]);
   auto digits = _mm_shuffle_epi8(unshuffled_digits,
                                  shuffler);  // SSSE3 for _mm_shuffle_epi8
 
