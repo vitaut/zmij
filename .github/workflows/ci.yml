@@ -5,6 +5,6 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: cmake -B build -DTEST_SSE4_1=ON
+      - run: cmake -B build
       - run: cmake --build build -j
       - run: ctest --test-dir build --output-on-failure

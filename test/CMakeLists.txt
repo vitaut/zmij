@@ -1,4 +1,5 @@
-option(TEST_SSE4_1 "Test SSE4.1" OFF)
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-msse4.1 ZMIJ_HAS_SSE4_1)
 
 add_subdirectory(gtest)
 
@@ -15,7 +16,7 @@ endfunction()
 add_zmij_test(zmij-test)
 target_sources(zmij-test PRIVATE pow10-test.cc)
 
-if(TEST_SSE4_1)
+if(ZMIJ_HAS_SSE4_1)
   add_zmij_test(zmij-sse4-test)
   target_compile_options(zmij-sse4-test PRIVATE -msse4.1)
   target_compile_definitions(zmij-sse4-test PRIVATE ZMIJ_USE_SSE4_1=1)

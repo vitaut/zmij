@@ -964,7 +964,7 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
   return to_decimal_schubfach(bin_sig, bin_exp, regular);
 }
 
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
 static_assert(compute_dec_exp(float_traits<double>::digits + 1) == 16);
 
 #  define ZMIJ_PACK16(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)  \
@@ -1012,7 +1012,7 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
       dec_sig, extra_digit, bbccddee, ffgghhii, c);
   auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
   const __m128i shuffler = _mm_load_si128(
-      (const __m128i*)&double_sse4_shuffle_table[dec_exp  + !extra_digit]);
+      (const __m128i*)&double_sse4_shuffle_table[dec_exp + !extra_digit]);
   auto digits = _mm_shuffle_epi8(unshuffled_digits,
                                  shuffler);  // SSSE3 for _mm_shuffle_epi8
 
@@ -1027,7 +1027,7 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
   // only the byte at buffer + 16 is actually needed
-  write8(buffer + 16, unshuffled_digits[0]);
+  write8(buffer + 16, _mm_cvtsi128_si64(unshuffled_digits));
   buffer += len;
 
   char* point = start + dec_exp + 1;
@@ -1045,7 +1045,7 @@ auto write_fixed(char* buffer, uint64_t dec_sig, int dec_exp,
                                        extra_digit);
   }
 
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
   if (num_bits == 64)
     return write_fixed_double_sse4(buffer, dec_sig, dec_exp, extra_digit);
 #endif
