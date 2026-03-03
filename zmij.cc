@@ -1026,8 +1026,8 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 #  endif
 
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
-  // only the byte at buffer + 16 is actually needed
-  write8(buffer + 16, _mm_cvtsi128_si64(unshuffled_digits));
+  uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_digits);
+  memcpy(buffer + 16, &trailing_digit, 4); // only need the lowest byte
   buffer += len;
 
   char* point = start + dec_exp + 1;
