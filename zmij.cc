@@ -148,17 +148,15 @@ namespace {
 using std::is_constant_evaluated;
 #  define ZMIJ_CONSTEXPR constexpr
 #else
-auto is_constant_evaluated() -> bool { return false; }
+inline auto is_constant_evaluated() -> bool { return false; }
 #  define ZMIJ_CONSTEXPR
 #endif
 
-inline constexpr auto is_big_endian() noexcept -> bool {
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-  return true;
+constexpr bool is_big_endian = true;
 #else
-  return false;
+constexpr bool is_big_endian = false;
 #endif
-}
 
 inline auto bswap64(uint64_t x) noexcept -> uint64_t {
 #if ZMIJ_HAS_BUILTIN(__builtin_bswap64)
@@ -546,7 +544,7 @@ inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // high bit is unused we can avoid the zero check by shifting the
   // datum left by one and inserting a sentinel bit at the end. This can
   // be faster than the automatically inserted range check.
-  if (is_big_endian()) x = bswap64(x);
+  if (is_big_endian) x = bswap64(x);
   return (size_t(70) - clz((x << 1) | 1)) / 8;  // size_t for native arithmetic
 }
 
@@ -628,7 +626,7 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> uint64_t {
   uint64_t a_b_c_d_e_f_g_h =
       ab_cd_ef_gh +
       neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
-  return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
+  return is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
 inline auto write_if(char* buffer, uint32_t digit, bool condition) noexcept
@@ -1159,12 +1157,12 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (exp_string_table::enable) {
     uint64_t exp_data = exp_strings.data[dec_exp + exp_string_table::offset];
     int len = int(exp_data >> 48);
-    if (is_big_endian()) exp_data = bswap64(exp_data);
+    if (is_big_endian) exp_data = bswap64(exp_data);
     memcpy(buffer, &exp_data, 5);
     return buffer + len;
   }
   uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
-  if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
+  if (is_big_endian) e_sign = e_sign << 8 | e_sign >> 8;
   memcpy(buffer, &e_sign, 2);
   buffer += 2;
   dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
