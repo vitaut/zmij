@@ -432,11 +432,9 @@ struct pow10_significands_table {
 
   ZMIJ_CONSTEXPR auto operator[](int dec_exp) const noexcept -> uint128 {
     constexpr int dec_exp_min = -292;
-    if (compress) return compute(dec_exp - dec_exp_min);
-    if (!split_tables) {
-      int index = (dec_exp - dec_exp_min) * 2;
-      return {data[index], data[index + 1]};
-    }
+    int i = dec_exp - dec_exp_min;
+    if (compress) return compute(i);
+    if (!split_tables) return {data[i * 2], data[i * 2 + 1]};
 
     const uint64_t* hi = data + num_pow10s + dec_exp_min - 1;
     const uint64_t* lo = hi + num_pow10s;
