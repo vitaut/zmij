@@ -1015,7 +1015,7 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
   uint32_t mask = _mm_movemask_epi8(mask128);
 
-  #  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
+#  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
   auto len = 32 - _lzcnt_u32(mask);
 #  else
   auto len = 63 - clz((mask << 1) | 1);
