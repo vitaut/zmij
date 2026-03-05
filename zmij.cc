@@ -814,40 +814,33 @@ ZMIJ_INLINE auto to_decimal_schubfach(UInt bin_sig, int64_t bin_exp,
   unsigned char exp_shift = compute_exp_shift<num_bits>(bin_exp, dec_exp);
   uint128 pow10 = pow10_significands[-dec_exp];
 
-  // Fallback to Schubfach to guarantee correctness in boundary cases.
-  // This requires switching to strict overestimates of powers of 10.
+  // Shubfach requires strict overestimates of powers of 10.
   ++(num_bits == 64 ? pow10.lo : pow10.hi);
 
   // Shift the significand so that boundaries are integer.
-  constexpr int bound_shift = 2;
-  UInt bin_sig_shifted = bin_sig << bound_shift;
+  // The two extra bits act as guard and sticky for correct rounding.
+  UInt bin_sig_shifted = bin_sig << 2;
+  UInt odd = bin_sig & 1;
 
-  // Compute the estimates of lower and upper bounds of the rounding interval
-  // by multiplying them by the power of 10 and applying modified rounding.
-  UInt lsb = bin_sig & 1;
+  // Compute the lower and upper bounds of the rounding interval by
+  // multiplying them by the power of 10 and applying modified rounding.
   UInt lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
-  lower = umulhi_inexact_to_odd(pow10.hi, pow10.lo, lower) + lsb;
+  lower = umulhi_inexact_to_odd(pow10.hi, pow10.lo, lower) + odd;
+  lower = (lower + 3) >> 2;  // ceil
   UInt upper = (bin_sig_shifted + 2) << exp_shift;
-  upper = umulhi_inexact_to_odd(pow10.hi, pow10.lo, upper) - lsb;
+  upper = umulhi_inexact_to_odd(pow10.hi, pow10.lo, upper) - odd;
+  upper = upper >> 2;  // floor
 
   // The idea of using a single shorter candidate is by Cassio Neri.
   // It is less or equal to the upper bound by construction.
-  UInt shorter = ((upper >> bound_shift) / 10) * 10;
-  if ((shorter << bound_shift) >= lower) return {int64_t(shorter), dec_exp};
+  UInt shorter = (upper / 10) * 10;
+  if (shorter >= lower) return {int64_t(shorter), dec_exp};
 
-  UInt scaled_sig =
+  // The simplified longer candidate selection is by Russ Cox.
+  UInt dec_sig =
       umulhi_inexact_to_odd(pow10.hi, pow10.lo, bin_sig_shifted << exp_shift);
-  UInt longer_below = scaled_sig >> bound_shift;
-  UInt longer_above = longer_below + 1;
-
-  // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
-  // the rounding interval.
-  using sint = std::make_signed_t<UInt>;
-  sint cmp = sint(scaled_sig - ((longer_below + longer_above) << 1));
-  bool below_closer = cmp < 0 || (cmp == 0 && (longer_below & 1) == 0);
-  bool below_in = (longer_below << bound_shift) >= lower;
-  UInt dec_sig = (below_closer & below_in) ? longer_below : longer_above;
-  return {int64_t(dec_sig), dec_exp};
+  dec_sig = (dec_sig + 1 + ((dec_sig >> 2) & 1)) >> 2;  // round
+  return {int64_t(lower == upper ? lower : dec_sig), dec_exp};
 }
 
 // Here be 🐉s.
@@ -946,6 +939,7 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
                                      shorter, longer);
     return {select_if_less(ten, upper, shorter + 10, dec_sig), dec_exp};
   }
+  // Fallback to Schubfach to guarantee correctness in boundary cases.
   return to_decimal_schubfach(bin_sig, bin_exp, regular);
 }
 
