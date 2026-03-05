@@ -1029,7 +1029,7 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
   uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_bcd) + '0';
   memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
 
-  buffer += (trailing_digit & 0xff) != '0' ? 17 : len;
+  buffer += (trailing_digit & 0xff) != '0' ? 17 : (len > idx_point ? len : idx_point);
   return buffer;
 }
 #endif
