@@ -678,7 +678,6 @@ ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
   return unshuffled_bcd;
 #  endif  // ZMIJ_USE_SSE4_1
 }
-
 #endif  // ZMIJ_USE_SSE
 
 // Writes a significand and removes trailing zeros. value has up to 17 decimal
@@ -808,6 +807,112 @@ ZMIJ_INLINE auto write_significand(char* buffer, uint64_t value,
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
   return buffer + len;
 #endif  // ZMIJ_USE_SSE
+}
+
+#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
+static_assert(compute_dec_exp(float_traits<double>::digits + 1) == 16);
+
+#  define ZMIJ_PACK16(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)  \
+    uint128 {                                                          \
+      sse_constants::pack8((a), (b), (c), (d), (e), (f), (g), (h)),    \
+          sse_constants::pack8((i), (j), (k), (l), (m), (n), (o), (p)) \
+    }
+constexpr uint128 double_sse4_shuffle_table[17] = {
+    ZMIJ_PACK16(0x80, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 0x80, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 0x80, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 0x80, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 0x80, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 0x80, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 0x80, 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 0x80, 8, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 0x80, 7, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 0x80, 6, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 0x80, 5, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 0x80, 4, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 0x80, 3, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 0x80, 2, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 0x80, 1),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0x80),
+    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+};
+
+auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
+                             bool extra_digit) noexcept -> char* {
+  uint32_t abbccddee = uint32_t(dec_sig / 100'000'000);
+  uint32_t ffgghhii = uint32_t(dec_sig % 100'000'000);
+  uint32_t a = abbccddee / 100'000'000;
+  uint32_t bbccddee = abbccddee % 100'000'000;
+
+  buffer = write_if(buffer, a, extra_digit);
+
+  const auto* c = &sse_consts;
+  ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
+  const __m128i zeros = _mm_load_si128((const __m128i*)(&c->zeros));
+
+  auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
+      dec_sig, extra_digit, bbccddee, ffgghhii, c);
+  auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
+  const __m128i shuffler = _mm_load_si128(
+      (const __m128i*)&double_sse4_shuffle_table[dec_exp + !extra_digit]);
+  auto digits = _mm_shuffle_epi8(unshuffled_digits,
+                                 shuffler);  // SSSE3 for _mm_shuffle_epi8
+
+  // Count trailing zeros.
+  __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
+  uint32_t mask = _mm_movemask_epi8(mask128) | (1u << 16);
+#  if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
+  auto len = 16 - _tzcnt_u32(mask);
+#  else
+  auto len = 16 - ctz32(mask);
+#  endif
+
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
+  uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_digits);
+  memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
+
+  char* point = buffer + dec_exp + !extra_digit;
+  *point = '.';
+  buffer += len;
+  return buffer > point ? buffer + 1 : point;
+}
+#endif
+
+template <int num_bits>
+auto write_fixed(char* buffer, uint64_t dec_sig, int dec_exp,
+                 bool extra_digit) noexcept -> char* {
+  if (dec_exp < 0) {
+    memcpy(buffer, "0.000000", 8);
+    return write_significand<num_bits>(buffer + 1 - dec_exp, dec_sig,
+                                       extra_digit);
+  }
+
+#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
+  if (num_bits == 64)
+    return write_fixed_double_sse4(buffer, dec_sig, dec_exp, extra_digit);
+#endif
+
+  // Avoid reading uninitialized memory (would be unnecessary in asm).
+  write8(buffer + (num_bits == 64 ? 16 : 7), 0);
+
+  char* start = buffer;
+  buffer = write_significand<num_bits>(buffer, dec_sig, extra_digit);
+
+  // Branchless move to make space for the '.' without OOB accesses.
+  char* part1 = start + dec_exp + (dec_exp < 2);
+  char* part2 = part1 + (dec_exp < 2) + (dec_exp < 9 ? 7 : 0);
+  if (num_bits == 64) {
+    uint64_t value1 = read8(part1);
+    uint64_t value2 = read8(part2);
+    write8(part1 + 1, value1);
+    write8(part2 + 1, value2);
+  } else {
+    write8(part1 + 1, read8(part1));
+  }
+
+  char* point = start + dec_exp + 1;
+  *point = '.';
+  return buffer > point ? buffer + 1 : point;
 }
 
 struct to_decimal_result {
@@ -951,112 +1056,6 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
   }
   // Fallback to Schubfach to guarantee correctness in boundary cases.
   return to_decimal_schubfach(bin_sig, bin_exp, regular);
-}
-
-#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
-static_assert(compute_dec_exp(float_traits<double>::digits + 1) == 16);
-
-#  define ZMIJ_PACK16(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)  \
-    uint128 {                                                          \
-      sse_constants::pack8((a), (b), (c), (d), (e), (f), (g), (h)),    \
-          sse_constants::pack8((i), (j), (k), (l), (m), (n), (o), (p)) \
-    }
-constexpr uint128 double_sse4_shuffle_table[17] = {
-    ZMIJ_PACK16(0x80, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 0x80, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 0x80, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 0x80, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 0x80, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 0x80, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 0x80, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 0x80, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 0x80, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 0x80, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 0x80, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 0x80, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 0x80, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 0x80, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 0x80, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0x80),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
-};
-
-auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
-                             bool extra_digit) noexcept -> char* {
-  uint32_t abbccddee = uint32_t(dec_sig / 100'000'000);
-  uint32_t ffgghhii = uint32_t(dec_sig % 100'000'000);
-  uint32_t a = abbccddee / 100'000'000;
-  uint32_t bbccddee = abbccddee % 100'000'000;
-
-  buffer = write_if(buffer, a, extra_digit);
-
-  const auto* c = &sse_consts;
-  ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
-  const __m128i zeros = _mm_load_si128((const __m128i*)(&c->zeros));
-
-  auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
-      dec_sig, extra_digit, bbccddee, ffgghhii, c);
-  auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
-  const __m128i shuffler = _mm_load_si128(
-      (const __m128i*)&double_sse4_shuffle_table[dec_exp + !extra_digit]);
-  auto digits = _mm_shuffle_epi8(unshuffled_digits,
-                                 shuffler);  // SSSE3 for _mm_shuffle_epi8
-
-  // Count trailing zeros.
-  __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
-  uint32_t mask = _mm_movemask_epi8(mask128) | (1u << 16);
-#  if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
-  auto len = 16 - _tzcnt_u32(mask);
-#  else
-  auto len = 16 - ctz32(mask);
-#  endif
-
-  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
-  uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_digits);
-  memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
-
-  char* point = buffer + dec_exp + !extra_digit;
-  *point = '.';
-  buffer += len;
-  return buffer > point ? buffer + 1 : point;
-}
-#endif
-
-template <int num_bits>
-auto write_fixed(char* buffer, uint64_t dec_sig, int dec_exp,
-                 bool extra_digit) noexcept -> char* {
-  if (dec_exp < 0) {
-    memcpy(buffer, "0.000000", 8);
-    return write_significand<num_bits>(buffer + 1 - dec_exp, dec_sig,
-                                       extra_digit);
-  }
-
-#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
-  if (num_bits == 64)
-    return write_fixed_double_sse4(buffer, dec_sig, dec_exp, extra_digit);
-#endif
-
-  // Avoid reading uninitialized memory (would be unnecessary in asm).
-  write8(buffer + (num_bits == 64 ? 16 : 7), 0);
-
-  char* start = buffer;
-  buffer = write_significand<num_bits>(buffer, dec_sig, extra_digit);
-
-  // Branchless move to make space for the '.' without OOB accesses.
-  char* part1 = start + dec_exp + (dec_exp < 2);
-  char* part2 = part1 + (dec_exp < 2) + (dec_exp < 9 ? 7 : 0);
-  if (num_bits == 64) {
-    uint64_t value1 = read8(part1);
-    uint64_t value2 = read8(part2);
-    write8(part1 + 1, value1);
-    write8(part2 + 1, value2);
-  } else {
-    write8(part1 + 1, read8(part1));
-  }
-
-  char* point = start + dec_exp + 1;
-  *point = '.';
-  return buffer > point ? buffer + 1 : point;
 }
 
 }  // namespace
