@@ -111,6 +111,12 @@ TEST(dtoa_test, all_irregular) {
   }
 }
 
+TEST(dtoa_test, fixed_format) {
+  double value = 2410;
+  char expected[] = "2410";
+  EXPECT_EQ(dtoa(value), expected);
+}
+
 TEST(dtoa_test, all_exponents) {
   const char* fixed[] = {
     "0.00012207031250000003",

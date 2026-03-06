@@ -195,28 +195,6 @@ inline auto clz(uint64_t x) noexcept -> int {
 #endif
 }
 
-inline auto ctz32(uint32_t x) noexcept -> int {
-  assert(x != 0);
-#if ZMIJ_HAS_BUILTIN(__builtin_ctz)
-  return __builtin_ctz(x);
-#elif ZMIJ_MSC_VER >= 1400 && (defined(_M_AMD64) || defined(_M_ARM64) || \
-                               defined(_M_IX86) || defined(_M_ARM))
-  unsigned long r;
-  _BitScanForward(&r, x);
-  return r;
-#else
-  // Branchless using de Bruijn sequences:
-  // https://www.chessprogramming.org/BitScan.
-  static constexpr int table[64] = {
-      0,  1,  2,  53, 3,  7,  54, 27, 4,  38, 41, 8,  34, 55, 48, 28,
-      62, 5,  39, 46, 44, 42, 22, 9,  24, 35, 59, 56, 49, 18, 29, 11,
-      63, 52, 6,  26, 37, 40, 33, 47, 61, 45, 43, 21, 23, 58, 17, 10,
-      51, 25, 36, 32, 60, 20, 57, 16, 50, 31, 19, 15, 30, 14, 13, 12};
-  return table[((x & (~x + 1)) * ((uint64_t(0x022FDD63) << 32) + 0xCC95386D)) >>
-               58];
-#endif
-}
-
 // Returns true_value if lhs < rhs, else false_value, without branching.
 ZMIJ_INLINE auto select_if_less(uint64_t lhs, uint64_t rhs, int64_t true_value,
                                 int64_t false_value) -> int64_t {
@@ -983,6 +961,26 @@ constexpr uint128 double_sse4_shuffle_table[17] = {
     ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
 };
 
+constexpr uint128 conversion_table[17] = {
+    ZMIJ_PACK16('.', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '.', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '.', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '.', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '.', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '.', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '.', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '.', '0', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '.', '0', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '.', '0', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '.', '0', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '.', '0', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '.', '0', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '.', '0', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '.', '0'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '.'),
+    ZMIJ_PACK16('0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0'),
+};
+
 auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
                              bool extra_digit) noexcept -> char* {
   uint32_t abbccddee = uint32_t(dec_sig / 100'000'000);
@@ -994,33 +992,35 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 
   const auto* c = &sse_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
-  const __m128i zeros = _mm_load_si128((const __m128i*)(&c->zeros));
 
   auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
       dec_sig, extra_digit, bbccddee, ffgghhii, c);
-  auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
+
+  size_t idx_point = dec_exp + !extra_digit;
   const __m128i shuffler = _mm_load_si128(
-      (const __m128i*)&double_sse4_shuffle_table[dec_exp + !extra_digit]);
-  auto digits = _mm_shuffle_epi8(unshuffled_digits,
-                                 shuffler);  // SSSE3 for _mm_shuffle_epi8
+      (const __m128i*)&double_sse4_shuffle_table[idx_point]);
+  auto bcd = _mm_shuffle_epi8(unshuffled_bcd, shuffler);
 
   // Count trailing zeros.
-  __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
-  uint32_t mask = _mm_movemask_epi8(mask128) | (1u << 16);
-#  if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
-  auto len = 16 - _tzcnt_u32(mask);
+  __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
+  uint32_t mask = _mm_movemask_epi8(mask128);
+
+#  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
+  auto len = 32 - _lzcnt_u32(mask);
 #  else
-  auto len = 16 - ctz32(mask);
+  auto len = 63 - clz((mask << 1) | 1);
 #  endif
 
+  const __m128i converter_bits = _mm_load_si128(
+      (const __m128i*)&conversion_table[idx_point]);
+  auto digits = _mm_or_si128(bcd, converter_bits);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
-  uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_digits);
+
+  uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_bcd) + '0';
   memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
 
-  char* point = buffer + dec_exp + !extra_digit;
-  *point = '.';
-  buffer += len;
-  return buffer > point ? buffer + 1 : point;
+  buffer += (trailing_digit & 0xff) != '0' ? 17 : (len > idx_point ? len : idx_point);
+  return buffer;
 }
 #endif
 
