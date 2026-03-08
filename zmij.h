@@ -34,7 +34,7 @@ auto to_decimal(double value) noexcept -> dec_fp;
 
 enum {
   float_buffer_size = 16,
-  double_buffer_size = 25,
+  double_buffer_size = 27,
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
