@@ -33,8 +33,8 @@ struct dec_fp {
 auto to_decimal(double value) noexcept -> dec_fp;
 
 enum {
-  float_buffer_size = 16,
-  double_buffer_size = 27,
+  float_buffer_size = 17,
+  double_buffer_size = 33,
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to

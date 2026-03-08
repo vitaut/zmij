@@ -505,6 +505,57 @@ struct exp_string_table {
 };
 constexpr exp_string_table exp_strings;
 
+// Per-decimal-exponent formatting positions for branchless output.
+// Each entry holds positions for the decimal point, leading zeros, and the
+// exponent, indexed by the decimal exponent (dec_exp).
+struct dec_exp_format_table {
+  using traits = float_traits<double>;
+  static constexpr int min_dec_exp = -4;
+  static constexpr int max_dec_exp = compute_dec_exp(traits::digits + 1) - 1;
+  static constexpr int num_entries =
+      max_dec_exp - min_dec_exp + 2;  // +1 sentinel
+
+  struct entry {
+    // Byte offset past leading "0.00..." before first significant digit.
+    unsigned char start_pos;
+    unsigned char point_pos;
+    // Start position for shifting digits right by one to insert the point.
+    unsigned char shift_pos;
+    // Position where exponent notation starts, indexed by sig length - 1.
+    // For fixed-notation entries this points past all output digits.
+    unsigned char exp_pos[traits::max_digits10];
+  };
+
+  entry data[num_entries] = {};
+
+  constexpr dec_exp_format_table() {
+    for (int dec_exp = min_dec_exp; dec_exp <= max_dec_exp + 1; ++dec_exp) {
+      auto& e = data[dec_exp - min_dec_exp];
+      bool neg_fixed = dec_exp >= min_dec_exp && dec_exp <= -1;
+      bool pos_fixed = dec_exp >= 0 && dec_exp <= max_dec_exp;
+
+      e.start_pos = neg_fixed ? 1 - dec_exp : 0;
+      e.point_pos = pos_fixed ? 1 + dec_exp : 1;
+      e.shift_pos = e.point_pos + (dec_exp >= 0 || dec_exp < min_dec_exp);
+
+      for (int s = 1; s <= traits::max_digits10; ++s) {
+        if (neg_fixed)
+          e.exp_pos[s - 1] = s;
+        else if (pos_fixed)
+          e.exp_pos[s - 1] = s > dec_exp + 1 ? s + 1 : dec_exp + 1;
+        else
+          e.exp_pos[s - 1] = s + 1 - (s == 1);
+      }
+    }
+  }
+
+  constexpr auto operator[](int dec_exp) const noexcept -> const entry& {
+    unsigned i = unsigned(dec_exp - min_dec_exp);
+    return data[i <= unsigned(max_dec_exp - min_dec_exp) ? i : num_entries - 1];
+  }
+};
+constexpr dec_exp_format_table dec_exp_formats;
+
 // Computes a shift so that, after scaling by a power of 10, the intermediate
 // result always has a fixed 128-bit fractional part (for double).
 //
@@ -676,34 +727,24 @@ ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
 }
 #endif  // ZMIJ_USE_SSE
 
-// Writes a significand and removes trailing zeros. value has up to 17 decimal
-// digits (16-17 for normals) for double (num_bits == 64) and up to 9 digits
-// (8-9 for normals) for float. The significant digits start from buffer[1].
-// buffer[0] may contain '0' after this function if the leading digit is zero.
-template <int num_bits, bool use_sse = ZMIJ_USE_SSE != 0 && num_bits == 64>
-ZMIJ_INLINE auto write_significand(char* buffer, uint64_t value,
-                                   bool extra_digit) noexcept -> char* {
-  if (num_bits == 32) {
-    buffer = write_if(buffer, value / 100'000'000, extra_digit);
-    uint64_t bcd = to_bcd8(value % 100'000'000);
-    write8(buffer, bcd + zeros);
-    return buffer + count_trailing_nonzeros(bcd);
-  }
-  if (!ZMIJ_USE_NEON && !use_sse) {
-    // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
-    uint32_t abbccddee = uint32_t(value / 100'000'000);
-    uint32_t ffgghhii = uint32_t(value % 100'000'000);
-    buffer = write_if(buffer, abbccddee / 100'000'000, extra_digit);
-    uint64_t bcd = to_bcd8(abbccddee % 100'000'000);
-    write8(buffer, bcd + zeros);
-    if (ffgghhii == 0) {
-      write8(buffer + 8, zeros);
-      return buffer + count_trailing_nonzeros(bcd);
-    }
-    bcd = to_bcd8(ffgghhii);
-    write8(buffer + 8, bcd + zeros);
-    return buffer + 8 + count_trailing_nonzeros(bcd);
-  }
+template <int num_bits> struct sig_str {
+#if ZMIJ_USE_NEON
+  using digits_type = uint16x8_t;
+#elif ZMIJ_USE_SSE
+  using digits_type = __m128i;
+#else
+  using digits_type = uint128;
+#endif
+  std::conditional_t<num_bits == 64, digits_type, uint64_t> digits;
+  int num_digits;
+};
+
+// Converts a significand to a string, removing trailing zeros. value has up to
+// 17 decimal digits (16-17 for normals) for double (num_bits == 64) and up to
+// 9 digits (8-9 for normals) for float.
+template <int num_bits>
+ZMIJ_INLINE auto to_str(char*& buffer, uint64_t value,
+                        bool extra_digit) noexcept -> sig_str<num_bits> {
 #if ZMIJ_USE_NEON
   // An optimized version for NEON by Dougall Johnson.
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
@@ -763,13 +804,12 @@ ZMIJ_INLINE auto write_significand(char* buffer, uint64_t value,
       vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1])));
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
-  memcpy(buffer, &str, sizeof(str));
 
   uint16x8_t is_not_zero =
       vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
   uint64_t zeroes =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
-  return buffer + (16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2));
+  return {str, 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2)};
 #elif ZMIJ_USE_SSE
   uint32_t abbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
@@ -799,10 +839,33 @@ ZMIJ_INLINE auto write_significand(char* buffer, uint64_t value,
 #  else
   auto len = 63 - clz((mask << 1) | 1);
 #  endif
-  auto digits = _mm_or_si128(bcd, zeros);
-  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
-  return buffer + len;
-#endif  // ZMIJ_USE_SSE
+  return {_mm_or_si128(bcd, zeros), len};
+#else   // !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
+  // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  buffer = write_if(buffer, abbccddee / 100'000'000, extra_digit);
+  uint64_t hi = to_bcd8(abbccddee % 100'000'000);
+  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
+  uint64_t lo = to_bcd8(ffgghhii);
+  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
+#endif  // !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
+}
+
+template <>
+ZMIJ_INLINE auto to_str<32>(char*& buffer, uint64_t value,
+                            bool extra_digit) noexcept -> sig_str<32> {
+  buffer = write_if(buffer, value / 100'000'000, extra_digit);
+  uint64_t bcd = to_bcd8(value % 100'000'000);
+  return {bcd + zeros, count_trailing_nonzeros(bcd)};
+}
+
+template <int num_bits>
+ZMIJ_INLINE auto write_significand(char* buffer, uint64_t value,
+                                   bool extra_digit) noexcept -> char* {
+  auto s = to_str<num_bits>(buffer, value, extra_digit);
+  memcpy(buffer, &s.digits, sizeof(s.digits));
+  return buffer + s.num_digits;
 }
 
 #if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
@@ -875,38 +938,22 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 template <int num_bits>
 auto write_fixed(char* buffer, uint64_t dec_sig, int dec_exp,
                  bool extra_digit) noexcept -> char* {
-  if (dec_exp < 0) {
-    memcpy(buffer, "0.000000", 8);
-    return write_significand<num_bits>(buffer + 1 - dec_exp, dec_sig,
-                                       extra_digit);
-  }
-
 #if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
-  if (num_bits == 64)
+  if (num_bits == 64 && dec_exp >= 0)
     return write_fixed_double_sse4(buffer, dec_sig, dec_exp, extra_digit);
 #endif
 
-  // Avoid reading uninitialized memory (would be unnecessary in asm).
-  write8(buffer + (num_bits == 64 ? 16 : 7), 0);
+  // Write "0.000..." prefix (effective only when dec_exp < 0).
+  memcpy(buffer, "0.000000", 8);
 
+  auto& fmt = dec_exp_formats[dec_exp];
   char* start = buffer;
-  buffer = write_significand<num_bits>(buffer, dec_sig, extra_digit);
-
-  // Branchless move to make space for the '.' without OOB accesses.
-  char* part1 = start + dec_exp + (dec_exp < 2);
-  char* part2 = part1 + (dec_exp < 2) + (dec_exp < 9 ? 7 : 0);
-  if (num_bits == 64) {
-    uint64_t value1 = read8(part1);
-    uint64_t value2 = read8(part2);
-    write8(part1 + 1, value1);
-    write8(part2 + 1, value2);
-  } else {
-    write8(part1 + 1, read8(part1));
-  }
-
-  char* point = start + dec_exp + 1;
-  *point = '.';
-  return buffer > point ? buffer + 1 : point;
+  char* sig_start = buffer + fmt.start_pos;
+  buffer = write_significand<num_bits>(sig_start, dec_sig, extra_digit);
+  memmove(start + fmt.shift_pos, start + fmt.point_pos,
+          num_bits == 64 ? 16 : 8);
+  start[fmt.point_pos] = '.';
+  return sig_start + fmt.exp_pos[buffer - sig_start - 1];
 }
 
 struct to_decimal_result {
@@ -1115,12 +1162,16 @@ auto write(Float value, char* buffer) noexcept -> char* {
     --dec_exp;
   }
 
-  // Write significand.
   if (dec_exp >= -4 && dec_exp < compute_dec_exp(traits::digits + 1))
     return write_fixed<traits::num_bits>(buffer, dec.sig, dec_exp, extra_digit);
+
+  // Write significand.
   char* start = buffer;
-  buffer =
-      write_significand<traits::num_bits>(buffer + 1, dec.sig, extra_digit);
+  ++buffer;
+  auto sig_str = to_str<traits::num_bits>(buffer, dec.sig, extra_digit);
+  memcpy(buffer, &sig_str.digits, sizeof(sig_str.digits));
+  buffer += sig_str.num_digits;
+
   start[0] = start[1];
   start[1] = '.';
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.

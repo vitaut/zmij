@@ -17,8 +17,8 @@ auto dtoa_zmij(double value, char* buffer) -> char* {
     zmij::dtoa(value, buffer);
   if constexpr (!std::is_same_v<decltype(zmij::to_string(value, buffer)), int>)
     zmij::to_string(value, buffer);
-  if constexpr (!std::is_same_v<decltype(zmij::write(buffer, 27, value)), int>)
-    return buffer + zmij::write(buffer, 27, value);
+  if constexpr (!std::is_same_v<decltype(zmij::write(buffer, 33, value)), int>)
+    return buffer + zmij::write(buffer, 33, value);
   return nullptr;
 }
 
