@@ -638,9 +638,9 @@ TEST(pow10_test, verify) {
     auto actual = pow10_significands[dec_exp_min + i];
     EXPECT_EQ(actual.hi, expected[i].hi);
     auto diff = int64_t(actual.lo - expected[i].lo);
-    EXPECT_GE(diff, pow10_significands_table::compress ? -1 : 0)
+    EXPECT_GE(diff, pow10_significand_table::compress ? -1 : 0)
         << "i=" << i << " actual.lo=" << actual.lo << " expected.lo=" << expected[i].lo;
-    EXPECT_LE(diff, pow10_significands_table::compress ? 1 : 0)
+    EXPECT_LE(diff, pow10_significand_table::compress ? 1 : 0)
         << "i=" << i << " actual.lo=" << actual.lo << " expected.lo=" << expected[i].lo;
   }
 }

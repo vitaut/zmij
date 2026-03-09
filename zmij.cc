@@ -389,7 +389,7 @@ constexpr uint32_t pow10_fixups[] = {
     0x00000686, 0x0a021200, 0x29b89c20, 0x08bc0eda, 0x00000000};
 
 // 128-bit significands of powers of 10 rounded down.
-struct pow10_significands_table {
+struct pow10_significand_table {
   static constexpr bool compress = ZMIJ_OPTIMIZE_SIZE != 0;
   static constexpr bool split_tables = !compress && ZMIJ_AARCH64 != 0;
   static constexpr int num_pow10s = 617;
@@ -414,7 +414,7 @@ struct pow10_significands_table {
     return result;
   }
 
-  constexpr pow10_significands_table() {
+  constexpr pow10_significand_table() {
     for (int i = 0; i < num_pow10s && !compress; ++i) {
       uint128 result = compute(i);
       if (split_tables) {
@@ -441,7 +441,7 @@ struct pow10_significands_table {
     return {hi[-dec_exp], lo[-dec_exp]};
   }
 };
-alignas(64) constexpr pow10_significands_table pow10_significands;
+alignas(64) constexpr pow10_significand_table pow10_significands;
 
 // Computes the decimal exponent as floor(log10(2**bin_exp)) if regular or
 // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
@@ -717,7 +717,7 @@ ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
 }
 #endif  // ZMIJ_USE_SSE
 
-template <int num_bits> struct sig_str {
+template <int num_bits> struct dec_digits {
 #if ZMIJ_USE_NEON
   using digits_type = uint16x8_t;
 #elif ZMIJ_USE_SSE
@@ -729,12 +729,12 @@ template <int num_bits> struct sig_str {
   int num_digits;
 };
 
-// Converts a significand to a string, removing trailing zeros. value has up to
-// 17 decimal digits (16-17 for normals) for double (num_bits == 64) and up to
-// 9 digits (8-9 for normals) for float.
+// Converts a significand to decimal digits, removing trailing zeros. value has
+// up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
+// up to 9 digits (8-9 for normals) for float.
 template <int num_bits>
-ZMIJ_INLINE auto to_str(char*& buffer, uint64_t value,
-                        bool extra_digit) noexcept -> sig_str<num_bits> {
+ZMIJ_INLINE auto to_digits(char*& buffer, uint64_t value,
+                           bool extra_digit) noexcept -> dec_digits<num_bits> {
 #if !ZMIJ_USE_SIMD
   // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
   uint32_t abbccddee = uint32_t(value / 100'000'000);
@@ -843,8 +843,8 @@ ZMIJ_INLINE auto to_str(char*& buffer, uint64_t value,
 }
 
 template <>
-ZMIJ_INLINE auto to_str<32>(char*& buffer, uint64_t value,
-                            bool extra_digit) noexcept -> sig_str<32> {
+ZMIJ_INLINE auto to_digits<32>(char*& buffer, uint64_t value,
+                               bool extra_digit) noexcept -> dec_digits<32> {
   buffer = write_if(buffer, value / 100'000'000, extra_digit);
   uint64_t bcd = to_bcd8(value % 100'000'000);
   return {bcd + zeros, count_trailing_nonzeros(bcd)};
@@ -853,7 +853,7 @@ ZMIJ_INLINE auto to_str<32>(char*& buffer, uint64_t value,
 template <int num_bits>
 ZMIJ_INLINE auto write_significand(char* buffer, uint64_t value,
                                    bool extra_digit) noexcept -> char* {
-  auto s = to_str<num_bits>(buffer, value, extra_digit);
+  auto s = to_digits<num_bits>(buffer, value, extra_digit);
   memcpy(buffer, &s.digits, sizeof(s.digits));
   return buffer + s.num_digits;
 }
@@ -1152,9 +1152,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
   // Write significand.
   char* start = buffer;
   ++buffer;
-  auto sig_str = to_str<traits::num_bits>(buffer, dec.sig, extra_digit);
-  memcpy(buffer, &sig_str.digits, sizeof(sig_str.digits));
-  buffer += sig_str.num_digits;
+  auto dig = to_digits<traits::num_bits>(buffer, dec.sig, extra_digit);
+  memcpy(buffer, &dig.digits, sizeof(dig.digits));
+  buffer += dig.num_digits;
 
   start[0] = start[1];
   start[1] = '.';
