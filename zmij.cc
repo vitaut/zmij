@@ -315,6 +315,18 @@ auto umulhi_inexact_to_odd(uint64_t x_hi, uint64_t, uint32_t y) noexcept
   return uint32_t(p >> 32) | ((uint32_t(p) >> 1) != 0);
 }
 
+// Computes the decimal exponent as floor(log10(2**bin_exp)) if regular or
+// floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
+constexpr auto compute_dec_exp(int bin_exp, bool regular = true) noexcept
+    -> int {
+  assert(bin_exp >= -1334 && bin_exp <= 2620);
+  // log10_3_over_4_sig = -log10(3/4) * 2**log10_2_exp rounded to a power of 2
+  constexpr int log10_3_over_4_sig = 131'072;
+  // log10_2_sig = round(log10(2) * 2**log10_2_exp)
+  constexpr int log10_2_sig = 315'653, log10_2_exp = 20;
+  return (bin_exp * log10_2_sig - !regular * log10_3_over_4_sig) >> log10_2_exp;
+}
+
 template <typename Float> struct float_traits : std::numeric_limits<Float> {
   static_assert(float_traits::is_iec559, "IEEE 754 required");
 
@@ -324,6 +336,9 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
   static constexpr int exp_mask = (1 << num_exp_bits) - 1;
   static constexpr int exp_bias = (1 << (num_exp_bits - 1)) - 1;
   static constexpr int exp_offset = exp_bias + num_sig_bits;
+  static constexpr int min_fixed_dec_exp = -4;
+  static constexpr int max_fixed_dec_exp =
+      compute_dec_exp(float_traits::digits + 1) - 1;
 
   using sig_type = std::conditional_t<num_bits == 64, uint64_t, uint32_t>;
   static constexpr sig_type implicit_bit = sig_type(1) << num_sig_bits;
@@ -443,18 +458,6 @@ struct pow10_significand_table {
 };
 alignas(64) constexpr pow10_significand_table pow10_significands;
 
-// Computes the decimal exponent as floor(log10(2**bin_exp)) if regular or
-// floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
-constexpr auto compute_dec_exp(int bin_exp, bool regular = true) noexcept
-    -> int {
-  assert(bin_exp >= -1334 && bin_exp <= 2620);
-  // log10_3_over_4_sig = -log10(3/4) * 2**log10_2_exp rounded to a power of 2
-  constexpr int log10_3_over_4_sig = 131'072;
-  // log10_2_sig = round(log10(2) * 2**log10_2_exp)
-  constexpr int log10_2_sig = 315'653, log10_2_exp = 20;
-  return (bin_exp * log10_2_sig - !regular * log10_3_over_4_sig) >> log10_2_exp;
-}
-
 constexpr ZMIJ_INLINE auto do_compute_exp_shift(int bin_exp,
                                                 int dec_exp) noexcept
     -> unsigned char {
@@ -493,16 +496,15 @@ struct exp_string_table {
   uint64_t data[enable ? traits::max_exponent10 - min_dec_exp + 1 : 1] = {};
 
   constexpr exp_string_table() {
-    constexpr int fixed_dec_exp_upper = compute_dec_exp(traits::digits + 1);
     for (int e = min_dec_exp; e <= traits::max_exponent10 && enable; ++e) {
       uint64_t abs_e = e >= 0 ? e : -e;
       uint64_t bc = abs_e % 100;
       uint64_t val = ((bc % 10 + '0') << 8) | (bc / 10 + '0');
       if (uint64_t a = abs_e / 100) val = (val << 8) | (a + '0');
       uint64_t len =
-          e >= -4 && e < fixed_dec_exp_upper ? 0 : abs_e >= 100 ? 5 : 4;
-      data[e + offset] = (len << 48) | (val << 16) |
-                         (uint64_t(e >= 0 ? '+' : '-') << 8) | 'e';
+          e >= -4 && e < traits::max_fixed_dec_exp ? 0 : 4 + (abs_e >= 100);
+      data[e + offset] =
+          (len << 48) | (val << 16) | (uint64_t(e >= 0 ? '+' : '-') << 8) | 'e';
     }
   }
 };
@@ -513,10 +515,8 @@ constexpr exp_string_table exp_strings;
 // exponent, indexed by the decimal exponent (dec_exp).
 struct dec_exp_format_table {
   using traits = float_traits<double>;
-  static constexpr int min_dec_exp = -4;
-  static constexpr int max_dec_exp = compute_dec_exp(traits::digits + 1) - 1;
   static constexpr int num_entries =
-      max_dec_exp - min_dec_exp + 2;  // +1 sentinel
+      traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 2;  // +1 sentinel
 
   struct entry {
     // Byte offset past leading "0.00..." before first significant digit.
@@ -532,14 +532,16 @@ struct dec_exp_format_table {
   entry data[num_entries] = {};
 
   constexpr dec_exp_format_table() {
-    for (int dec_exp = min_dec_exp; dec_exp <= max_dec_exp + 1; ++dec_exp) {
-      auto& e = data[dec_exp - min_dec_exp];
-      bool neg_fixed = dec_exp >= min_dec_exp && dec_exp <= -1;
-      bool pos_fixed = dec_exp >= 0 && dec_exp <= max_dec_exp;
+    for (int dec_exp = traits::min_fixed_dec_exp;
+         dec_exp <= traits::max_fixed_dec_exp + 1; ++dec_exp) {
+      auto& e = data[dec_exp - traits::min_fixed_dec_exp];
+      bool neg_fixed = dec_exp >= traits::min_fixed_dec_exp && dec_exp <= -1;
+      bool pos_fixed = dec_exp >= 0 && dec_exp <= traits::max_fixed_dec_exp;
 
       e.start_pos = neg_fixed ? 1 - dec_exp : 0;
       e.point_pos = pos_fixed ? 1 + dec_exp : 1;
-      e.shift_pos = e.point_pos + (dec_exp >= 0 || dec_exp < min_dec_exp);
+      e.shift_pos =
+          e.point_pos + (dec_exp >= 0 || dec_exp < traits::min_fixed_dec_exp);
 
       for (int s = 1; s <= traits::max_digits10; ++s) {
         if (neg_fixed)
@@ -554,9 +556,10 @@ struct dec_exp_format_table {
 
   template <typename Traits>
   constexpr auto get(int dec_exp) const noexcept -> const entry& {
-    unsigned i = unsigned(dec_exp - min_dec_exp);
-    constexpr int max_dec_exp = compute_dec_exp(Traits::digits + 1) - 1;
-    return data[i <= unsigned(max_dec_exp - min_dec_exp) ? i : num_entries - 1];
+    constexpr auto min = traits::min_fixed_dec_exp,
+                   max = Traits::max_fixed_dec_exp;
+    unsigned i = unsigned(dec_exp - min);
+    return data[i <= unsigned(max - min) ? i : num_entries - 1];
   }
 };
 constexpr dec_exp_format_table dec_exp_formats;
@@ -1129,11 +1132,12 @@ auto write(Float value, char* buffer) noexcept -> char* {
   }
 
   char* start = buffer;
-  if (dec_exp >= -4 && dec_exp < compute_dec_exp(traits::digits + 1)) {
-  #if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
+  if (dec_exp >= traits::min_fixed_dec_exp &&
+      dec_exp <= traits::max_fixed_dec_exp) {
+#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
     if (traits::num_bits == 64 && dec_exp >= 0)
       return write_fixed_double_sse4(buffer, dec.sig, dec_exp, extra_digit);
-  #endif
+#endif
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
     char* sig_start = buffer + fmt.start_pos;
