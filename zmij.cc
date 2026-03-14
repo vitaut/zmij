@@ -717,34 +717,10 @@ ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
 }
 #endif  // ZMIJ_USE_SSE
 
-template <int num_bits> struct dec_digits {
 #if ZMIJ_USE_NEON
-  using digits_type = uint16x8_t;
-#elif ZMIJ_USE_SSE
-  using digits_type = __m128i;
-#else
-  using digits_type = uint128;
-#endif
-  std::conditional_t<num_bits == 64, digits_type, uint64_t> digits;
-  int num_digits;
-};
-
-// Converts a significand to decimal digits, removing trailing zeros. value has
-// up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
-// up to 9 digits (8-9 for normals) for float.
-template <int num_bits>
-ZMIJ_INLINE auto to_digits(char*& buffer, uint64_t value,
-                           bool extra_digit) noexcept -> dec_digits<num_bits> {
-#if !ZMIJ_USE_SIMD
-  // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
-  uint32_t abbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  buffer = write_if(buffer, abbccddee / 100'000'000, extra_digit);
-  uint64_t hi = to_bcd8(abbccddee % 100'000'000);
-  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
-  uint64_t lo = to_bcd8(ffgghhii);
-  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
-#elif ZMIJ_USE_NEON
+ZMIJ_INLINE auto get_double_unshuffled_digits_neon(char*& buffer,
+                                                   uint64_t value,
+                                                   bool extra_digit) {
   // An optimized version for NEON by Dougall Johnson.
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
@@ -799,8 +775,42 @@ ZMIJ_INLINE auto to_digits(char*& buffer, uint64_t value,
       vmlaq_n_s32(ddee_bbcc_hhii_ffgg, dd_bb_hh_ff, c->multipliers32[3]));
   int16x8_t high_10s =
       vqdmulhq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, c->multipliers16[0]);
-  uint8x16_t digits = vrev64q_u8(vreinterpretq_u8_s16(
-      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1])));
+  return vreinterpretq_u8_s16(
+      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1]));
+}
+#endif
+
+template <int num_bits> struct dec_digits {
+#if ZMIJ_USE_NEON
+  using digits_type = uint16x8_t;
+#elif ZMIJ_USE_SSE
+  using digits_type = __m128i;
+#else
+  using digits_type = uint128;
+#endif
+  std::conditional_t<num_bits == 64, digits_type, uint64_t> digits;
+  int num_digits;
+};
+
+// Converts a significand to decimal digits, removing trailing zeros. value has
+// up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
+// up to 9 digits (8-9 for normals) for float.
+template <int num_bits>
+ZMIJ_INLINE auto to_digits(char*& buffer, uint64_t value,
+                           bool extra_digit) noexcept -> dec_digits<num_bits> {
+#if !ZMIJ_USE_SIMD
+  // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  buffer = write_if(buffer, abbccddee / 100'000'000, extra_digit);
+  uint64_t hi = to_bcd8(abbccddee % 100'000'000);
+  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
+  uint64_t lo = to_bcd8(ffgghhii);
+  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
+#elif ZMIJ_USE_NEON
+  auto unshuffled_digits =
+      get_double_unshuffled_digits_neon(buffer, value, extra_digit);
+  uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
 
@@ -930,9 +940,16 @@ auto write_fixed_double_neon(char* buffer, uint64_t dec_sig, int dec_exp,
                              bool extra_digit) noexcept -> char* {
   const auto& fmt = dec_exp_formats[dec_exp];
   auto start = buffer, sig_start = buffer + fmt.start_pos;
-
-  memcpy(buffer, "0.000000", 8);  // For dec_exp < 0.
-  buffer = write_significand<64>(sig_start, dec_sig, extra_digit);
+  // auto s = to_digits<64>(sig_start, dec_sig, extra_digit);
+  //   memcpy(sig_start, &s.digits, sizeof(s.digits));
+  //   buffer = sig_start + s.num_digits;
+  {
+    auto _buffer = sig_start;
+    auto s = to_digits<64>(_buffer, dec_sig, extra_digit);
+    memcpy(_buffer, &s.digits, sizeof(s.digits));
+    buffer = _buffer + s.num_digits;
+  }
+  // buffer = write_significand<64>(sig_start, dec_sig, extra_digit);
   memmove(start + fmt.shift_pos, start + fmt.point_pos, 16);
   start[fmt.point_pos] = '.';
   return sig_start + fmt.exp_pos[buffer - sig_start - 1];
