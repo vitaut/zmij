@@ -939,20 +939,25 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
 auto write_fixed_double_neon(char* buffer, uint64_t dec_sig, int dec_exp,
                              bool extra_digit) noexcept -> char* {
   const auto& fmt = dec_exp_formats[dec_exp];
-  auto start = buffer, sig_start = buffer + fmt.start_pos;
-  // auto s = to_digits<64>(sig_start, dec_sig, extra_digit);
-  //   memcpy(sig_start, &s.digits, sizeof(s.digits));
-  //   buffer = sig_start + s.num_digits;
-  {
-    auto _buffer = sig_start;
-    auto s = to_digits<64>(_buffer, dec_sig, extra_digit);
-    memcpy(_buffer, &s.digits, sizeof(s.digits));
-    buffer = _buffer + s.num_digits;
-  }
-  // buffer = write_significand<64>(sig_start, dec_sig, extra_digit);
+  const auto start = buffer, sig_start = buffer + fmt.start_pos;
+  buffer = sig_start;
+
+  auto unshuffled_digits =
+      get_double_unshuffled_digits_neon(buffer, dec_sig, extra_digit);
+  uint8x16_t digits = vrev64q_u8(unshuffled_digits);
+  uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
+                             vreinterpretq_u16_s8(vdupq_n_s8('0')));
+
+  uint16x8_t is_not_zero =
+      vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
+  uint64_t zeroes =
+      vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
+  int len = 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2);
+
+  memcpy(buffer, &str, sizeof(str));
   memmove(start + fmt.shift_pos, start + fmt.point_pos, 16);
   start[fmt.point_pos] = '.';
-  return sig_start + fmt.exp_pos[buffer - sig_start - 1];
+  return sig_start + fmt.exp_pos[buffer + len - sig_start - 1];
 }
 #endif
 
