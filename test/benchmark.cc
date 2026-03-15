@@ -10,7 +10,6 @@
 #include <string.h>  // memcpy, strlen
 
 #include <algorithm>  // std::sort
-#include <charconv>   // std::from_chars
 #include <chrono>     // std::chrono::steady_clock::now
 
 #include "fmt/base.h"
@@ -54,8 +53,7 @@ auto get_random_digit_data(int digit) -> const double* {
         // Limit the number of digits.
         char buffer[64] = {};
         fmt::format_to_n(buffer, sizeof(buffer), "{:.{}}", d, digit);
-        d = 0;
-        std::from_chars(buffer, buffer + strlen(buffer), d);
+        d = strtod(buffer, nullptr);
         data.push_back(d);
       }
     }

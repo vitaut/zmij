@@ -195,6 +195,21 @@ inline auto clz(uint64_t x) noexcept -> int {
 #endif
 }
 
+inline auto ctz(uint64_t x) noexcept -> int {
+  assert(x != 0);
+#if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
+  return __builtin_ctzll(x);
+#elif ZMIJ_MSC_VER
+  unsigned long r;
+  _BitScanForward64(&r, x);
+  return r;
+#else
+  int n = 0;
+  for (; (x & 1) == 0; x >>= 1) ++n;
+  return n;
+#endif
+}
+
 inline auto ctz32(uint32_t x) noexcept -> int {
   assert(x != 0);
 #if ZMIJ_HAS_BUILTIN(__builtin_ctz)
@@ -725,34 +740,10 @@ ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
 }
 #endif  // ZMIJ_USE_SSE
 
-template <int num_bits> struct dec_digits {
 #if ZMIJ_USE_NEON
-  using digits_type = uint16x8_t;
-#elif ZMIJ_USE_SSE
-  using digits_type = __m128i;
-#else
-  using digits_type = uint128;
-#endif
-  std::conditional_t<num_bits == 64, digits_type, uint64_t> digits;
-  int num_digits;
-};
-
-// Converts a significand to decimal digits, removing trailing zeros. value has
-// up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
-// up to 9 digits (8-9 for normals) for float.
-template <int num_bits>
-ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
-                           bool extra_digit) noexcept -> dec_digits<num_bits> {
-#if !ZMIJ_USE_SIMD
-  // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
-  uint32_t abbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  write_if(buffer, abbccddee / 100'000'000, extra_digit);
-  uint64_t hi = to_bcd8(abbccddee % 100'000'000);
-  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
-  uint64_t lo = to_bcd8(ffgghhii);
-  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
-#elif ZMIJ_USE_NEON
+template <bool reverse_hi_lo = false>
+ZMIJ_INLINE auto get_double_unshuffled_digits_neon(char* buffer, uint64_t value,
+                                                   bool extra_digit) {
   // An optimized version for NEON by Dougall Johnson.
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
@@ -784,8 +775,18 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   uint64_t bbccddee = abbccddee - a * hundred_million;
 
   write_if(buffer, a, extra_digit);
+  uint64x1_t ffgghhii_bbccddee_64;
+  if (reverse_hi_lo) {
+    // Used in write_fixed_double_neon.
+    // Only in this order we can use ctz for fast length calculation
+    // using unshuffled digits, which hides the latency of shuffling.
+    // And also let the 17th byte is always at index 0 before shuffling.
+    // The real order is: bbccddee_ffgghhii
+    ffgghhii_bbccddee_64 = {(uint64_t(bbccddee) << 32) | ffgghhii};
+  } else {
+    ffgghhii_bbccddee_64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
+  }
 
-  uint64x1_t ffgghhii_bbccddee_64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
   int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
 
   int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
@@ -807,8 +808,42 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
       vmlaq_n_s32(ddee_bbcc_hhii_ffgg, dd_bb_hh_ff, c->multipliers32[3]));
   int16x8_t high_10s =
       vqdmulhq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, c->multipliers16[0]);
-  uint8x16_t digits = vrev64q_u8(vreinterpretq_u8_s16(
-      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1])));
+  return vreinterpretq_u8_s16(
+      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1]));
+}
+#endif
+
+template <int num_bits> struct dec_digits {
+#if ZMIJ_USE_NEON
+  using digits_type = uint16x8_t;
+#elif ZMIJ_USE_SSE
+  using digits_type = __m128i;
+#else
+  using digits_type = uint128;
+#endif
+  std::conditional_t<num_bits == 64, digits_type, uint64_t> digits;
+  int num_digits;
+};
+
+// Converts a significand to decimal digits, removing trailing zeros. value has
+// up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
+// up to 9 digits (8-9 for normals) for float.
+template <int num_bits>
+ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
+                           bool extra_digit) noexcept -> dec_digits<num_bits> {
+#if !ZMIJ_USE_SIMD
+  // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  write_if(buffer, abbccddee / 100'000'000, extra_digit);
+  uint64_t hi = to_bcd8(abbccddee % 100'000'000);
+  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
+  uint64_t lo = to_bcd8(ffgghhii);
+  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
+#elif ZMIJ_USE_NEON
+  auto unshuffled_digits =
+      get_double_unshuffled_digits_neon(buffer, value, extra_digit);
+  uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
 
@@ -918,6 +953,56 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
   uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_digits);
   memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
 
+  char* point = buffer + dec_exp + !extra_digit;
+  *point = '.';
+  buffer += len;
+  return buffer > point ? buffer + 1 : point;
+}
+#endif
+
+#if ZMIJ_USE_NEON && !ZMIJ_OPTIMIZE_SIZE
+// clang-format off
+constexpr uint8x16_t shuffle_table[] = {
+    uint8x16_t{0x80, 0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x80, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x80, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x80, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x80, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x80, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x80, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x80, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x80, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x80, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x80, 0x05, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x80, 0x04, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x80, 0x03, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x80, 0x02, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x80, 0x01},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x80},
+    uint8x16_t{0x0f, 0x0e, 0x0d, 0x0c, 0x0b, 0x0a, 0x09, 0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, 0x00},
+};
+// clang-format on
+
+auto write_fixed_double_neon(char* buffer, uint64_t dec_sig, int dec_exp,
+                             bool extra_digit) noexcept -> char* {
+  auto unshuffled_digits =
+      get_double_unshuffled_digits_neon<true>(buffer, dec_sig, extra_digit);
+  buffer += extra_digit;
+  auto unshuffled_str = vaddq_u16(vreinterpretq_u16_u8(unshuffled_digits),
+                                  vreinterpretq_u16_s8(vdupq_n_s8('0')));
+
+  auto str = vqtbl1q_u8(unshuffled_str, shuffle_table[dec_exp + !extra_digit]);
+
+  uint8x16_t is_not_zero = vcgtzq_s8(vreinterpretq_s8_u8(unshuffled_digits));
+  uint64_t zeroes = vget_lane_u64(
+      vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(is_not_zero), 4)),
+      0);
+  int len = 16 - ((zeroes ? ctz(zeroes) : 64) >> 2);
+
+  uint32_t tail = vreinterpretq_u32_u16(unshuffled_str)[0];
+
+  memcpy(buffer, &str, sizeof(str));
+  memcpy(buffer + 16, &tail, 4);  // only need the lowest byte
   char* point = buffer + dec_exp + !extra_digit;
   *point = '.';
   buffer += len;
@@ -1137,6 +1222,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
 #if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
     if (traits::num_bits == 64 && dec_exp >= 0)
       return write_fixed_double_sse4(buffer, dec.sig, dec_exp, extra_digit);
+#elif ZMIJ_USE_NEON && !ZMIJ_OPTIMIZE_SIZE
+    if (traits::num_bits == 64 && dec_exp >= 0)
+      return write_fixed_double_neon(buffer, dec.sig, dec_exp, extra_digit);
 #endif
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
