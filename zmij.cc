@@ -748,7 +748,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, bool extra_digit,
 // When reverse_hi_lo is true, the two 8-digit halves are returned in reversed
 // order so that trailing zeros become leading zero bytes, letting ctz count
 // them while the shuffle runs in parallel.
-template <bool reverse_hi_lo = false>
+template <bool reverse_hi_lo = false, bool split_last_digit = false>
 ZMIJ_INLINE auto to_unshuffled_digits(char* buffer, uint64_t value,
                                       bool extra_digit) -> uint8x16_t {
   // An optimized version for NEON by Dougall Johnson.
@@ -776,11 +776,12 @@ ZMIJ_INLINE auto to_unshuffled_digits(char* buffer, uint64_t value,
   uint64_t abbccddee = uint64_t(umul128(value, c->mul_const) >> 90);
   uint64_t ffgghhii = value - abbccddee * hundred_million;
 
-  // We could probably make this bit faster, but we're preferring to
-  // reuse the constants for now.
-  uint64_t a = uint64_t(umul128(abbccddee, c->mul_const) >> 90);
-  uint64_t bbccddee = abbccddee - a * hundred_million;
-  write_if(buffer, a, extra_digit);
+  uint64_t bbccddee = abbccddee;
+  if (!split_last_digit) {
+    uint64_t a = uint64_t(umul128(abbccddee, c->mul_const) >> 90);
+    bbccddee = abbccddee - a * hundred_million;
+    write_if(buffer, a, extra_digit);
+  }
 
   // When reverse_hi_lo, actual order is bbccddee|ffgghhii; the 17th digit
   // ends up at byte index 0, so it can be extracted for the trailing write.
@@ -841,7 +842,8 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   uint64_t lo = to_bcd8(ffgghhii);
   return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
 #elif ZMIJ_USE_NEON
-  auto unshuffled_digits = to_unshuffled_digits(buffer, value, extra_digit);
+  auto unshuffled_digits =
+      to_unshuffled_digits<false, true>(buffer, value, extra_digit);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
@@ -850,7 +852,7 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
       vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
   uint64_t zeroes =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
-  return {str, 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2)};
+  return {str, 16 - (clz(zeroes) >> 2)};
 #else  // ZMIJ_USE_SSE
   uint32_t abbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
@@ -977,6 +979,7 @@ auto write_fixed_double_simd(char* buffer, uint64_t dec_sig, int dec_exp,
 struct to_decimal_result {
   long long sig;
   int exp;
+  int last_digit = 0;
 };
 
 template <typename UInt>
@@ -1020,7 +1023,7 @@ ZMIJ_INLINE auto to_decimal_schubfach(UInt bin_sig, int64_t bin_exp,
 // Here be 🐉s.
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation, where bin_exp = raw_exp - exp_offset.
-template <typename Float, typename UInt>
+template <typename Float, bool split_last_digit = false, typename UInt>
 ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
                                  bool regular) noexcept -> to_decimal_result {
   using traits = float_traits<Float>;
@@ -1107,6 +1110,13 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
       break;
 
     uint64_t even = 1 - (bin_sig & 1);
+    if (split_last_digit) {
+      bool round_down = scaled_sig_mod10 < scaled_half_ulp + even;
+      bool round_up = ten < upper;
+      int round = int(round_down) + int(round_up);
+      int d = int(digit) + (cmp >= 0);
+      return {div10 + int(round_up), dec_exp, round ? 0 : d};
+    }
     int64_t shorter = int64_t(integral - digit);
     int64_t longer = int64_t(integral + (cmp >= 0));
     int64_t dec_sig = select_if_less(scaled_sig_mod10, scaled_half_ulp + even,
@@ -1114,7 +1124,13 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
     return {select_if_less(ten, upper, shorter + 10, dec_sig), dec_exp};
   }
   // Fallback to Schubfach to guarantee correctness in boundary cases.
-  return to_decimal_schubfach(bin_sig, bin_exp, regular);
+  auto r = to_decimal_schubfach(bin_sig, bin_exp, regular);
+  if (!split_last_digit) return r;
+  constexpr uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
+  long long top = ZMIJ_USE_INT128
+                      ? umul128_hi64(r.sig, div10_sig64)
+                      : r.sig / 10;
+  return {top, r.exp, int(r.sig - top * 10)};
 }
 
 }  // namespace
@@ -1153,7 +1169,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
   buffer += traits::is_negative(bits);
 
   to_decimal_result dec;
-  constexpr uint64_t threshold = uint64_t(traits::num_bits == 64 ? 1e16 : 1e8);
+  constexpr bool split_last_digit = ZMIJ_USE_NEON && traits::num_bits == 64;
+  constexpr uint64_t threshold = uint64_t(
+    traits::num_bits == 64 ? (split_last_digit ? 1e15 : 1e16) : 1e8);
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
@@ -1168,8 +1186,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
       dec.sig *= 10;
       --dec.exp;
     }
+    if (split_last_digit) --dec.exp;
   } else {
-    dec = to_decimal_fast<Float>(bin_sig | traits::implicit_bit, bin_exp,
+    dec = to_decimal_fast<Float, split_last_digit>(bin_sig | traits::implicit_bit, bin_exp,
                                  bin_sig != 0);
   }
   int dec_exp = dec.exp;
@@ -1183,22 +1202,40 @@ auto write(Float value, char* buffer) noexcept -> char* {
   char* start = buffer;
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
-    if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE)
+    if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE) {
+      if (split_last_digit) dec.sig = dec.sig * 10 + dec.last_digit;
       return write_fixed_double_simd(buffer, dec.sig, dec_exp, extra_digit);
+    }
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
     char* sig_start = buffer + fmt.start_pos;
     auto dig = to_digits<traits::num_bits>(sig_start, dec.sig, extra_digit);
-    memcpy(sig_start + extra_digit, &dig.digits, sizeof(dig.digits));
+    if constexpr (split_last_digit) {
+      auto d = vreinterpretq_u8_u16(dig.digits);
+      if (!extra_digit) d = vextq_u8(d, d, 1);
+      memcpy(sig_start, &d, 16);
+      sig_start[15 + extra_digit] = '0' + dec.last_digit;
+    } else {
+      memcpy(sig_start + extra_digit, &dig.digits, sizeof(dig.digits));
+    }
     memmove(start + fmt.shift_pos, start + fmt.point_pos, sizeof(dig.digits));
     start[fmt.point_pos] = '.';
-    return sig_start + fmt.exp_pos[dig.num_digits + extra_digit - 1];
+    int total = split_last_digit
+        ? (dec.last_digit ? 16 + extra_digit
+                          : dig.num_digits + extra_digit - 1)
+        : dig.num_digits + extra_digit;
+    return sig_start + fmt.exp_pos[total - 1];
   }
 
   auto dig = to_digits<traits::num_bits>(buffer + 1, dec.sig, extra_digit);
-  buffer += extra_digit + 1;
+  buffer += extra_digit + (split_last_digit ? 0 : 1);
   memcpy(buffer, &dig.digits, sizeof(dig.digits));
-  buffer += dig.num_digits;
+  if (split_last_digit) {
+    buffer[16] = '0' + dec.last_digit;
+    buffer += dec.last_digit ? 17 : dig.num_digits;
+  } else {
+    buffer += dig.num_digits;
+  }
   start[0] = start[1];
   start[1] = '.';
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
