@@ -877,9 +877,9 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
   uint64_t mask = _mm_movemask_epi8(mask128);
 #  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
-  auto len = 32 - _lzcnt_u32(mask);
+  int len = 32 - _lzcnt_u32(mask);
 #  else
-  auto len = 63 - clz((mask << 1) | 1);
+  int len = 63 - clz((mask << 1) | 1);
 #  endif
   return {_mm_or_si128(bcd, zeros), len};
 #endif  // ZMIJ_USE_SSE
