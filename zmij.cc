@@ -195,6 +195,21 @@ inline auto clz(uint64_t x) noexcept -> int {
 #endif
 }
 
+inline auto ctz(uint64_t x) noexcept -> int {
+  assert(x != 0);
+#if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
+  return __builtin_ctzll(x);
+#elif ZMIJ_MSC_VER
+  unsigned long r;
+  _BitScanForward64(&r, x);
+  return r;
+#else
+  int n = 0;
+  for (; (x & 1) == 0; x >>= 1) ++n;
+  return n;
+#endif
+}
+
 inline auto ctz32(uint32_t x) noexcept -> int {
   assert(x != 0);
 #if ZMIJ_HAS_BUILTIN(__builtin_ctz)
@@ -725,34 +740,11 @@ ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
 }
 #endif  // ZMIJ_USE_SSE
 
-template <int num_bits> struct dec_digits {
 #if ZMIJ_USE_NEON
-  using digits_type = uint16x8_t;
-#elif ZMIJ_USE_SSE
-  using digits_type = __m128i;
-#else
-  using digits_type = uint128;
-#endif
-  std::conditional_t<num_bits == 64, digits_type, uint64_t> digits;
-  int num_digits;
-};
-
-// Converts a significand to decimal digits, removing trailing zeros. value has
-// up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
-// up to 9 digits (8-9 for normals) for float.
-template <int num_bits>
-ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
-                           bool extra_digit) noexcept -> dec_digits<num_bits> {
-#if !ZMIJ_USE_SIMD
-  // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
-  uint32_t abbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  write_if(buffer, abbccddee / 100'000'000, extra_digit);
-  uint64_t hi = to_bcd8(abbccddee % 100'000'000);
-  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
-  uint64_t lo = to_bcd8(ffgghhii);
-  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
-#elif ZMIJ_USE_NEON
+// The case reverse_hi_lo = true is used in write_fixed_double_fast.
+template <bool reverse_hi_lo = false>
+ZMIJ_INLINE auto get_double_unshuffled_digits_neon(char* buffer, uint64_t value,
+                                                   bool extra_digit) {
   // An optimized version for NEON by Dougall Johnson.
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
@@ -784,8 +776,18 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   uint64_t bbccddee = abbccddee - a * hundred_million;
 
   write_if(buffer, a, extra_digit);
+  uint64x1_t ffgghhii_bbccddee_64;
+  if (reverse_hi_lo) {
+    // Used in write_fixed_double_fast.
+    // Only this ordering lets us use ctz for fast length calculation
+    // on unshuffled digits, hiding shuffle latency and ensuring
+    // the 17th byte is always at index 0 before shuffling.
+    // The actual order is: bbccddee_ffgghhii
+    ffgghhii_bbccddee_64 = {(uint64_t(bbccddee) << 32) | ffgghhii};
+  } else {
+    ffgghhii_bbccddee_64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
+  }
 
-  uint64x1_t ffgghhii_bbccddee_64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
   int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
 
   int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
@@ -807,8 +809,42 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
       vmlaq_n_s32(ddee_bbcc_hhii_ffgg, dd_bb_hh_ff, c->multipliers32[3]));
   int16x8_t high_10s =
       vqdmulhq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, c->multipliers16[0]);
-  uint8x16_t digits = vrev64q_u8(vreinterpretq_u8_s16(
-      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1])));
+  return vreinterpretq_u8_s16(
+      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1]));
+}
+#endif
+
+template <int num_bits> struct dec_digits {
+#if ZMIJ_USE_NEON
+  using digits_type = uint16x8_t;
+#elif ZMIJ_USE_SSE
+  using digits_type = __m128i;
+#else
+  using digits_type = uint128;
+#endif
+  std::conditional_t<num_bits == 64, digits_type, uint64_t> digits;
+  int num_digits;
+};
+
+// Converts a significand to decimal digits, removing trailing zeros. value has
+// up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
+// up to 9 digits (8-9 for normals) for float.
+template <int num_bits>
+ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
+                           bool extra_digit) noexcept -> dec_digits<num_bits> {
+#if !ZMIJ_USE_SIMD
+  // Digits/pairs of digits are denoted by letters: value = abbccddeeffgghhii.
+  uint32_t abbccddee = uint32_t(value / 100'000'000);
+  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  write_if(buffer, abbccddee / 100'000'000, extra_digit);
+  uint64_t hi = to_bcd8(abbccddee % 100'000'000);
+  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
+  uint64_t lo = to_bcd8(ffgghhii);
+  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
+#elif ZMIJ_USE_NEON
+  auto unshuffled_digits =
+      get_double_unshuffled_digits_neon(buffer, value, extra_digit);
+  uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
 
@@ -858,34 +894,55 @@ ZMIJ_INLINE auto to_digits<32>(char* buffer, uint64_t value,
   return {bcd + zeros, count_trailing_nonzeros(bcd)};
 }
 
-#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
-#  define ZMIJ_PACK16(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)  \
-    uint128 {                                                          \
-      sse_constants::pack8((a), (b), (c), (d), (e), (f), (g), (h)),    \
-          sse_constants::pack8((i), (j), (k), (l), (m), (n), (o), (p)) \
+#if (ZMIJ_USE_NEON || ZMIJ_USE_SSE4_1) && !ZMIJ_OPTIMIZE_SIZE
+struct _shuffle_table {
+  uint8_t table[float_traits<double>::max_fixed_dec_exp + 2][16] = {};
+
+  constexpr _shuffle_table() {
+    for (int i = 0; i < float_traits<double>::max_fixed_dec_exp + 2; ++i) {
+      uint8_t v = 0xf;
+      for (int j = 0; j < 16; ++j) {
+        if (i == j) {
+          table[i][j] = 0x80;
+        } else {
+          table[i][j] = v--;
+        }
+      }
     }
-constexpr uint128 shuffle_table[] = {
-    ZMIJ_PACK16(0x80, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 0x80, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 0x80, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 0x80, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 0x80, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 0x80, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 0x80, 9, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 0x80, 8, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 0x80, 7, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 0x80, 6, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 0x80, 5, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 0x80, 4, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 0x80, 3, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 0x80, 2, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 0x80, 1),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0x80),
-    ZMIJ_PACK16(15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0),
+  }
+
+  ZMIJ_INLINE const uint8_t* operator[](int index) const noexcept {
+    return table[index];
+  }
 };
 
-auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
+alignas(16) constexpr _shuffle_table shuffle_table;
+
+auto write_fixed_double_fast(char* buffer, uint64_t dec_sig, int dec_exp,
                              bool extra_digit) noexcept -> char* {
+  const auto point_index = dec_exp + !extra_digit;
+  assert(point_index < sizeof(shuffle_table) / sizeof(shuffle_table[0]));
+
+#  if ZMIJ_USE_NEON
+  auto unshuffled_digits =
+      get_double_unshuffled_digits_neon<true>(buffer, dec_sig, extra_digit);
+  buffer += extra_digit;
+  auto unshuffled_str = vaddq_u16(vreinterpretq_u16_u8(unshuffled_digits),
+                                  vreinterpretq_u16_s8(vdupq_n_s8('0')));
+  auto str = vqtbl1q_u8(unshuffled_str, vld1q_u8(shuffle_table[point_index]));
+
+  // Count trailing zeros.
+  uint8x16_t is_not_zero = vcgtzq_s8(vreinterpretq_s8_u8(unshuffled_digits));
+  uint64_t zeroes = vget_lane_u64(
+      vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(is_not_zero), 4)),
+      0);
+  int len = 16 - ((zeroes ? ctz(zeroes) : 64) >> 2);
+
+  // Write 20 bytes non-overlappingly.
+  uint32_t trailing_digit = vreinterpretq_u32_u16(unshuffled_str)[0];
+  memcpy(buffer, &str, sizeof(str));
+  memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
+#  elif ZMIJ_USE_SSE4_1
   uint32_t abbccddee = uint32_t(dec_sig / 100'000'000);
   uint32_t ffgghhii = uint32_t(dec_sig % 100'000'000);
   uint32_t a = abbccddee / 100'000'000;
@@ -900,25 +957,26 @@ auto write_fixed_double_sse4(char* buffer, uint64_t dec_sig, int dec_exp,
   auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
       dec_sig, extra_digit, bbccddee, ffgghhii, c);
   auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
-  auto index = dec_exp + !extra_digit;
-  assert(index < sizeof(shuffle_table) / sizeof(*shuffle_table));
-  const __m128i shuffler = _mm_load_si128(m128ptr(&shuffle_table[index]));
+  const __m128i shuffler =
+      _mm_load_si128((const __m128i*)shuffle_table[point_index]);
   auto digits = _mm_shuffle_epi8(unshuffled_digits, shuffler);  // SSSE3
 
   // Count trailing zeros.
   __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
   uint32_t mask = _mm_movemask_epi8(mask128) | (1u << 16);
-#  if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
-  auto len = 16 - _tzcnt_u32(mask);
-#  else
-  auto len = 16 - ctz32(mask);
-#  endif
+#    if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
+  int len = 16 - _tzcnt_u32(mask);
+#    else
+  int len = 16 - ctz32(mask);
+#    endif
 
-  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
+  // Write 20 bytes non-overlappingly.
   uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_digits);
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
   memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
 
-  char* point = buffer + dec_exp + !extra_digit;
+#  endif
+  char* point = buffer + point_index;
   *point = '.';
   buffer += len;
   return buffer > point ? buffer + 1 : point;
@@ -1134,9 +1192,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
   char* start = buffer;
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
-#if ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
+#if (ZMIJ_USE_NEON || ZMIJ_USE_SSE4_1) && !ZMIJ_OPTIMIZE_SIZE
     if (traits::num_bits == 64 && dec_exp >= 0)
-      return write_fixed_double_sse4(buffer, dec.sig, dec_exp, extra_digit);
+      return write_fixed_double_fast(buffer, dec.sig, dec_exp, extra_digit);
 #endif
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
