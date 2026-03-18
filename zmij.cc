@@ -779,10 +779,10 @@ ZMIJ_INLINE auto get_double_unshuffled_digits_neon(char* buffer, uint64_t value,
   uint64x1_t ffgghhii_bbccddee_64;
   if (reverse_hi_lo) {
     // Used in write_fixed_double_fast.
-    // Only in this order we can use ctz for fast length calculation
-    // using unshuffled digits, which hides the latency of shuffle,
-    // And also let the 17th byte be always at index 0 before shuffle.
-    // The real order is: bbccddee_ffgghhii
+    // Only this ordering lets us use ctz for fast length calculation
+    // on unshuffled digits, hiding shuffle latency and ensuring
+    // the 17th byte is always at index 0 before shuffling.
+    // The actual order is: bbccddee_ffgghhii
     ffgghhii_bbccddee_64 = {(uint64_t(bbccddee) << 32) | ffgghhii};
   } else {
     ffgghhii_bbccddee_64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
