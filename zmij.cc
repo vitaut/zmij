@@ -62,6 +62,9 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #  define ZMIJ_USE_SSE4_1 0
 #endif
 
+#define ZMIJ_USE_SIMD_SHUFFLE \
+  ((ZMIJ_USE_NEON || ZMIJ_USE_SSE4_1) && !ZMIJ_OPTIMIZE_SIZE)
+
 #ifdef __aarch64__
 #  define ZMIJ_AARCH64 1
 #else
@@ -704,19 +707,20 @@ using m128ptr = const __m128i*;
 
 // SSE parallel version of to_bcd8: converts bbccddee and ffgghhii into
 // individual BCD digits in SIMD lane order (caller must shuffle).
-ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
-    uint64_t value, bool extra_digit, uint32_t bbccddee, uint32_t ffgghhii,
-    const sse_constants* c) noexcept -> __m128i {
-  const __m128i div10k = _mm_load_si128(m128ptr(&c->div10k));
-  const __m128i neg10k = _mm_load_si128(m128ptr(&c->neg10k));
-  const __m128i div100 = _mm_load_si128(m128ptr(&c->div100));
-  const __m128i div10 = _mm_load_si128(m128ptr(&c->div10));
+ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, bool extra_digit,
+                                      uint32_t bbccddee, uint32_t ffgghhii,
+                                      const sse_constants& c) noexcept
+    -> __m128i {
+  const __m128i div10k = _mm_load_si128(m128ptr(&c.div10k));
+  const __m128i neg10k = _mm_load_si128(m128ptr(&c.neg10k));
+  const __m128i div100 = _mm_load_si128(m128ptr(&c.div100));
+  const __m128i div10 = _mm_load_si128(m128ptr(&c.div10));
 #  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_load_si128(m128ptr(&c->neg100));
-  const __m128i neg10 = _mm_load_si128(m128ptr(&c->neg10));
+  const __m128i neg100 = _mm_load_si128(m128ptr(&c.neg100));
+  const __m128i neg10 = _mm_load_si128(m128ptr(&c.neg10));
 #  else
-  const __m128i hundred = _mm_load_si128(m128ptr(&c->hundred));
-  const __m128i moddiv10 = _mm_load_si128(m128ptr(&c->moddiv10));
+  const __m128i hundred = _mm_load_si128(m128ptr(&c.hundred));
+  const __m128i moddiv10 = _mm_load_si128(m128ptr(&c.moddiv10));
 #  endif
 
   // The BCD sequences are based on ones provided by Xiang JunBo.
@@ -741,10 +745,12 @@ ZMIJ_INLINE auto get_double_significand_bcd_unshuffled_sse(
 #endif  // ZMIJ_USE_SSE
 
 #if ZMIJ_USE_NEON
-// The case reverse_hi_lo = true is used in write_fixed_double_fast.
+// When reverse_hi_lo is true, the two 8-digit halves are returned in reversed
+// order so that trailing zeros become leading zero bytes, letting ctz count
+// them while the shuffle runs in parallel.
 template <bool reverse_hi_lo = false>
-ZMIJ_INLINE auto get_double_unshuffled_digits_neon(char* buffer, uint64_t value,
-                                                   bool extra_digit) {
+ZMIJ_INLINE auto to_unshuffled_digits(char* buffer, uint64_t value,
+                                      bool extra_digit) -> uint8x16_t {
   // An optimized version for NEON by Dougall Johnson.
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
@@ -778,11 +784,8 @@ ZMIJ_INLINE auto get_double_unshuffled_digits_neon(char* buffer, uint64_t value,
   write_if(buffer, a, extra_digit);
   uint64x1_t ffgghhii_bbccddee_64;
   if (reverse_hi_lo) {
-    // Used in write_fixed_double_fast.
-    // Only this ordering lets us use ctz for fast length calculation
-    // on unshuffled digits, hiding shuffle latency and ensuring
-    // the 17th byte is always at index 0 before shuffling.
-    // The actual order is: bbccddee_ffgghhii
+    // Actual order is bbccddee|ffgghhii; the 17th digit ends up at
+    // byte index 0, so it can be extracted for the trailing write.
     ffgghhii_bbccddee_64 = {(uint64_t(bbccddee) << 32) | ffgghhii};
   } else {
     ffgghhii_bbccddee_64 = {(uint64_t(ffgghhii) << 32) | bbccddee};
@@ -842,8 +845,7 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   uint64_t lo = to_bcd8(ffgghhii);
   return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
 #elif ZMIJ_USE_NEON
-  auto unshuffled_digits =
-      get_double_unshuffled_digits_neon(buffer, value, extra_digit);
+  auto unshuffled_digits = to_unshuffled_digits(buffer, value, extra_digit);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
@@ -865,8 +867,8 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
 
   const __m128i zeros = _mm_load_si128(m128ptr(&c->zeros));
-  auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
-      value, extra_digit, bbccddee, ffgghhii, c);
+  auto unshuffled_bcd =
+      to_unshuffled_digits(value, extra_digit, bbccddee, ffgghhii, *c);
 #  if ZMIJ_USE_SSE4_1
   const __m128i bswap = _mm_load_si128(m128ptr(&c->bswap));
   auto bcd = _mm_shuffle_epi8(unshuffled_bcd, bswap);  // SSSE3
@@ -894,55 +896,49 @@ ZMIJ_INLINE auto to_digits<32>(char* buffer, uint64_t value,
   return {bcd + zeros, count_trailing_nonzeros(bcd)};
 }
 
-#if (ZMIJ_USE_NEON || ZMIJ_USE_SSE4_1) && !ZMIJ_OPTIMIZE_SIZE
-struct _shuffle_table {
-  uint8_t table[float_traits<double>::max_fixed_dec_exp + 2][16] = {};
+#if ZMIJ_USE_SIMD_SHUFFLE
+struct shuffle_table {
+  uint8_t data[float_traits<double>::max_fixed_dec_exp + 2][16] = {};
 
-  constexpr _shuffle_table() {
+  constexpr shuffle_table() {
     for (int i = 0; i < float_traits<double>::max_fixed_dec_exp + 2; ++i) {
       uint8_t v = 0xf;
-      for (int j = 0; j < 16; ++j) {
-        if (i == j) {
-          table[i][j] = 0x80;
-        } else {
-          table[i][j] = v--;
-        }
-      }
+      for (int j = 0; j < 16; ++j) data[i][j] = i == j ? 0x80 : v--;
     }
   }
 
   ZMIJ_INLINE const uint8_t* operator[](int index) const noexcept {
-    return table[index];
+    assert(index < sizeof(data) / sizeof(data[0]));
+    return data[index];
   }
 };
+alignas(16) constexpr shuffle_table shuffles;
+#endif  // ZMIJ_USE_SIMD_SHUFFLE
 
-alignas(16) constexpr _shuffle_table shuffle_table;
-
-auto write_fixed_double_fast(char* buffer, uint64_t dec_sig, int dec_exp,
+auto write_fixed_double_simd(char* buffer, uint64_t dec_sig, int dec_exp,
                              bool extra_digit) noexcept -> char* {
-  const auto point_index = dec_exp + !extra_digit;
-  assert(point_index < sizeof(shuffle_table) / sizeof(shuffle_table[0]));
+  int point_index = dec_exp + !extra_digit, len = 0;
 
-#  if ZMIJ_USE_NEON
+#if ZMIJ_USE_NEON && !ZMIJ_OPTIMIZE_SIZE
   auto unshuffled_digits =
-      get_double_unshuffled_digits_neon<true>(buffer, dec_sig, extra_digit);
+      to_unshuffled_digits<true>(buffer, dec_sig, extra_digit);
   buffer += extra_digit;
   auto unshuffled_str = vaddq_u16(vreinterpretq_u16_u8(unshuffled_digits),
                                   vreinterpretq_u16_s8(vdupq_n_s8('0')));
-  auto str = vqtbl1q_u8(unshuffled_str, vld1q_u8(shuffle_table[point_index]));
+  auto str = vqtbl1q_u8(unshuffled_str, vld1q_u8(shuffles[point_index]));
 
   // Count trailing zeros.
   uint8x16_t is_not_zero = vcgtzq_s8(vreinterpretq_s8_u8(unshuffled_digits));
   uint64_t zeroes = vget_lane_u64(
       vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(is_not_zero), 4)),
       0);
-  int len = 16 - ((zeroes ? ctz(zeroes) : 64) >> 2);
+  len = 16 - ((zeroes ? ctz(zeroes) : 64) >> 2);
 
   // Write 20 bytes non-overlappingly.
   uint32_t trailing_digit = vreinterpretq_u32_u16(unshuffled_str)[0];
   memcpy(buffer, &str, sizeof(str));
   memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
-#  elif ZMIJ_USE_SSE4_1
+#elif ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
   uint32_t abbccddee = uint32_t(dec_sig / 100'000'000);
   uint32_t ffgghhii = uint32_t(dec_sig % 100'000'000);
   uint32_t a = abbccddee / 100'000'000;
@@ -952,36 +948,34 @@ auto write_fixed_double_fast(char* buffer, uint64_t dec_sig, int dec_exp,
 
   const auto* c = &sse_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
-  const __m128i zeros = _mm_load_si128(m128ptr(&c->zeros));
+  __m128i zeros = _mm_load_si128(m128ptr(&c->zeros));
 
-  auto unshuffled_bcd = get_double_significand_bcd_unshuffled_sse(
-      dec_sig, extra_digit, bbccddee, ffgghhii, c);
+  auto unshuffled_bcd =
+      to_unshuffled_digits(dec_sig, extra_digit, bbccddee, ffgghhii, *c);
   auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
-  const __m128i shuffler =
-      _mm_load_si128((const __m128i*)shuffle_table[point_index]);
+  __m128i shuffler = _mm_load_si128(m128ptr(shuffles[point_index]));
   auto digits = _mm_shuffle_epi8(unshuffled_digits, shuffler);  // SSSE3
 
   // Count trailing zeros.
   __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
   uint32_t mask = _mm_movemask_epi8(mask128) | (1u << 16);
-#    if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
-  int len = 16 - _tzcnt_u32(mask);
-#    else
-  int len = 16 - ctz32(mask);
-#    endif
+#  if defined(__BMI1__) && !defined(ZMIJ_NO_BUILTINS)
+  len = 16 - _tzcnt_u32(mask);
+#  else
+  len = 16 - ctz32(mask);
+#  endif
 
   // Write 20 bytes non-overlappingly.
   uint32_t trailing_digit = _mm_cvtsi128_si32(unshuffled_digits);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
   memcpy(buffer + 16, &trailing_digit, 4);  // only need the lowest byte
+#endif  // ZMIJ_USE_SSE4_1 && !ZMIJ_OPTIMIZE_SIZE
 
-#  endif
   char* point = buffer + point_index;
   *point = '.';
   buffer += len;
   return buffer > point ? buffer + 1 : point;
 }
-#endif
 
 struct to_decimal_result {
   long long sig;
@@ -1192,10 +1186,8 @@ auto write(Float value, char* buffer) noexcept -> char* {
   char* start = buffer;
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
-#if (ZMIJ_USE_NEON || ZMIJ_USE_SSE4_1) && !ZMIJ_OPTIMIZE_SIZE
-    if (traits::num_bits == 64 && dec_exp >= 0)
-      return write_fixed_double_fast(buffer, dec.sig, dec_exp, extra_digit);
-#endif
+    if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE)
+      return write_fixed_double_simd(buffer, dec.sig, dec_exp, extra_digit);
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
     char* sig_start = buffer + fmt.start_pos;
