@@ -1007,6 +1007,14 @@ ZMIJ_INLINE auto to_decimal_schubfach(UInt bin_sig, int64_t bin_exp,
   return {int64_t(lower == upper ? lower : dec_sig), dec_exp};
 }
 
+// Returns x / 10 for x <= 2**62.
+ZMIJ_INLINE auto div10(uint64_t x) noexcept -> uint64_t {
+  assert(x <= (1ull << 62));
+  // ceil(2**64 / 10) computed as (1 << 63) / 5 + 1 to avoid int128.
+  constexpr uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
+  return ZMIJ_USE_INT128 ? umul128_hi64(x, div10_sig64) : x / 10;
+}
+
 // Here be 🐉s.
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation, where bin_exp = raw_exp - exp_offset.
@@ -1046,11 +1054,7 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
       break;
 
     // An optimization of integral % 10 by Dougall Johnson.
-    // Relies on range calculation: (max_bin_sig << max_exp_shift) * max_u128.
-    // (1 << 63) / 5 == (1 << 64) / 10 without an intermediate int128.
-    constexpr uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
-    long long div10 =
-        ZMIJ_USE_INT128 ? umul128_hi64(integral, div10_sig64) : integral / 10;
+    long long div10 = ::div10(integral);
     uint64_t digit = integral - div10 * 10;
     // or it narrows to 32-bit and doesn't use madd/msub
     ZMIJ_ASM(("" : "+r"(digit)));
@@ -1106,12 +1110,10 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
     return {dec_sig * 10 + (round ? 0 : d), dec_exp};
   }
   // Fallback to Schubfach to guarantee correctness in boundary cases.
-  auto r = to_decimal_schubfach(bin_sig, bin_exp, regular);
-  if (num_bits != 64) return r;
-  constexpr uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
-  long long top =
-      ZMIJ_USE_INT128 ? umul128_hi64(r.sig, div10_sig64) : r.sig / 10;
-  return {top, r.exp, int(r.sig - top * 10)};
+  auto result = to_decimal_schubfach(bin_sig, bin_exp, regular);
+  if (num_bits != 64) return result;
+  long long div10 = ::div10(result.sig);
+  return {div10, result.exp, int(result.sig - div10 * 10)};
 }
 
 }  // namespace
@@ -1166,8 +1168,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
       --dec.exp;
     }
     if (traits::num_bits == 64) {
-      dec.last_digit = dec.sig % 10;
-      dec.sig /= 10;
+      long long div10 = ::div10(dec.sig);
+      dec.last_digit = dec.sig - div10 * 10;
+      dec.sig = div10;
     }
   } else {
     dec = to_decimal_fast<Float>(bin_sig | traits::implicit_bit, bin_exp,
