@@ -158,7 +158,8 @@ We would like to express our gratitude to the individuals who have made
 
 * Xiang JunBo ([@xjb714](https://github.com/xjb714)) - Contributed
   high-performance BCD digit extraction algorithm and additional optimization
-  ideas used across scalar and SIMD code paths.
+  ideas used across scalar and SIMD code paths. The double path uses xjb's
+  $10^(-k-1)$ scaling to eliminate a division from the critical path.
 
 * David Tolnay ([@dtolnay](https://github.com/dtolnay)) - Created and maintains
   the [Rust port of Żmij](https://github.com/dtolnay/zmij), expanding the
@@ -176,6 +177,9 @@ We would like to express our gratitude to the individuals who have made
 * Junekey Jeon ([@jk-jeon](https://github.com/jk-jeon)) - Author of the
   Dragonbox algorithm, which informed design and benchmarking comparisons for
   Żmij, as well as the `to_decimal` API.
+
+* Russ Cox ([@rsc](https://github.com/rsc)) - Devised the simplified longer
+  candidate selection for Schubfach adopted in Żmij's fallback path.
 
 * Community contributors who provided feedback, issues, suggestions, and
   occasional commits, helping improve the robustness and performance of Żmij.
