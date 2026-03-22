@@ -748,9 +748,8 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, bool extra_digit,
 // When reverse_hi_lo is true, the two 8-digit halves are returned in reversed
 // order so that trailing zeros become leading zero bytes, letting ctz count
 // them while the shuffle runs in parallel.
-template <bool reverse_hi_lo = false, bool split_last_digit = false>
-ZMIJ_INLINE auto to_unshuffled_digits(char* buffer, uint64_t value,
-                                      bool extra_digit) -> uint8x16_t {
+template <bool reverse_hi_lo = false>
+ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value) -> uint8x16_t {
   // An optimized version for NEON by Dougall Johnson.
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
@@ -776,18 +775,11 @@ ZMIJ_INLINE auto to_unshuffled_digits(char* buffer, uint64_t value,
   uint64_t abbccddee = uint64_t(umul128(value, c->mul_const) >> 90);
   uint64_t ffgghhii = value - abbccddee * hundred_million;
 
-  uint64_t bbccddee = abbccddee;
-  if (!split_last_digit) {
-    uint64_t a = uint64_t(umul128(abbccddee, c->mul_const) >> 90);
-    bbccddee = abbccddee - a * hundred_million;
-    write_if(buffer, a, extra_digit);
-  }
-
-  // When reverse_hi_lo, actual order is bbccddee|ffgghhii; the 17th digit
+  // When reverse_hi_lo, actual order is abbccddee|ffgghhii; the 17th digit
   // ends up at byte index 0, so it can be extracted for the trailing write.
   uint64x1_t ffgghhii_bbccddee_64 = {
-      reverse_hi_lo ? (uint64_t(bbccddee) << 32) | ffgghhii
-                    : (uint64_t(ffgghhii) << 32) | bbccddee};
+      reverse_hi_lo ? (uint64_t(abbccddee) << 32) | ffgghhii
+                    : (uint64_t(ffgghhii) << 32) | abbccddee};
   int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
 
   int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
@@ -843,7 +835,7 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
 #elif ZMIJ_USE_NEON
   auto unshuffled_digits =
-      to_unshuffled_digits<false, true>(buffer, value, extra_digit);
+      to_unshuffled_digits(value);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
@@ -914,9 +906,10 @@ auto write_fixed_double_simd(char* buffer, uint64_t dec_sig, int dec_exp,
   int point_index = dec_exp + !extra_digit, len = 0;
 
 #if ZMIJ_USE_NEON && !ZMIJ_OPTIMIZE_SIZE
-  auto unshuffled_digits =
-      to_unshuffled_digits<true>(buffer, dec_sig, extra_digit);
-  buffer += extra_digit;
+  uint64_t a = dec_sig / 10000000000000000ull;
+  uint64_t remaining = dec_sig - a * 10000000000000000ull;
+  buffer = write_if(buffer, uint32_t(a), extra_digit);
+  auto unshuffled_digits = to_unshuffled_digits<true>(remaining);
   auto unshuffled_str = vaddq_u16(vreinterpretq_u16_u8(unshuffled_digits),
                                   vreinterpretq_u16_s8(vdupq_n_s8('0')));
   auto str = vqtbl1q_u8(vreinterpretq_u8_u16(unshuffled_str),
@@ -1199,14 +1192,14 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE) {
-      if (split_last_digit) dec.sig = dec.sig * 10 + dec.last_digit;
+      dec.sig = dec.sig * 10 + dec.last_digit;
       return write_fixed_double_simd(buffer, dec.sig, dec_exp, extra_digit);
     }
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
     char* sig_start = buffer + fmt.start_pos;
     auto dig = to_digits<traits::num_bits>(sig_start, dec.sig, extra_digit);
-    if constexpr (split_last_digit) {
+    if (split_last_digit) {
       memcpy(sig_start, &dig.digits, 16);
       if (!extra_digit) memmove(sig_start, sig_start + 1, 15);
       sig_start[15 + extra_digit] = '0' + dec.last_digit;
