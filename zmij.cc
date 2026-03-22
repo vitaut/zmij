@@ -833,8 +833,7 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   uint64_t lo = to_bcd8(ffgghhii);
   return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
 #elif ZMIJ_USE_NEON
-  auto unshuffled_digits =
-      to_unshuffled_digits(value);
+  auto unshuffled_digits = to_unshuffled_digits(value);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
@@ -1011,7 +1010,7 @@ ZMIJ_INLINE auto to_decimal_schubfach(UInt bin_sig, int64_t bin_exp,
 // Here be 🐉s.
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation, where bin_exp = raw_exp - exp_offset.
-template <typename Float, bool split_last_digit = false, typename UInt>
+template <typename Float, typename UInt>
 ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
                                  bool regular) noexcept -> to_decimal_result {
   using traits = float_traits<Float>;
@@ -1098,26 +1097,20 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
       break;
 
     uint64_t even = 1 - (bin_sig & 1);
-    if (split_last_digit) {
-      bool round_down = scaled_sig_mod10 < scaled_half_ulp + even;
-      bool round_up = ten < upper;
-      int round = int(round_down) + int(round_up);
-      int d = int(digit) + (cmp >= 0);
-      return {div10 + int(round_up), dec_exp, round ? 0 : d};
-    }
-    int64_t shorter = int64_t(integral - digit);
-    int64_t longer = int64_t(integral + (cmp >= 0));
-    int64_t dec_sig = select_if_less(scaled_sig_mod10, scaled_half_ulp + even,
-                                     shorter, longer);
-    return {select_if_less(ten, upper, shorter + 10, dec_sig), dec_exp};
+    bool round_down = scaled_sig_mod10 < scaled_half_ulp + even;
+    bool round_up = ten < upper;
+    int round = int(round_down) + int(round_up);
+    int d = int(digit) + (cmp >= 0);
+    long long dec_sig = div10 + int(round_up);
+    if (num_bits == 64) return {dec_sig, dec_exp, round ? 0 : d};
+    return {dec_sig * 10 + (round ? 0 : d), dec_exp};
   }
   // Fallback to Schubfach to guarantee correctness in boundary cases.
   auto r = to_decimal_schubfach(bin_sig, bin_exp, regular);
-  if (!split_last_digit) return r;
+  if (num_bits != 64) return r;
   constexpr uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
-  long long top = ZMIJ_USE_INT128
-                      ? umul128_hi64(r.sig, div10_sig64)
-                      : r.sig / 10;
+  long long top =
+      ZMIJ_USE_INT128 ? umul128_hi64(r.sig, div10_sig64) : r.sig / 10;
   return {top, r.exp, int(r.sig - top * 10)};
 }
 
@@ -1139,7 +1132,7 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
   }
   auto dec = to_decimal_fast<double>(bin_sig ^ traits::implicit_bit, bin_exp,
                                      bin_sig != 0);
-  return {dec.sig, dec.exp, negative};
+  return {dec.sig * 10 + dec.last_digit, dec.exp, negative};
 }
 
 namespace detail {
@@ -1158,8 +1151,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   to_decimal_result dec;
   constexpr bool split_last_digit = traits::num_bits == 64;
-  constexpr uint64_t threshold = uint64_t(
-    traits::num_bits == 64 ? 1e15 : 1e8);
+  constexpr uint64_t threshold = uint64_t(traits::num_bits == 64 ? 1e15 : 1e8);
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
@@ -1176,7 +1168,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     }
     if (split_last_digit) --dec.exp;
   } else {
-    dec = to_decimal_fast<Float, split_last_digit>(bin_sig | traits::implicit_bit, bin_exp,
+    dec = to_decimal_fast<Float>(bin_sig | traits::implicit_bit, bin_exp,
                                  bin_sig != 0);
   }
   int dec_exp = dec.exp;
@@ -1208,9 +1200,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
     memmove(start + fmt.shift_pos, start + fmt.point_pos, sizeof(dig.digits));
     start[fmt.point_pos] = '.';
     int total = split_last_digit
-        ? (dec.last_digit ? 16 + extra_digit
-                          : dig.num_digits + extra_digit - 1)
-        : dig.num_digits + extra_digit;
+                    ? (dec.last_digit ? 16 + extra_digit
+                                      : dig.num_digits + extra_digit - 1)
+                    : dig.num_digits + extra_digit;
     return sig_start + fmt.exp_pos[total - 1];
   }
 
