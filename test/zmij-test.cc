@@ -75,6 +75,7 @@ TEST(dtoa_test, subnormal) {
   EXPECT_EQ(dtoa(1.5e-323), "1.5e-323");
   EXPECT_EQ(dtoa(1.24e-322), "1.24e-322");
   EXPECT_EQ(dtoa(1.234e-320), "1.234e-320");
+  EXPECT_EQ(dtoa(2.2250738585072004e-308), "2.2250738585072004e-308");
 }
 
 TEST(dtoa_test, all_irregular) {

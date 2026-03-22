@@ -1150,7 +1150,6 @@ auto write(Float value, char* buffer) noexcept -> char* {
   buffer += traits::is_negative(bits);
 
   to_decimal_result dec;
-  constexpr bool split_last_digit = traits::num_bits == 64;
   constexpr uint64_t threshold = uint64_t(traits::num_bits == 64 ? 1e15 : 1e8);
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
@@ -1166,7 +1165,10 @@ auto write(Float value, char* buffer) noexcept -> char* {
       dec.sig *= 10;
       --dec.exp;
     }
-    if (split_last_digit) --dec.exp;
+    if (traits::num_bits == 64) {
+      dec.last_digit = dec.sig % 10;
+      dec.sig /= 10;
+    }
   } else {
     dec = to_decimal_fast<Float>(bin_sig | traits::implicit_bit, bin_exp,
                                  bin_sig != 0);
@@ -1180,6 +1182,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   }
 
   char* start = buffer;
+  constexpr bool split_last_digit = traits::num_bits == 64;
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE) {
