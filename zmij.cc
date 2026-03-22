@@ -416,23 +416,23 @@ constexpr uint128 pow10_major[] = {
     {0xd94ad8b1c7380874, 0x18375281ae7822bc},  //  313
 };
 constexpr uint32_t pow10_fixups[] = {
-    0x05271b1f, 0x00000c20, 0x00003200, 0x12100020, 0x00000000,
-    0x06000000, 0xc16409c0, 0xaf26700f, 0xeb987b07, 0x0000000d,
-    0x00000000, 0x66fbfffe, 0xb74100ec, 0xa0669fe8, 0xedb21280,
-    0x00000686, 0x0a021200, 0x29b89c20, 0x08bc0eda, 0x00000000};
+    0x0a4e363f, 0x00001840, 0x00006400, 0x24200040, 0x00000000,
+    0x0c000000, 0x82c81380, 0x5e4ce01f, 0xd730f60f, 0x0000001b,
+    0x00000000, 0xcdf7fffc, 0x6e8201d8, 0x40cd3fd1, 0xdb642501,
+    0x00000d0d, 0x14042400, 0x53713840, 0x11781db4, 0x00000000};
 
 // 128-bit significands of powers of 10 rounded down.
 struct pow10_significand_table {
   static constexpr bool compress = ZMIJ_OPTIMIZE_SIZE != 0;
   static constexpr bool split_tables = !compress && ZMIJ_AARCH64 != 0;
-  static constexpr int num_pow10s = 617;
+  static constexpr int num_pow10s = 618;
   uint64_t data[compress ? 1 : num_pow10s * 2] = {};
 
   // Computes the 128-bit significand of 10**i using method by Dougall Johnson.
   static constexpr auto compute(unsigned i) noexcept -> uint128 {
     constexpr int stride = sizeof(pow10_minor) / sizeof(*pow10_minor);
-    auto m = pow10_minor[(i + 11) % stride];
-    auto h = pow10_major[(i + 11) / stride];
+    auto m = pow10_minor[(i + 10) % stride];
+    auto h = pow10_major[(i + 10) / stride];
 
     uint64_t h1 = umul128_hi64(h.lo, m);
 
@@ -461,7 +461,7 @@ struct pow10_significand_table {
   }
 
   ZMIJ_CONSTEXPR auto operator[](int dec_exp) const noexcept -> uint128 {
-    constexpr int dec_exp_min = -292;
+    constexpr int dec_exp_min = -293;
     int i = dec_exp - dec_exp_min;
     if (compress) return compute(i);
     if (!split_tables) return {data[i * 2], data[i * 2 + 1]};
@@ -476,8 +476,17 @@ struct pow10_significand_table {
 };
 alignas(64) constexpr pow10_significand_table pow10_significands;
 
-constexpr ZMIJ_INLINE auto do_compute_exp_shift(int bin_exp,
-                                                int dec_exp) noexcept
+// Computes a shift so that, after scaling by a power of 10, the intermediate
+// result always has a fixed 128-bit fractional part (for double).
+//
+// Different binary exponents can map to the same decimal exponent, but place
+// the decimal point at different bit positions. The shift compensates for this.
+//
+// For example, both 3 * 2**59 and 3 * 2**60 have dec_exp = 2, but dividing by
+// 10^dec_exp puts the decimal point in different bit positions:
+//   3 * 2**59 / 100 = 1.72...e+16  (needs shift = 1 + 1)
+//   3 * 2**60 / 100 = 3.45...e+16  (needs shift = 2 + 1)
+constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
     -> unsigned char {
   assert(dec_exp >= -350 && dec_exp <= 350);
   // log2_pow10_sig = round(log2(10) * 2**log2_pow10_exp) + 1
@@ -490,6 +499,7 @@ constexpr ZMIJ_INLINE auto do_compute_exp_shift(int bin_exp,
 
 struct exp_shift_table {
   static constexpr bool enable = ZMIJ_OPTIMIZE_SIZE == 0;
+  static constexpr int num_fractional_bits = 6;
   unsigned char data[enable ? float_traits<double>::exp_mask + 1 : 1] = {};
 
   constexpr exp_shift_table() {
@@ -497,7 +507,8 @@ struct exp_shift_table {
       int bin_exp = raw_exp - float_traits<double>::exp_offset;
       if (raw_exp == 0) ++bin_exp;
       int dec_exp = compute_dec_exp(bin_exp);
-      data[raw_exp] = do_compute_exp_shift(bin_exp, dec_exp);
+      data[raw_exp] =
+          compute_exp_shift(bin_exp, dec_exp + 1) + num_fractional_bits;
     }
   }
 };
@@ -581,24 +592,6 @@ struct dec_exp_format_table {
   }
 };
 constexpr dec_exp_format_table dec_exp_formats;
-
-// Computes a shift so that, after scaling by a power of 10, the intermediate
-// result always has a fixed 128-bit fractional part (for double).
-//
-// Different binary exponents can map to the same decimal exponent, but place
-// the decimal point at different bit positions. The shift compensates for this.
-//
-// For example, both 3 * 2**59 and 3 * 2**60 have dec_exp = 2, but dividing by
-// 10^dec_exp puts the decimal point in different bit positions:
-//   3 * 2**59 / 100 = 1.72...e+16  (needs shift = 1 + 1)
-//   3 * 2**60 / 100 = 3.45...e+16  (needs shift = 2 + 1)
-template <int num_bits, bool only_regular = false>
-constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
-    -> unsigned char {
-  if (num_bits == 64 && exp_shift_table::enable && only_regular)
-    return exp_shifts.data[bin_exp + float_traits<double>::exp_offset];
-  return do_compute_exp_shift(bin_exp, dec_exp);
-}
 
 inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // We count the number of bytes until there are only zeros left.
@@ -975,7 +968,7 @@ ZMIJ_INLINE auto to_decimal_schubfach(UInt bin_sig, int64_t bin_exp,
     -> to_decimal_result {
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   int dec_exp = compute_dec_exp(bin_exp, regular);
-  unsigned char exp_shift = compute_exp_shift<num_bits>(bin_exp, dec_exp);
+  unsigned char exp_shift = compute_exp_shift(bin_exp, dec_exp);
   uint128 pow10 = pow10_significands[-dec_exp];
 
   // Shubfach requires strict overestimates of powers of 10.
@@ -1031,21 +1024,53 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
     int dec_exp = use_umul128_hi64
                       ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
                       : compute_dec_exp(bin_exp);
-    unsigned char exp_shift =
-        compute_exp_shift<num_bits, true>(bin_exp, dec_exp);
+    uint64_t even = 1 - (bin_sig & 1);
+
+    if (num_bits == 64) {
+      // Scale by 10**(-dec_exp-1) to directly produce the shorter candidate
+      // (15-16 digits), deriving the extra digit from the fractional part.
+      // This eliminates div10 from the critical path.
+      constexpr int num_fractional_bits = exp_shift_table::num_fractional_bits;
+      unsigned char shift =
+          exp_shift_table::enable
+              ? exp_shifts.data[bin_exp + traits::exp_offset]
+              : compute_exp_shift(bin_exp, dec_exp + 1) + num_fractional_bits;
+      ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
+      uint128 pow10 = pow10_significands[-dec_exp - 1];
+      uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
+
+      long long integral = p.hi >> num_fractional_bits;
+      uint64_t fractional =
+          (p.hi << (64 - num_fractional_bits)) | (p.lo >> num_fractional_bits);
+
+      // Close to half-ulp tie when rounding to nearest integer.
+      uint64_t scaled_half_ulp = pow10.hi >> (num_fractional_bits + 1 - shift);
+      if (fractional == scaled_half_ulp) [[ZMIJ_UNLIKELY]]
+        break;
+
+      scaled_half_ulp += even;
+      bool round_up = fractional + scaled_half_ulp < fractional;
+      bool round_down = scaled_half_ulp > fractional;
+      integral += round_up;
+
+      // Derive the extra digit from the fractional part (parallel with
+      // rounding). The bias (2**63 + 6) rounds to nearest per xjb paper.
+      constexpr uint64_t rounding_bias = (uint64_t(1) << 63) + 6;
+      uint64_t digit_frac = fractional * 10;
+      int digit = int(umul128_hi64(fractional, 10) +
+                      (digit_frac + rounding_bias < digit_frac));
+      if (fractional == (uint64_t(1) << 62)) [[ZMIJ_UNLIKELY]]
+        digit = 2;
+      return {integral, dec_exp, (round_up + round_down) ? 0 : digit};
+    }
+
+    // Float path: original 10**(-dec_exp) scaling with mod-10 rounding.
+    unsigned char exp_shift = compute_exp_shift(bin_exp, dec_exp);
     uint128 pow10 = pow10_significands[-dec_exp];
 
-    UInt integral = 0;        // integral part of bin_sig * pow10
-    uint64_t fractional = 0;  // fractional part of bin_sig * pow10
-    if (num_bits == 64) {
-      uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << exp_shift);
-      integral = p.hi;
-      fractional = p.lo;
-    } else {
-      uint128_t p = umul128(pow10.hi, bin_sig << exp_shift);
-      integral = uint64_t(p >> 64);
-      fractional = uint64_t(p);
-    }
+    uint128_t p = umul128(pow10.hi, bin_sig << exp_shift);
+    UInt integral = uint64_t(p >> 64);
+    uint64_t fractional = uint64_t(p);
     constexpr uint64_t half_ulp = uint64_t(1) << 63;
 
     // Exact half-ulp tie when rounding to nearest integer.
@@ -1061,7 +1086,7 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
 
     // Switch to a fixed-point representation with the least significant
     // integral digit in the upper bits and fractional digits in the lower bits.
-    constexpr int num_integral_bits = num_bits == 64 ? 4 : 32;
+    constexpr int num_integral_bits = 32;
     constexpr int num_fractional_bits = 64 - num_integral_bits;
     constexpr uint64_t ten = uint64_t(10) << num_fractional_bits;
     // Fixed-point remainder of the scaled significand modulo 10.
@@ -1100,13 +1125,11 @@ ZMIJ_INLINE auto to_decimal_fast(UInt bin_sig, int64_t raw_exp,
     if (ten - upper <= 1u) [[ZMIJ_UNLIKELY]]
       break;
 
-    uint64_t even = 1 - (bin_sig & 1);
     bool round_down = scaled_sig_mod10 < scaled_half_ulp + even;
     bool round_up = ten < upper;
     int round = int(round_down) + int(round_up);
     int d = int(digit) + (cmp >= 0);
     long long dec_sig = div10 + int(round_up);
-    if (num_bits == 64) return {dec_sig, dec_exp, round ? 0 : d};
     return {dec_sig * 10 + (round ? 0 : d), dec_exp};
   }
   // Fallback to Schubfach to guarantee correctness in boundary cases.

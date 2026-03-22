@@ -94,7 +94,7 @@ template <int raw_exp>
 void run(uint64_t bin_sig_first, uint64_t bin_sig_last, stats& s) {
   constexpr int bin_exp = debias(raw_exp);
   constexpr int dec_exp = compute_dec_exp(bin_exp, true);
-  constexpr int exp_shift = compute_exp_shift<64, true>(bin_exp, dec_exp);
+  constexpr int exp_shift = compute_exp_shift(bin_exp, dec_exp);
   constexpr uint64_t pow10_lo = pow10_significands[-dec_exp].lo;
   constexpr uint64_t exp_bits =
       uint64_t(raw_exp) << traits::num_sig_bits ^ traits::implicit_bit;
@@ -172,7 +172,7 @@ auto main(int argc, char** argv) -> int {
              raw_exp, num_inexact_exponents);
 
   int dec_exp = compute_dec_exp(bin_exp, true);
-  int exp_shift = compute_exp_shift<64, true>(bin_exp, dec_exp);
+  int exp_shift = compute_exp_shift(bin_exp, dec_exp);
   fmt::print("dec_exp={} exp_shift={}\n", dec_exp, exp_shift);
   if (is_pow10_exact_for_bin_exp(bin_exp)) {
     fmt::print("Power of 10 is exact for bin_exp={}\n", bin_exp);
