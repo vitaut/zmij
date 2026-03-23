@@ -189,6 +189,12 @@ TEST(dtoa_test, boundary_cases) {
   EXPECT_EQ(dtoa(9.03725590277404e+162), "9.03725590277404e+162");
 }
 
+TEST(dtoa_test, fixed_with_zeros) {
+  EXPECT_EQ(dtoa(43210.0), "43210");
+  EXPECT_EQ(dtoa(43210.1), "43210.1");
+  EXPECT_EQ(dtoa(10000), "10000");
+}
+
 #if !ZMIJ_C
 TEST(dtoa_test, no_buffer) {
   double value = 6.62607015e-34;
