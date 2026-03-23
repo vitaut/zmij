@@ -933,8 +933,7 @@ auto write_fixed_double_simd(char* buffer, uint64_t dec_sig, int dec_exp,
 
   char* point = buffer + point_index;
   *point = '.';
-  buffer += len;
-  return buffer > point ? buffer + 1 : point;
+  return buffer + (len > point_index ? len + 1 : point_index);
 }
 
 struct to_decimal_result {
