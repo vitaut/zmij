@@ -682,8 +682,7 @@ using m128ptr = const __m128i*;
 
 // SSE parallel version of to_bcd8: converts bbccddee and ffgghhii into
 // individual BCD digits in SIMD lane order (caller must shuffle).
-ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, bool extra_digit,
-                                      uint32_t bbccddee, uint32_t ffgghhii,
+ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
                                       const sse_constants& c) noexcept
     -> __m128i {
   const __m128i div10k = _mm_load_si128(m128ptr(&c.div10k));
@@ -827,7 +826,7 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
 
   const __m128i zeros = _mm_load_si128(m128ptr(&c->zeros));
   auto unshuffled_bcd =
-      to_unshuffled_digits(value, extra_digit, abbccddee, ffgghhii, *c);
+      to_unshuffled_digits(abbccddee, ffgghhii, *c);
 #  if ZMIJ_USE_SSE4_1
   const __m128i bswap = _mm_load_si128(m128ptr(&c->bswap));
   auto bcd = _mm_shuffle_epi8(unshuffled_bcd, bswap);  // SSSE3
@@ -912,7 +911,7 @@ auto write_fixed_double_simd(char* buffer, uint64_t dec_sig, int dec_exp,
   __m128i zeros = _mm_load_si128(m128ptr(&c->zeros));
 
   auto unshuffled_bcd =
-      to_unshuffled_digits(dec_sig, extra_digit, bbccddee, ffgghhii, *c);
+      to_unshuffled_digits(bbccddee, ffgghhii, *c);
   auto unshuffled_digits = _mm_or_si128(unshuffled_bcd, zeros);
   __m128i shuffler = _mm_load_si128(m128ptr(shuffles[point_index]));
   auto digits = _mm_shuffle_epi8(unshuffled_digits, shuffler);  // SSSE3
