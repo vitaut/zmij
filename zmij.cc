@@ -898,7 +898,6 @@ struct shuffle_table {
     // the address calculation above.
     return &data[0][0] + 32 * index + 16;
   }
-  
 };
 alignas(32) constexpr shuffle_table shuffles;
 #  endif
