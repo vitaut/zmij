@@ -915,7 +915,7 @@ auto write_fixed_double_simd(char* buffer, uint64_t dec_sig, int dec_exp,
   auto unshuffled_str = vaddq_u16(vreinterpretq_u16_u8(unshuffled_digits),
                                   vreinterpretq_u16_s8(vdupq_n_s8('0')));
   auto str = vqtbl1q_u8(vreinterpretq_u8_u16(unshuffled_str),
-                        vld1q_u8(shuffles[point_index]));
+                        vld1q_u8(shuffles.get_shuffler(point_index)));
 
   // Count trailing zeros.
   uint8x16_t is_not_zero = vcgtzq_s8(vreinterpretq_s8_u8(unshuffled_digits));
