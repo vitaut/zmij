@@ -5,17 +5,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-24.04, macos-15]
+        os: [ubuntu-24.04, macos-15, windows-latest]
     steps:
       - uses: actions/checkout@v5
       - run: cmake -B build
-      - run: cmake --build build -j
-      - run: ctest --test-dir build --output-on-failure
-
-  build-msvc:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v5
-      - run: cmake -B build
+      # --config/-C is required for multi-config generators and a noop on
+      # single-config ones.
       - run: cmake --build build --config Debug -j
       - run: ctest --test-dir build -C Debug --output-on-failure
