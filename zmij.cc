@@ -1026,6 +1026,25 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp,
       uint64_t fractional =
           (p.hi << (64 - num_fractional_bits)) | (p.lo >> num_fractional_bits);
 
+      // value = 5.0507837461e-27
+      // next  = 5.0507837461000010e-27
+      //
+      // c = integral.fractional' = 5050783746100000.3153987... (value)
+      //                            5050783746100001.0328635... (next)
+      //          scaled_half_ulp =                0.3587324...
+      //
+      // fractional = fractional' * 2**64 = 5818079786399166407
+      //
+      //    5050783746100000.0       c               upper    5050783746100001.0
+      //             s              l|   L             |               S
+      // ──┬────┬────┼────┬────┬────┼*-──┼────┬────┬───*┬────┬────┬────┼-*--┬───
+      //  .8   .9   .0   .1   .2   .3   .4   .5   .6   .7   .8   .9   .0 | .1
+      //           └─────────────────┼─────────────────┘                next
+      //                            1ulp
+      //
+      // s - shorter underestimate, S - shorter overestimate
+      // l - longer underestimate,  L - longer overestimate
+
       // Close to half-ulp tie when rounding to nearest integer.
       uint64_t scaled_half_ulp = pow10.hi >> (num_fractional_bits + 1 - shift);
       if (fractional == scaled_half_ulp) [[ZMIJ_UNLIKELY]]
@@ -1082,25 +1101,6 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp,
     // by 10**dec_exp. Add 1 to combine the shift with division by two.
     uint64_t scaled_half_ulp = pow10.hi >> (num_integral_bits - exp_shift + 1);
     uint64_t upper = scaled_sig_mod10 + scaled_half_ulp;
-
-    // value = 5.0507837461e-27
-    // next  = 5.0507837461000010e-27
-    //
-    // c = integral.fractional' = 50507837461000003.153987... (value)
-    //                            50507837461000010.328635... (next)
-    //          scaled_half_ulp =                 3.587324...
-    //
-    // fractional' = fractional / 2**64, fractional = 2840565642863009226
-    //
-    //      50507837461000000       c               upper     50507837461000010
-    //              s              l|   L             |               S
-    // ───┬────┬────┼────┬────┬────┼*-──┼────┬────┬───*┬────┬────┬────┼-*--┬───
-    //    8    9    0    1    2    3    4    5    6    7    8    9    0 |  1
-    //            └─────────────────┼─────────────────┘                next
-    //                             1ulp
-    //
-    // s - shorter underestimate, S - shorter overestimate
-    // l - longer underestimate,  L - longer overestimate
 
     // Check for near-boundary case when rounding up to nearest 10;
     // equivalent to upper == ten || upper == ten - 1.
