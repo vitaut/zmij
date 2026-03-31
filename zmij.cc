@@ -855,52 +855,42 @@ ZMIJ_INLINE auto to_digits<32>(char* buffer, uint64_t value,
 }
 
 #if ZMIJ_USE_SIMD_SHUFFLE
-#  if ZMIJ_USE_NEON
 struct shuffle_table {
-  uint8_t data[float_traits<double>::max_fixed_dec_exp + 2][16] = {};
-
+  constexpr static bool merge_tables = ZMIJ_USE_SSE4_1;
+  constexpr static size_t table_size = (1 + merge_tables) * (float_traits<double>::max_fixed_dec_exp + 2);
+  alignas(16 * (1 + merge_tables)) uint8_t data[table_size][16] = {};
   constexpr shuffle_table() {
     for (int i = 0; i < float_traits<double>::max_fixed_dec_exp + 2; ++i) {
       uint8_t v = 0xf;
-      for (int j = 0; j < 16; ++j) data[i][j] = i == j ? 0x80 : v--;
+      if (!merge_tables) {
+        for (int j = 0; j < 16; ++j) data[i][j] = i == j ? 0x80 : v--;
+      } else {
+        for (int j = 0; j < 16; ++j) {
+          data[2 * i][j] = i == j ? 0x80 : v--;
+          data[2 * i + 1][j] = i == j ? '.' : '0';
+        }
+      }
     }
   }
 
   ZMIJ_INLINE const uint8_t* get_shuffler(int index) const noexcept {
-    assert(index < sizeof(data) / sizeof(data[0]));
-    return data[index];
-  }
-};
-alignas(16) constexpr shuffle_table shuffles;
-#  else
-struct shuffle_table {
-  uint8_t data[2 * float_traits<double>::max_fixed_dec_exp + 4][16] = {};
-
-  constexpr shuffle_table() {
-    for (int i = 0; i < float_traits<double>::max_fixed_dec_exp + 2; ++i) {
-      uint8_t v = 0xf;
-      for (int j = 0; j < 16; ++j) data[2 * i][j] = i == j ? 0x80 : v--;
-    }
-    for (int i = 0; i < float_traits<double>::max_fixed_dec_exp + 2; ++i) {
-      for (int j = 0; j < 16; ++j) data[2 * i + 1][j] = i == j ? '.' : '0';
+    assert((1 + merge_tables) * index < table_size);
+    if (merge_tables) {
+      // This form ensures that gcc combines the address calculation with the one below.
+      return &data[0][0] + 32 * index;
+    } else {
+      return data[index];
     }
   }
 
-  ZMIJ_INLINE const uint8_t* get_shuffler(int index) const noexcept {
-    assert(index < sizeof(data) / sizeof(data[0]));
-    // data[2 * index] written in a way that allows GCC to combine this with
-    // the address calculation below.
-    return &data[0][0] + 32 * index;
-  }
   ZMIJ_INLINE const uint8_t* get_point_and_zeros(int index) const noexcept {
-    assert(index < sizeof(data) / sizeof(data[0]));
-    // data[2 * index + 1] written in a way that allows GCC to combine this with
-    // the address calculation above.
+    static_assert(merge_tables);
+    assert(2 * index + 1 < table_size);
+    // This form ensures that gcc combines the address calculation with the one above.
     return &data[0][0] + 32 * index + 16;
   }
 };
-alignas(32) constexpr shuffle_table shuffles;
-#  endif
+constexpr shuffle_table shuffles;
 #endif  // ZMIJ_USE_SIMD_SHUFFLE
 
 auto write_fixed_double_simd(char* buffer, uint64_t dec_sig, int dec_exp,
