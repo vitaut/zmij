@@ -884,7 +884,7 @@ struct shuffle_table {
   }
 
   ZMIJ_INLINE const uint8_t* get_point_and_zeros(int index) const noexcept {
-    static_assert(merge_tables);
+    assert(merge_tables);
     assert(2 * index + 1 < table_size);
     // This form ensures that gcc combines the address calculation with the one above.
     return &data[0][0] + 32 * index + 16;
