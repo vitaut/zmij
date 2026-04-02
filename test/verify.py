@@ -796,7 +796,7 @@ EXP_BIN_MIN = F64_MIN_BIN_EXP - F64_SIG_BITS # -1022 - 52 = -1074 (subnormal)
 EXP_BIN_MAX = F64_MAX_BIN_EXP - F64_SIG_BITS #  1023 - 52 = 971 (max normal)
 
 EXTRA_SHIFT = 6
-FRAC_OFFSET = 64 + EXTRA_SHIFT
+TRIM_BITS = 64 + EXTRA_SHIFT
 
 
 # ==============================================================================
@@ -807,7 +807,7 @@ def find_d2s_edge_case_1(e2, e10, h, p10, p10_exact, SIG_MIN, SIG_MAX):
 
     NUM = p10 << (h + 1)
 
-    if p10_exact and (NUM & ((1 << FRAC_OFFSET) - 1)) == 0:
+    if p10_exact and (NUM & ((1 << TRIM_BITS) - 1)) == 0:
         return
 
     NUM *= 10
@@ -816,11 +816,11 @@ def find_d2s_edge_case_1(e2, e10, h, p10, p10_exact, SIG_MIN, SIG_MAX):
     BIAS = 6 # Bias used to correctly handle boundary cases.
 
     # The * 10 in NUM folds digit extraction into the modular product, but the
-    # lower FRAC_OFFSET bits of the original product contribute a carry of up to
-    # floor((2**FRAC_OFFSET - 1) * 10 / 2**FRAC_OFFSET) = 9 into the digit_frac
+    # lower TRIM_BITS bits of the original product contribute a carry of up to
+    # floor((2**TRIM_BITS - 1) * 10 / 2**TRIM_BITS) = 9 into the digit_frac
     # position. The 9 in TOP2 accounts for this.
-    TOP1 = ((0x7FFFFFFFFFFFFFFF - BIAS) << FRAC_OFFSET)
-    TOP2 = ((0x8000000000000009 - BIAS) << FRAC_OFFSET) | ((1 << FRAC_OFFSET) - 1)
+    TOP1 = ((0x7FFFFFFFFFFFFFFF - BIAS) << TRIM_BITS)
+    TOP2 = ((0x8000000000000009 - BIAS) << TRIM_BITS) | ((1 << TRIM_BITS) - 1)
     
     count = calc_mod_mul_count_fast(NUM, DEN, SIG_MIN, SIG_MAX, TOP1, TOP2, print_all=True)
     assert count >= 0
@@ -842,7 +842,6 @@ def find_d2s_edge_case_2(e2, e10, h, p10, p10_exact, SIG_MIN, SIG_MAX):
         den = 10 ** len(str(ulp))
         known_count = count_mod_fast(ulp, half_ulp, den, SIG_MIN, SIG_MAX)
     
-    TRIM_BITS = FRAC_OFFSET
     NUM =  p10 << (h + 1)
     DEN =  1 << (128 + EXTRA_SHIFT)
     TOP1 = (((p10 << h) >> TRIM_BITS) << TRIM_BITS)
@@ -864,7 +863,6 @@ def find_d2s_edge_case_3(e2, e10, h, p10, p10_exact, SIG_MIN, SIG_MAX):
         den = 10 ** len(str(ulp))
         known_count = count_mod_fast(ulp, -half_ulp, den, SIG_MIN, SIG_MAX)
     
-    TRIM_BITS = FRAC_OFFSET
     NUM =  p10 << (h + 1)
     DEN =  1 << (128 + EXTRA_SHIFT)
     scaled_half_ulp = p10 >> (64 + EXTRA_SHIFT - h)
