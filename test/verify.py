@@ -795,8 +795,8 @@ SIG_BIN_MAX = (1 << F64_SIG_BITS) | F64_SIG_RAW_MAX # 0x1FFFFFFFFFFFFF
 EXP_BIN_MIN = F64_MIN_BIN_EXP - F64_SIG_BITS # -1022 - 52 = -1074 (subnormal)
 EXP_BIN_MAX = F64_MAX_BIN_EXP - F64_SIG_BITS #  1023 - 52 = 971 (max normal)
 
-FRAC_BITS = 6
-FRAC_OFFSET = 64 + FRAC_BITS
+EXTRA_SHIFT = 6
+FRAC_OFFSET = 64 + EXTRA_SHIFT
 
 
 # ==============================================================================
@@ -806,7 +806,7 @@ FRAC_OFFSET = 64 + FRAC_BITS
 def find_d2s_edge_case_1(e2, e10, h, p10, p10_exact, SIG_MIN, SIG_MAX):
 
     NUM = (p10 << (h + 1)) * 10
-    DEN = 1 << (128 + FRAC_BITS)
+    DEN = 1 << (128 + EXTRA_SHIFT)
 
     if p10_exact:
         NUM = NUM & ((1 << FRAC_OFFSET) - 1)
@@ -883,7 +883,7 @@ def find_d2s_edge_cases():
     list = []
     for e2 in range(EXP_BIN_MIN, EXP_BIN_MAX + 1):
         k = (e2 * 315653) >> 20
-        h = e2 + (((-k - 1) * 217707) >> 16) + FRAC_BITS; # h = [2, 3, 4, 5]
+        h = e2 + (((-k - 1) * 217707) >> 16) + EXTRA_SHIFT; # h = [2, 3, 4, 5]
 
         # Calculate the power of 10
         e10 = -k - 1
