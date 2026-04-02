@@ -805,20 +805,20 @@ FRAC_OFFSET = 64 + EXTRA_SHIFT
 
 def find_d2s_edge_case_1(e2, e10, h, p10, p10_exact, SIG_MIN, SIG_MAX):
 
-    NUM = (p10 << (h + 1)) * 10
-    DEN = 1 << (128 + EXTRA_SHIFT)
+    NUM = p10 << (h + 1)
 
-    if p10_exact:
-        NUM = NUM & ((1 << FRAC_OFFSET) - 1)
-        if NUM == 0:
-            return
+    if p10_exact and (NUM & ((1 << FRAC_OFFSET) - 1)) == 0:
+        return
+
+    NUM *= 10
+    DEN = 1 << (128 + EXTRA_SHIFT)
 
     BIAS = 6 # Bias used to correctly handle boundary cases.
 
     # The * 10 in NUM folds digit extraction into the modular product, but the
     # lower FRAC_OFFSET bits of the original product contribute a carry of up to
     # floor((2**FRAC_OFFSET - 1) * 10 / 2**FRAC_OFFSET) = 9 into the digit_frac
-    # position. The +9 in TOP2 accounts for this.
+    # position. The 9 in TOP2 accounts for this.
     TOP1 = ((0x7FFFFFFFFFFFFFFF - BIAS) << FRAC_OFFSET)
     TOP2 = ((0x8000000000000009 - BIAS) << FRAC_OFFSET) | ((1 << FRAC_OFFSET) - 1)
     
