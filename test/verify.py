@@ -5,6 +5,10 @@ This script requires Python 3.8 or higher.
 
 Author: YaoYuan (ibireme@gmail.com)
 Date: 2024-11-10
+
+Modified for xjb/zmij's optimized double-to-string path which uses dec_exp+1
+scaling (e10 = -k-1), extra_shift=6, and extracts the last digit from the
+fractional part rather than the integral part.
 """
 
 import math, decimal, struct
