@@ -178,6 +178,11 @@ TEST(dtoa_test, single_candidate) {
   EXPECT_EQ(dtoa(6.079537928711555e+61), "6.079537928711555e+61");
 }
 
+TEST(dtoa_test, boundary_cases) {
+  EXPECT_EQ(dtoa(1.3076622631878654e+65), "1.3076622631878654e+65");
+  EXPECT_EQ(dtoa(1.3588129002659584e-245), "1.3588129002659584e-245");
+}
+
 #if !ZMIJ_C
 TEST(dtoa_test, no_buffer) {
   double value = 6.62607015e-34;
