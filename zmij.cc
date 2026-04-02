@@ -1054,7 +1054,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp,
       integral += round_up;
 
       // Derive the extra digit from the fractional part (parallel with
-      // rounding). +6 is needed for boundary cases.
+      // rounding). +6 is needed for boundary cases found by verify.py.
       uint64_t rem = fractional * 10;
       int digit = int(umul128_hi64(fractional, 10) + (rem + half + 6 < rem));
       if (fractional == (uint64_t(1) << 62)) [[ZMIJ_UNLIKELY]]
