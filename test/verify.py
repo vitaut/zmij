@@ -809,12 +809,10 @@ TRIM_BITS = 64 + EXTRA_SHIFT
 
 def find_d2s_edge_case_1(e2, e10, h, p10, p10_exact, SIG_MIN, SIG_MAX):
 
-    NUM = p10 << (h + 1)
+    # Don't skip exact cases (p10_exact == True) to make sure they are
+    # correctly handled with the bias.
 
-    if p10_exact and (NUM & ((1 << TRIM_BITS) - 1)) == 0:
-        return
-
-    NUM *= 10
+    NUM = (p10 << (h + 1)) * 10
     DEN = 1 << (128 + EXTRA_SHIFT)
 
     BIAS = 6 # Bias used to correctly handle boundary cases.
