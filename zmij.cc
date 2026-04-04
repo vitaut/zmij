@@ -876,17 +876,18 @@ struct shuffle_table {
   ZMIJ_INLINE const uint8_t* get_shuffler(int index) const noexcept {
     assert((1 + merge_tables) * index < table_size);
     if (merge_tables) {
-      // This form ensures that gcc combines the address calculation with the one below.
+      // This form ensures that gcc combines the address calculation with the
+      // one in get_point_and_zeros below.
       return &data[0][0] + 32 * index;
-    } else {
-      return data[index];
     }
+    return data[index];
   }
 
   ZMIJ_INLINE const uint8_t* get_point_and_zeros(int index) const noexcept {
     assert(merge_tables);
     assert(2 * index + 1 < table_size);
-    // This form ensures that gcc combines the address calculation with the one above.
+    // This form ensures that gcc combines the address calculation with the
+    // one in get_shuffler above.
     return &data[0][0] + 32 * index + 16;
   }
 };
