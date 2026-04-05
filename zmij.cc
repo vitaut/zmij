@@ -1158,10 +1158,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp,
     return {dec_sig * 10 + (round ? 0 : d), dec_exp};
   }
   // Fallback to Schubfach to guarantee correctness in boundary cases.
-  auto result = to_decimal_schubfach(bin_sig, bin_exp, regular);
-  if (num_bits != 64) return result;
-  long long div10 = ::div10(result.sig);
-  return {div10, result.exp, int(result.sig - div10 * 10)};
+  return to_decimal_schubfach(bin_sig, bin_exp, regular);
 }
 
 }  // namespace
