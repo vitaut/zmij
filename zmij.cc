@@ -15,8 +15,8 @@ struct dec_fp {
 };
 }  // namespace zmij
 
-#include <stddef.h>  // size_t
-#include <string.h>  // memcpy
+#  include <stddef.h>  // size_t
+#  include <string.h>  // memcpy
 #endif
 
 #include <assert.h>  // assert
