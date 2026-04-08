@@ -625,25 +625,6 @@ constexpr uint32_t neg10 = (1 << 8) - 10;
 
 constexpr uint64_t zeros = 0x0101010101010101u * '0';
 
-auto to_bcd8(uint64_t abcdefgh) noexcept -> uint64_t {
-  // An optimization from Xiang JunBo.
-  // Three steps BCD. Base 10000 -> base 100 -> base 10.
-  // div and mod are evaluated simultaneously as, e.g.
-  //   (abcdefgh / 10000) << 32 + (abcdefgh % 10000)
-  //      == abcdefgh + (2**32 - 10000) * (abcdefgh / 10000)))
-  // where the division on the RHS is implemented by the usual multiply + shift
-  // trick and the fractional bits are masked away.
-  uint64_t abcd_efgh =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
-  uint64_t ab_cd_ef_gh =
-      abcd_efgh +
-      neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
-  uint64_t a_b_c_d_e_f_g_h =
-      ab_cd_ef_gh +
-      neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
-  return is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
-}
-
 inline auto write_if(char* buffer, uint32_t digit, bool condition) noexcept
     -> char* {
   *buffer = char('0' + digit);
@@ -685,6 +666,31 @@ alignas(64) constexpr struct sse_constants {
 
 using m128ptr = const __m128i*;
 
+ZMIJ_INLINE auto to_digits_4x4digits(__m128i y, const sse_constants& c) noexcept
+  -> __m128i {
+  const __m128i div100 = _mm_load_si128(m128ptr(&c.div100));
+  const __m128i div10 = _mm_load_si128(m128ptr(&c.div10));
+#  if ZMIJ_USE_SSE4_1
+  const __m128i neg100 = _mm_load_si128(m128ptr(&c.neg100));
+  const __m128i neg10 = _mm_load_si128(m128ptr(&c.neg10));
+
+  // _mm_mullo_epi32 is SSE 4.1
+  __m128i z = _mm_add_epi64(
+      y,
+      _mm_mullo_epi32(neg100, _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
+  return _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
+#  else
+  const __m128i hundred = _mm_load_si128(m128ptr(&c.hundred));
+  const __m128i moddiv10 = _mm_load_si128(m128ptr(&c.moddiv10));
+
+  __m128i y_div_100 = _mm_srli_epi16(_mm_mulhi_epu16(y, div100), 3);
+  __m128i y_mod_100 = _mm_sub_epi16(y, _mm_mullo_epi16(y_div_100, hundred));
+  __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
+  return _mm_sub_epi16(_mm_slli_epi16(z, 8),
+                       _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
+#  endif  // ZMIJ_USE_SSE4_1
+}
+
 // SSE parallel version of to_bcd8: converts bbccddee and ffgghhii into
 // individual BCD digits in SIMD lane order (caller must shuffle).
 ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
@@ -692,33 +698,13 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
     -> __m128i {
   const __m128i div10k = _mm_load_si128(m128ptr(&c.div10k));
   const __m128i neg10k = _mm_load_si128(m128ptr(&c.neg10k));
-  const __m128i div100 = _mm_load_si128(m128ptr(&c.div100));
-  const __m128i div10 = _mm_load_si128(m128ptr(&c.div10));
-#  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_load_si128(m128ptr(&c.neg100));
-  const __m128i neg10 = _mm_load_si128(m128ptr(&c.neg10));
-#  else
-  const __m128i hundred = _mm_load_si128(m128ptr(&c.hundred));
-  const __m128i moddiv10 = _mm_load_si128(m128ptr(&c.moddiv10));
-#  endif
 
   __m128i x = _mm_set_epi64x(bbccddee, ffgghhii);
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
-#  if ZMIJ_USE_SSE4_1
-  // _mm_mullo_epi32 is SSE 4.1
-  __m128i z = _mm_add_epi64(
-      y,
-      _mm_mullo_epi32(neg100, _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
-  return _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
-#  else
-  __m128i y_div_100 = _mm_srli_epi16(_mm_mulhi_epu16(y, div100), 3);
-  __m128i y_mod_100 = _mm_sub_epi16(y, _mm_mullo_epi16(y_div_100, hundred));
-  __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
-  return _mm_sub_epi16(_mm_slli_epi16(z, 8),
-                       _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
-#  endif  // ZMIJ_USE_SSE4_1
+
+  return to_digits_4x4digits(y, c);
 }
 #endif  // ZMIJ_USE_SSE
 
@@ -799,6 +785,41 @@ template <> struct dec_digits<64> {
 #endif
   int num_digits;
 };
+
+auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
+#if !ZMIJ_USE_SSE
+  // An optimization from Xiang JunBo.
+  // Three steps BCD. Base 10000 -> base 100 -> base 10.
+  // div and mod are evaluated simultaneously as, e.g.
+  //   (abcdefgh / 10000) << 32 + (abcdefgh % 10000)
+  //      == abcdefgh + (2**32 - 10000) * (abcdefgh / 10000)))
+  // where the division on the RHS is implemented by the usual multiply + shift
+  // trick and the fractional bits are masked away.
+  uint64_t abcd_efgh =
+      abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
+  uint64_t ab_cd_ef_gh =
+      abcd_efgh +
+      neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
+  uint64_t a_b_c_d_e_f_g_h =
+      ab_cd_ef_gh +
+      neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
+  return is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
+#else
+  const auto* c = &sse_consts;
+  ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
+
+  uint64_t abcd_efgh =
+      abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
+  auto unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
+#  if ZMIJ_USE_SSE4_1
+  return bswap64(unshuffled_bcd);
+#  else
+  return unshuffled_bcd;
+#  endif
+
+#endif  // ZMIJ_USE_SSE
+}
+
 
 // Converts a significand to decimal digits, removing trailing zeros. value has
 // up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
