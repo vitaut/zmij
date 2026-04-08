@@ -14,13 +14,12 @@ struct dec_fp {
   bool negative;
 };
 }  // namespace zmij
-
-#  include <stddef.h>  // size_t
-#  include <string.h>  // memcpy
 #endif
 
 #include <assert.h>  // assert
+#include <stddef.h>  // size_t
 #include <stdint.h>  // uint64_t
+#include <string.h>  // memcpy
 
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
