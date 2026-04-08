@@ -202,10 +202,16 @@ inline auto ctz(uint64_t x) noexcept -> int {
   assert(x != 0);
 #if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
   return __builtin_ctzll(x);
-#elif ZMIJ_MSC_VER
+#elif defined(_M_AMD64) || defined(_M_ARM64)
   unsigned long r;
   _BitScanForward64(&r, x);
   return r;
+#elif ZMIJ_MSC_VER
+  // Fallback to the 32-bit BSF instruction.
+  unsigned long idx;
+  if (_BitScanForward(&idx, uint32_t(x))) return idx;
+  _BitScanForward(&idx, uint32_t(x >> 32));
+  return idx + 32;
 #else
   int n = 0;
   for (; (x & 1) == 0; x >>= 1) ++n;
