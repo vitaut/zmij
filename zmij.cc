@@ -709,22 +709,41 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
 #endif  // ZMIJ_USE_SSE
 
 #if ZMIJ_USE_NEON
+// An optimized version for NEON by Dougall Johnson.
+  
+alignas(64) static constexpr struct neon_constants {
+  static constexpr int32_t neg10k = -10000 + 0x10000;
+  
+  using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
+  using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
+
+  uint64_t mul_const = 0xabcc77118461cefd;
+  uint64_t hundred_million = 100000000;
+  int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
+  int16x8 multipliers16 = {0xce0, neg10};
+} neon_consts;
+
+ZMIJ_INLINE auto to_digits_4x4digits(int32x4_t ddee_bbcc_hhii_ffgg, const neon_constants* c) noexcept
+  -> uint8x16_t {
+  // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
+  ZMIJ_ASM(("" : "+w"(ddee_bbcc_hhii_ffgg)));
+
+  int32x4_t dd_bb_hh_ff =
+      vqdmulhq_n_s32(ddee_bbcc_hhii_ffgg, c->multipliers32[2]);
+  int16x8_t ee_dd_cc_bb_ii_hh_gg_ff = vreinterpretq_s16_s32(
+      vmlaq_n_s32(ddee_bbcc_hhii_ffgg, dd_bb_hh_ff, c->multipliers32[3]));
+  int16x8_t high_10s =
+      vqdmulhq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, c->multipliers16[0]);
+  return vreinterpretq_u8_s16(
+      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1]));
+}
+
 // When reverse_hi_lo is true, the two 8-digit halves are returned in reversed
 // order so that trailing zeros become leading zero bytes, letting ctz count
 // them while the shuffle runs in parallel.
 template <bool reverse_hi_lo = false>
 ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value) -> uint8x16_t {
-  // An optimized version for NEON by Dougall Johnson.
-  using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
-  using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
-  constexpr int32_t neg10k = -10000 + 0x10000;
-  alignas(64) static constexpr struct {
-    uint64_t mul_const = 0xabcc77118461cefd;
-    uint64_t hundred_million = 100000000;
-    int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
-    int16x8 multipliers16 = {0xce0, neg10};
-  } consts;
-  const auto* c = &consts;
+  const auto* c = &neon_consts;
 
   // Compiler barrier, or clang doesn't load from memory and generates 15 more
   // instructions.
@@ -744,7 +763,8 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value) -> uint8x16_t {
   uint64x1_t ffgghhii_bbccddee_64 = {
       reverse_hi_lo ? (uint64_t(abbccddee) << 32) | ffgghhii
                     : (uint64_t(ffgghhii) << 32) | abbccddee};
-  int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
+
+                      int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
 
   int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
       vshr_n_u32(vreinterpret_u32_s32(
@@ -756,17 +776,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value) -> uint8x16_t {
   int32x4_t ddee_bbcc_hhii_ffgg = vreinterpretq_s32_u32(
       vshll_n_u16(vreinterpret_u16_s32(ddee_bbcc_hhii_ffgg_32), 0));
 
-  // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
-  ZMIJ_ASM(("" : "+w"(ddee_bbcc_hhii_ffgg)));
-
-  int32x4_t dd_bb_hh_ff =
-      vqdmulhq_n_s32(ddee_bbcc_hhii_ffgg, c->multipliers32[2]);
-  int16x8_t ee_dd_cc_bb_ii_hh_gg_ff = vreinterpretq_s16_s32(
-      vmlaq_n_s32(ddee_bbcc_hhii_ffgg, dd_bb_hh_ff, c->multipliers32[3]));
-  int16x8_t high_10s =
-      vqdmulhq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, c->multipliers16[0]);
-  return vreinterpretq_u8_s16(
-      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1]));
+  return to_digits_4x4digits(ddee_bbcc_hhii_ffgg, c);
 }
 #endif
 
@@ -787,7 +797,7 @@ template <> struct dec_digits<64> {
 };
 
 auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
-#if !ZMIJ_USE_SSE
+#if !ZMIJ_USE_SSE && !ZMIJ_USE_NEON
   // An optimization from Xiang JunBo.
   // Three steps BCD. Base 10000 -> base 100 -> base 10.
   // div and mod are evaluated simultaneously as, e.g.
@@ -805,16 +815,28 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
       neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
   return is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 #else
+# if ZMIJ_USE_SSE
   const auto* c = &sse_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
 
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   auto unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
-#  if ZMIJ_USE_SSE4_1
+#   if ZMIJ_USE_SSE4_1
   return bswap64(unshuffled_bcd);
-#  else
+#    else
   return unshuffled_bcd;
+#    endif
+#  else // ZMIJ_USE_NEON
+  const auto* c = &neon_consts;
+  ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
+
+  uint64_t abcd_efgh_64 =
+      abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
+  int32x4_t abcd_efgh = vcombine_s32(vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
+  uint8x16_t digits_128 = to_digits_4x4digits(abcd_efgh, c);
+  return vget_lane_u64(
+    vreinterpret_u64_u8(vrev64_u8(vget_low_u8(digits_128))), 0);
 #  endif
 
 #endif  // ZMIJ_USE_SSE
