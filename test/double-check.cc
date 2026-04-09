@@ -67,9 +67,9 @@ inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp, int raw_exp,
   uint32_t ffgghhii = uint32_t(actual_sig % 100'000'000);
   int num_zeros = 0;
   if (ffgghhii == 0)
-    num_zeros = 16 - count_trailing_nonzeros(to_bcd8(abbccddee % 100'000'000));
+    num_zeros = 16 - to_bcd8(abbccddee % 100'000'000).len;
   else
-    num_zeros = 8 - count_trailing_nonzeros(to_bcd8(ffgghhii));
+    num_zeros = 8 - to_bcd8(ffgghhii).len;
   if (num_zeros != 0) {
     expected.significand *= pow10[num_zeros];
     expected.exponent -= num_zeros;

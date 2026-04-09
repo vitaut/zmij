@@ -796,7 +796,12 @@ template <> struct dec_digits<64> {
   int num_digits;
 };
 
-auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
+struct bcd_result {
+  uint64_t bcd;
+  int len;
+};
+
+auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
 #if !ZMIJ_USE_SSE && !ZMIJ_USE_NEON
   // An optimization from Xiang JunBo.
   // Three steps BCD. Base 10000 -> base 100 -> base 10.
@@ -813,7 +818,8 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
   uint64_t a_b_c_d_e_f_g_h =
       ab_cd_ef_gh +
       neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
-  return is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
+  uint64_t result = is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
+  return {result, count_trailing_nonzeros(result)};
 #else
 # if ZMIJ_USE_SSE
   const auto* c = &sse_consts;
@@ -823,9 +829,9 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   auto unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
 #   if ZMIJ_USE_SSE4_1
-  return bswap64(unshuffled_bcd);
+  return {bswap64(unshuffled_bcd), count_trailing_nonzeros(bswap64(unshuffled_bcd))};
 #    else
-  return unshuffled_bcd;
+  return {unshuffled_bcd, count_trailing_nonzeros(unshuffled_bcd)};
 #    endif
 #  else // ZMIJ_USE_NEON
   const auto* c = &neon_consts;
@@ -835,8 +841,9 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   int32x4_t abcd_efgh = vcombine_s32(vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
   uint8x16_t digits_128 = to_digits_4x4digits(abcd_efgh, c);
-  return vget_lane_u64(
-    vreinterpret_u64_u8(vrev64_u8(vget_low_u8(digits_128))), 0);
+  uint8x8_t digits = vget_low_u8(digits_128);
+  uint64_t result = vget_lane_u64(vreinterpret_u64_u8(vrev64_u8(digits)), 0);
+  return { result, count_trailing_nonzeros(result) };
 #  endif
 
 #endif  // ZMIJ_USE_SSE
@@ -853,10 +860,10 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   // Digits/pairs of digits are denoted by letters: value = bbccddeeffgghhii.
   uint32_t bbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  uint64_t hi = to_bcd8(bbccddee);
-  if (ffgghhii == 0) return {{hi + zeros, zeros}, count_trailing_nonzeros(hi)};
-  uint64_t lo = to_bcd8(ffgghhii);
-  return {{hi + zeros, lo + zeros}, 8 + count_trailing_nonzeros(lo)};
+  auto [hi, len_hi] = to_bcd8(bbccddee);
+  if (ffgghhii == 0) return {{hi + zeros, zeros}, len_hi};
+  auto [lo, len_lo] = to_bcd8(ffgghhii);
+  return {{hi + zeros, lo + zeros}, 8 + len_lo};
 #elif ZMIJ_USE_NEON
   auto unshuffled_digits = to_unshuffled_digits(value);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
@@ -900,8 +907,8 @@ template <>
 ZMIJ_INLINE auto to_digits<32>(char* buffer, uint64_t value,
                                bool extra_digit) noexcept -> dec_digits<32> {
   write_if(buffer, value / 100'000'000, extra_digit);
-  uint64_t bcd = to_bcd8(value % 100'000'000);
-  return {bcd + zeros, count_trailing_nonzeros(bcd)};
+  auto [bcd, len] = to_bcd8(value % 100'000'000);
+  return {bcd + zeros, len};
 }
 
 #if ZMIJ_USE_SIMD_SHUFFLE
