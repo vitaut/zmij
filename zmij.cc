@@ -865,10 +865,10 @@ ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value,
   // Digits/pairs of digits are denoted by letters: value = bbccddeeffgghhii.
   uint32_t bbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  auto [hi, len_hi] = to_bcd8(bbccddee);
-  if (ffgghhii == 0) return {{hi + zeros, zeros}, len_hi};
-  auto [lo, len_lo] = to_bcd8(ffgghhii);
-  return {{hi + zeros, lo + zeros}, 8 + len_lo};
+  auto hi = to_bcd8(bbccddee);
+  if (ffgghhii == 0) return {{hi.bcd + zeros, zeros}, hi.len};
+  auto lo = to_bcd8(ffgghhii);
+  return {{hi.bcd + zeros, lo.bcd + zeros}, 8 + lo.len};
 #elif ZMIJ_USE_NEON
   auto unshuffled_digits = to_unshuffled_digits(value);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
@@ -912,8 +912,8 @@ template <>
 ZMIJ_INLINE auto to_digits<32>(char* buffer, uint64_t value,
                                bool extra_digit) noexcept -> dec_digits<32> {
   write_if(buffer, value / 100'000'000, extra_digit);
-  auto [bcd, len] = to_bcd8(value % 100'000'000);
-  return {bcd + zeros, len};
+  auto result = to_bcd8(value % 100'000'000);
+  return {result.bcd + zeros, result.len};
 }
 
 #if ZMIJ_USE_SIMD_SHUFFLE
