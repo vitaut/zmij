@@ -648,8 +648,6 @@ alignas(64) constexpr struct sse_constants {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
-  uint128 div10k = splat64(div10k_sig);
-  uint128 neg10k = splat64(::neg10k);
   uint128 div100 = splat32(div100_sig);
   uint128 div10 = splat16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
@@ -661,6 +659,8 @@ alignas(64) constexpr struct sse_constants {
   uint128 hundred = splat32(100);
   uint128 moddiv10 = splat16(10 * (1 << 8) - 1);
 #  endif  // ZMIJ_USE_SSE4_1
+  uint128 div10k = splat64(div10k_sig);
+  uint128 neg10k = splat64(::neg10k);
   uint128 zeros = splat64(::zeros);
 } sse_consts;
 
