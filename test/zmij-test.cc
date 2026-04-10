@@ -269,6 +269,12 @@ TEST(ftoa_test, no_overrun) {
   EXPECT_EQ(buffer[zmij::float_buffer_size], '?');
 }
 
+TEST(ftoa_test, fixed_with_zeros) {
+  EXPECT_EQ(ftoa(43210.0f), "43210");
+  EXPECT_EQ(ftoa(43210.1f), "43210.1");
+  EXPECT_EQ(ftoa(10000.f), "10000");
+}
+
 auto main(int argc, char** argv) -> int {
   testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
