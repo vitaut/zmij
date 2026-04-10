@@ -825,13 +825,17 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
   const auto* c = &sse_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
 
+#   if ZMIJ_USE_SSE4_1
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
-  auto unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
-#   if ZMIJ_USE_SSE4_1
+  uint64_t unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
   return {bswap64(unshuffled_bcd), count_trailing_nonzeros(bswap64(unshuffled_bcd))};
 #    else
-  return {unshuffled_bcd, count_trailing_nonzeros(unshuffled_bcd)};
+  // Ensure correct order of output.
+  uint64_t abcd_efgh =
+      (uint64_t(abcdefgh) << 32) - uint64_t((10000ull << 32) - 1) * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
+  uint64_t bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
+  return {bcd, count_trailing_nonzeros(bcd)};
 #    endif
 #  else // ZMIJ_USE_NEON
   const auto* c = &neon_consts;
