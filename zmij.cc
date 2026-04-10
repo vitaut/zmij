@@ -829,7 +829,7 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
-  int len = unshuffled_bcd ? (64 - ctz(unshuffled_bcd)) / 8 : 0;
+  int len = unshuffled_bcd ? (71 - ctz(unshuffled_bcd)) / 8 : 0;
   return {bswap64(unshuffled_bcd), len};
 #    else
   // Ensure correct order of output.
