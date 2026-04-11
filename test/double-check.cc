@@ -153,9 +153,12 @@ void dispatch(int thread_index, int raw_exp, uint64_t bin_sig_first,
 // dec_exp = floor(bin_exp * log10(2)),
 // and num_fixed_bits in [1, num_sig_bits].
 void check_exact_half_cases() {
-  uint64_t total = 0, errors = 0;
+  unsigned num_threads = std::thread::hardware_concurrency();
+  fmt::print("Checking exact .5 cases with {} threads\n", num_threads);
 
+  std::atomic<uint64_t> total = 0, errors = 0;
   auto start = std::chrono::steady_clock::now();
+
   // bin_exp >= 0 produces integers with no fractional .5 boundary.
   for (int bin_exp = -1;; --bin_exp) {
     int dec_exp = compute_dec_exp(bin_exp);
@@ -165,29 +168,44 @@ void check_exact_half_cases() {
     int raw_exp = bin_exp + traits::exp_offset;
 
     uint64_t count = uint64_t(1) << (traits::num_sig_bits - num_fixed_bits);
-    for (uint64_t b = 0; b < count; ++b) {
-      uint64_t bin_sig = traits::implicit_bit | (b << num_fixed_bits) |
-                         (1ULL << (num_fixed_bits - 1));
-      uint64_t bits = (uint64_t(raw_exp) << traits::num_sig_bits) |
-                      (bin_sig & (traits::implicit_bit - 1));
-      bool has_errors = false;
-      if (!verify(bits, bin_sig, bin_exp, raw_exp, has_errors)) ++errors;
-    }
-    total += count;
+    auto work = [=, &total, &errors](uint64_t b_first, uint64_t b_last) {
+      uint64_t local_errors = 0;
+      for (uint64_t b = b_first; b < b_last; ++b) {
+        uint64_t bin_sig = traits::implicit_bit | (b << num_fixed_bits) |
+                           (1ULL << (num_fixed_bits - 1));
+        uint64_t bits = (uint64_t(raw_exp) << traits::num_sig_bits) |
+                        (bin_sig & (traits::implicit_bit - 1));
+        bool has_errors = false;
+        if (!verify(bits, bin_sig, bin_exp, raw_exp, has_errors))
+          ++local_errors;
+      }
+      total += b_last - b_first;
+      errors += local_errors;
+    };
 
-    if ((bin_exp & 7) == 0) {
-      auto now = std::chrono::steady_clock::now();
-      double elapsed = std::chrono::duration<double>(now - start).count();
-      fmt::print(stderr, "\rbin_exp={:4d}  {:.2e} checked  {:.1f}s",
-                 bin_exp, double(total), elapsed);
+    if (count >= num_threads * 1024) {
+      std::vector<std::thread> threads(num_threads);
+      for (unsigned i = 0; i < num_threads; ++i) {
+        uint64_t b_first = count * i / num_threads;
+        uint64_t b_last = count * (i + 1) / num_threads;
+        threads[i] = std::thread(work, b_first, b_last);
+      }
+      for (auto& t : threads) t.join();
+    } else {
+      work(0, count);
     }
+
+    auto now = std::chrono::steady_clock::now();
+    double elapsed = std::chrono::duration<double>(now - start).count();
+    fmt::print(stderr, "\rbin_exp={:4d}  {:.2e} checked  {:.1f}s",
+               bin_exp, double(total.load()), elapsed);
   }
 
   auto finish = std::chrono::steady_clock::now();
   double elapsed =
       std::chrono::duration<double>(finish - start).count();
   fmt::print("\nChecked {:.6e} exact .5 cases in {:.1f}s, {} errors\n",
-             double(total), elapsed, errors);
+             double(total.load()), elapsed, errors.load());
 }
 
 }  // namespace
