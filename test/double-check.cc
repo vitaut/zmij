@@ -47,13 +47,14 @@ constexpr auto debias(int raw_exp) -> int {
 inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp, int raw_exp,
                    bool& has_errors) -> bool {
   to_decimal_result actual = to_decimal<double>(bin_sig, raw_exp, true);
+  long long actual_sig = actual.sig * 10 + actual.last_digit;
 
   double value;
   memcpy(&value, &bits, sizeof(double));
   auto expected = jkj::dragonbox::to_decimal(value);
 
-  uint32_t abbccddee = uint32_t(actual.sig / 100'000'000);
-  uint32_t ffgghhii = uint32_t(actual.sig % 100'000'000);
+  uint32_t abbccddee = uint32_t(actual_sig / 100'000'000);
+  uint32_t ffgghhii = uint32_t(actual_sig % 100'000'000);
   int num_zeros = 0;
   if (ffgghhii == 0)
     num_zeros = 16 - count_trailing_nonzeros(to_bcd8(abbccddee % 100'000'000));
@@ -64,14 +65,14 @@ inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp, int raw_exp,
     expected.exponent -= num_zeros;
   }
 
-  if (actual.sig == expected.significand && actual.exp == expected.exponent)
+  if (actual_sig == expected.significand && actual.exp == expected.exponent)
     return true;
 
   if (has_errors) return false;
   has_errors = true;
   fmt::print(
       "Output mismatch for {} ({} * 2**{}): {} * 10**{} != {} * 10**{}\n",
-      value, bin_sig, bin_exp, actual.sig, actual.exp, expected.significand,
+      value, bin_sig, bin_exp, actual_sig, actual.exp, expected.significand,
       expected.exponent);
   return false;
 }
@@ -137,11 +138,68 @@ void dispatch(int thread_index, int raw_exp, uint64_t bin_sig_first,
   }
 }
 
+// Enumerates all doubles whose exact decimal value has a .5 at the digit
+// position right after the shortest representation.
+//
+// For bin_sig * 2**bin_exp, the exact decimal significand is a half-integer
+// when the lowest num_fixed_bits of bin_sig form a 10...0 pattern:
+//
+//   bin_sig (53 bits):
+//   |1|  free bits (b)  |1|0 ... 0|
+//    ^                   ^-------^
+//    implicit bit        fixed bits
+//
+// where num_fixed_bits = dec_exp - bin_exp,
+// dec_exp = floor(bin_exp * log10(2)),
+// and num_fixed_bits in [1, num_sig_bits].
+void check_exact_half_cases() {
+  uint64_t total = 0, errors = 0;
+
+  auto start = std::chrono::steady_clock::now();
+  // bin_exp >= 0 produces integers with no fractional .5 boundary.
+  for (int bin_exp = -1;; --bin_exp) {
+    int dec_exp = compute_dec_exp(bin_exp);
+    int num_fixed_bits = dec_exp - bin_exp;
+    if (num_fixed_bits < 1) continue;
+    if (num_fixed_bits > traits::num_sig_bits) break;
+    int raw_exp = bin_exp + traits::exp_offset;
+
+    uint64_t count = uint64_t(1) << (traits::num_sig_bits - num_fixed_bits);
+    for (uint64_t b = 0; b < count; ++b) {
+      uint64_t bin_sig = traits::implicit_bit | (b << num_fixed_bits) |
+                         (1ULL << (num_fixed_bits - 1));
+      uint64_t bits = (uint64_t(raw_exp) << traits::num_sig_bits) |
+                      (bin_sig & (traits::implicit_bit - 1));
+      bool has_errors = false;
+      if (!verify(bits, bin_sig, bin_exp, raw_exp, has_errors)) ++errors;
+    }
+    total += count;
+
+    if ((bin_exp & 7) == 0) {
+      auto now = std::chrono::steady_clock::now();
+      double elapsed = std::chrono::duration<double>(now - start).count();
+      fmt::print(stderr, "\rbin_exp={:4d}  {:.2e} checked  {:.1f}s",
+                 bin_exp, double(total), elapsed);
+    }
+  }
+
+  auto finish = std::chrono::steady_clock::now();
+  double elapsed =
+      std::chrono::duration<double>(finish - start).count();
+  fmt::print("\nChecked {:.6e} exact .5 cases in {:.1f}s, {} errors\n",
+             double(total), elapsed, errors);
+}
+
 }  // namespace
 
 auto main(int argc, char** argv) -> int {
+  if (argc == 2 && strcmp(argv[1], "half") == 0) {
+    check_exact_half_cases();
+    return 0;
+  }
+
   if (argc != 2) {
-    fmt::print(stderr, "Usage: {} <raw_exp>\n", argv[0]);
+    fmt::print(stderr, "Usage: {} <raw_exp | half>\n", argv[0]);
     return 1;
   }
 
