@@ -4,8 +4,8 @@
 https://github.com/vitaut/zmij/actions/workflows/ci.yml)
 
 A double-to-string conversion algorithm based on [Schubfach](
-https://fmt.dev/papers/Schubfach4.pdf) and [yy](
-https://github.com/ibireme/c_numconv_benchmark/blob/master/vendor/yy_double)
+https://fmt.dev/papers/Schubfach4.pdf) and [xjb](
+https://github.com/xjb714/xjb/blob/main/xjb.pdf)
 with implementations in C and C++
 
 ## Features
