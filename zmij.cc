@@ -763,8 +763,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value) -> uint8x16_t {
   uint64x1_t ffgghhii_bbccddee_64 = {
       reverse_hi_lo ? (uint64_t(abbccddee) << 32) | ffgghhii
                     : (uint64_t(ffgghhii) << 32) | abbccddee};
-
-                      int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
+  int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
 
   int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
       vshr_n_u32(vreinterpret_u32_s32(
@@ -829,10 +828,11 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
-  int len = unshuffled_bcd ? (71 - ctz(unshuffled_bcd)) / 8 : 0;
+  int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bswap64(unshuffled_bcd), len};
 #    else
-  // Ensure correct order of output.
+  // Evaluate the 4 digit limbs and arrange them such that we get a result which
+  // is in the correct order.
   uint64_t abcd_efgh =
       (uint64_t(abcdefgh) << 32) - uint64_t((10000ull << 32) - 1) * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   uint64_t bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
