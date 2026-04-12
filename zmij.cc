@@ -702,7 +702,6 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
   const __m128i moddiv10 = _mm_load_si128(m128ptr(&c.moddiv10));
 #  endif
 
-  // The BCD sequences are based on ones provided by Xiang JunBo.
   __m128i x = _mm_set_epi64x(bbccddee, ffgghhii);
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
