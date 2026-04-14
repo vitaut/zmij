@@ -42,7 +42,6 @@ set(ZMIJ_CHECK_STANDARD cxx_std_20)
 add_library(fmt fmt/format.cc)
 target_compile_options(fmt PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_include_directories(fmt PUBLIC .)
-set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 find_package(Threads)
 target_link_libraries(fmt Threads::Threads)
 
