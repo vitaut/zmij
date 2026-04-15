@@ -42,6 +42,8 @@ set(ZMIJ_CHECK_STANDARD cxx_std_20)
 add_library(fmt fmt/format.cc)
 target_compile_options(fmt PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
 target_include_directories(fmt PUBLIC .)
+find_package(Threads)
+target_link_libraries(fmt Threads::Threads)
 
 add_executable(float-check float-check.cc)
 target_compile_features(float-check PRIVATE ${ZMIJ_CHECK_STANDARD})
