@@ -822,26 +822,25 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
       neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
   uint64_t result = is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
   return {result, count_trailing_nonzeros(result)};
-#else
-# if ZMIJ_USE_SSE
+#elif ZMIJ_USE_SSE
   const auto* c = &sse_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
 
-#   if ZMIJ_USE_SSE4_1
+# if ZMIJ_USE_SSE4_1
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bswap64(unshuffled_bcd), len};
-#    else
+#  else
   // Evaluate the 4 digit limbs and arrange them such that we get a result which
   // is in the correct order.
   uint64_t abcd_efgh =
       (uint64_t(abcdefgh) << 32) - uint64_t((10000ull << 32) - 1) * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   uint64_t bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
   return {bcd, count_trailing_nonzeros(bcd)};
-#    endif
-#  else // ZMIJ_USE_NEON
+#  endif
+#else // ZMIJ_USE_NEON
   const auto* c = &neon_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
 
@@ -852,8 +851,6 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
   uint8x8_t digits = vget_low_u8(digits_128);
   uint64_t result = vget_lane_u64(vreinterpret_u64_u8(vrev64_u8(digits)), 0);
   return { result, count_trailing_nonzeros(result) };
-#  endif
-
 #endif  // ZMIJ_USE_SSE
 }
 
