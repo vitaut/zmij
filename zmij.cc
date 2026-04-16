@@ -648,6 +648,7 @@ alignas(64) constexpr struct sse_constants {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
+  // Ordered so that the values used to format floats fit in a single cache line.
   uint128 div100 = splat32(div100_sig);
   uint128 div10 = splat16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
