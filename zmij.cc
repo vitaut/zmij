@@ -647,7 +647,8 @@ alignas(64) constexpr struct constants {
   }
 
   uint64_t threshold = 1e15;
-  uint64_t padding = 0;
+  // +6 is needed for boundary cases found by verify.py.
+  uint64_t half = (uint64_t(1) << 63) + 6;
 
 #if ZMIJ_USE_NEON
   static constexpr int32_t neg10k = -10000 + 0x10000;
@@ -1077,8 +1078,8 @@ ZMIJ_INLINE auto div10(uint64_t x) noexcept -> uint64_t {
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation, where bin_exp = raw_exp - exp_offset.
 template <typename Float, typename UInt>
-ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp,
-                            bool regular) noexcept -> to_decimal_result {
+ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
+                            const constants& c) noexcept -> to_decimal_result {
   using traits = float_traits<Float>;
   int64_t bin_exp = raw_exp - traits::exp_offset;
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
@@ -1182,9 +1183,8 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp,
   bool round_down = half_ulp > fractional;
   integral += round_up;  // Compute integral before digit.
 
-  // Derive the extra digit from the fractional part (parallel with
-  // rounding). +6 is needed for boundary cases found by verify.py.
-  int digit = int(umul128_add_hi64(fractional, 10, half + 6));
+  // Derive the extra digit from the fractional part (parallel with rounding).
+  int digit = int(umul128_add_hi64(fractional, 10, c.half));
   if (fractional == (1ull << 62)) [[ZMIJ_UNLIKELY]]
     digit = 2;  // Round 2.5 to 2.
   return {integral, dec_exp, (round_up + round_down) != 0 ? 0 : digit};
@@ -1207,7 +1207,7 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
     bin_sig |= traits::implicit_bit;
   }
   auto dec = ::to_decimal<double>(bin_sig ^ traits::implicit_bit, bin_exp,
-                                  bin_sig != 0);
+                                  bin_sig != 0, consts);
   return {dec.sig * 10 + dec.last_digit, dec.exp, negative};
 }
 
@@ -1251,7 +1251,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     }
   } else {
     dec = ::to_decimal<Float>(bin_sig | traits::implicit_bit, bin_exp,
-                              bin_sig != 0);
+                              bin_sig != 0, *c);
   }
   int dec_exp = dec.exp;
   bool extra_digit = dec.sig >= threshold;

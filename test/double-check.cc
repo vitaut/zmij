@@ -56,7 +56,7 @@ constexpr auto debias(int raw_exp) -> int {
 
 inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp, int raw_exp,
                    bool& has_errors) -> bool {
-  to_decimal_result actual = to_decimal<double>(bin_sig, raw_exp, true);
+  to_decimal_result actual = to_decimal<double>(bin_sig, raw_exp, true, consts);
   long long actual_sig = actual.sig * 10 + actual.last_digit;
 
   double value;
