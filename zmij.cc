@@ -636,7 +636,8 @@ alignas(64) constexpr struct sse_constants {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
-  // Ordered so that the values used to format floats fit in a single cache line.
+  // Ordered so that the values used to format floats fit in a single cache
+  // line.
   uint128 div100 = splat32(div100_sig);
   uint128 div10 = splat16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
@@ -657,7 +658,7 @@ using m128ptr = const __m128i*;
 
 // Converts four numbers < 10000, one in each 32bit lane, to BCD digits.
 ZMIJ_INLINE auto to_digits_4x4digits(__m128i y, const sse_constants& c) noexcept
-  -> __m128i {
+    -> __m128i {
   const __m128i div100 = _mm_load_si128(m128ptr(&c.div100));
   const __m128i div10 = _mm_load_si128(m128ptr(&c.div10));
 #  if ZMIJ_USE_SSE4_1
@@ -700,10 +701,10 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
 
 #if ZMIJ_USE_NEON
 // An optimized version for NEON by Dougall Johnson.
-  
+
 alignas(64) static constexpr struct neon_constants {
   static constexpr int32_t neg10k = -10000 + 0x10000;
-  
+
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
 
@@ -714,8 +715,9 @@ alignas(64) static constexpr struct neon_constants {
 } neon_consts;
 
 // Converts four numbers < 10000, one in each 32bit lane, to BCD digits.
-ZMIJ_INLINE auto to_digits_4x4digits(int32x4_t ddee_bbcc_hhii_ffgg, const neon_constants& c) noexcept
-  -> uint8x16_t {
+ZMIJ_INLINE auto to_digits_4x4digits(int32x4_t ddee_bbcc_hhii_ffgg,
+                                     const neon_constants& c) noexcept
+    -> uint8x16_t {
   // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
   ZMIJ_ASM(("" : "+w"(ddee_bbcc_hhii_ffgg)));
 
@@ -801,28 +803,32 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
 #  if ZMIJ_USE_SSE4_1
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
-  uint64_t unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
+  uint64_t unshuffled_bcd =
+      _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bswap64(unshuffled_bcd), len};
 #  else
   // Evaluate the 4 digit limbs and arrange them such that we get a result which
   // is in the correct order.
-  uint64_t abcd_efgh =
-      (uint64_t(abcdefgh) << 32) - uint64_t((10000ull << 32) - 1) * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
-  uint64_t bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
+  uint64_t abcd_efgh = (uint64_t(abcdefgh) << 32) -
+                       uint64_t((10000ull << 32) - 1) *
+                           ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
+  uint64_t bcd =
+      _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
   return {bcd, count_trailing_nonzeros(bcd)};
 #  endif
-#else // ZMIJ_USE_NEON
+#else   // ZMIJ_USE_NEON
   const auto* c = &neon_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
 
   uint64_t abcd_efgh_64 =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
-  int32x4_t abcd_efgh = vcombine_s32(vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
+  int32x4_t abcd_efgh = vcombine_s32(
+      vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
   uint8x16_t digits_128 = to_digits_4x4digits(abcd_efgh, *c);
   uint8x8_t digits = vget_low_u8(digits_128);
   uint64_t result = vget_lane_u64(vreinterpret_u64_u8(vrev64_u8(digits)), 0);
-  return { result, count_trailing_nonzeros(result) };
+  return {result, count_trailing_nonzeros(result)};
 #endif  // ZMIJ_USE_SSE
 }
 
