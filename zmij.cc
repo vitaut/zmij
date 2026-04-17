@@ -1026,6 +1026,7 @@ struct to_decimal_result {
   long long sig;
   int exp;
   int last_digit = 0;
+  bool has_last_digit = false;
 };
 
 template <typename UInt>
@@ -1116,8 +1117,11 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     int lo = int(umul128_hi64(lo_frac, 10) + (lo_rem != 0));
     digit += (rem == half) ? (digit & 1) : int(rem + half < rem);
     if (digit < lo) digit = lo;
+    if (num_bits == 64) {
+      bool has_digit = (round_up + round_down) == 0;
+      return {integral, dec_exp, digit, has_digit};
+    }
     digit = (round_up + round_down) != 0 ? 0 : digit;
-    if (num_bits == 64) return {integral, dec_exp, digit};
     return {integral * 10 + digit, dec_exp};
   }
 
@@ -1187,7 +1191,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   int digit = int(umul128_add_hi64(fractional, 10, c.half));
   if (fractional == (1ull << 62)) [[ZMIJ_UNLIKELY]]
     digit = 2;  // Round 2.5 to 2.
-  return {integral, dec_exp, (round_up + round_down) != 0 ? 0 : digit};
+  return {integral, dec_exp, digit, (round_up + round_down) == 0};
 }
 
 }  // namespace
@@ -1208,7 +1212,8 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
   }
   auto dec = ::to_decimal<double>(bin_sig ^ traits::implicit_bit, bin_exp,
                                   bin_sig != 0, consts);
-  return {dec.sig * 10 + dec.last_digit, dec.exp, negative};
+  auto last_digit = dec.has_last_digit ? dec.last_digit : 0;
+  return {dec.sig * 10 + last_digit, dec.exp, negative};
 }
 
 namespace detail {
@@ -1247,6 +1252,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     if (traits::num_bits == 64) {
       long long div10 = ::div10(dec.sig);
       dec.last_digit = dec.sig - div10 * 10;
+      dec.has_last_digit = dec.last_digit != 0;
       dec.sig = div10;
     }
   } else {
@@ -1266,7 +1272,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE) {
-      dec.sig = dec.sig * 10 + dec.last_digit;
+      dec.sig = dec.sig * 10 + (dec.has_last_digit ? dec.last_digit : 0);
       return write_fixed_double_simd(buffer, dec.sig, dec_exp, extra_digit);
     }
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
@@ -1282,11 +1288,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
     }
     memmove(start + fmt.shift_pos, start + fmt.point_pos, sizeof(dig.digits));
     start[fmt.point_pos] = '.';
-    int total = split_last_digit
-                    ? (dec.last_digit ? 16 + extra_digit
-                                      : dig.num_digits + extra_digit - 1)
-                    : dig.num_digits + extra_digit;
-    return sig_start + fmt.exp_pos[total - 1];
+    int num_digits = dig.num_digits;
+    if (split_last_digit) num_digits = dec.has_last_digit ? 16 : num_digits - 1;
+    return sig_start + fmt.exp_pos[num_digits + extra_digit - 1];
   }
 
   auto dig = to_digits<traits::num_bits>(buffer + 1, dec.sig, extra_digit);
@@ -1294,7 +1298,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   memcpy(buffer, &dig.digits, sizeof(dig.digits));
   if (split_last_digit) {
     buffer[16] = '0' + dec.last_digit;
-    buffer += dec.last_digit ? 17 : dig.num_digits;
+    buffer += dec.has_last_digit ? 17 : dig.num_digits;
   } else {
     buffer += dig.num_digits;
   }
