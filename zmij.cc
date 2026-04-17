@@ -1081,7 +1081,6 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
                     ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
                     : compute_dec_exp(bin_exp);
   uint64_t even = 1 - (bin_sig & 1);
-  constexpr uint64_t half = uint64_t(1) << 63;
   constexpr int extra_shift = exp_shift_table::extra_shift;
 
   if (!regular) [[ZMIJ_UNLIKELY]] {
@@ -1103,14 +1102,12 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     int digit = int(umul128_hi64(fractional, 10));
     // Lower midpoint of the asymmetric interval in digit space.
     uint64_t lo_frac = fractional - down_half_ulp;
-    uint64_t lo_rem = lo_frac * 10;
-    int lo = int(umul128_hi64(lo_frac, 10) + (lo_rem != 0));
+    int lo = int(umul128_add_hi64(lo_frac, 10, ~uint64_t(0)));
+    constexpr uint64_t half = uint64_t(1) << 63;
     digit += (rem == half) ? (digit & 1) : int(rem + half < rem);
     if (digit < lo) digit = lo;
-    if (num_bits == 64) {
-      bool has_digit = (round_up + round_down) == 0;
-      return {integral, dec_exp, digit, has_digit};
-    }
+    if (num_bits == 64)
+      return {integral, dec_exp, digit, (round_up + round_down) == 0};
     digit = (round_up + round_down) != 0 ? 0 : digit;
     return {integral * 10 + digit, dec_exp};
   }
