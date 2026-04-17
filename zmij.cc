@@ -826,7 +826,7 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
   const auto* c = &sse_consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
 
-# if ZMIJ_USE_SSE4_1
+#  if ZMIJ_USE_SSE4_1
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
