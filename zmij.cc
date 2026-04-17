@@ -782,22 +782,6 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value) -> uint8x16_t {
 }
 #endif
 
-template <int num_bits> struct dec_digits {
-  uint64_t digits;
-  int num_digits;
-};
-
-template <> struct dec_digits<64> {
-#if ZMIJ_USE_NEON
-  uint16x8_t digits;
-#elif ZMIJ_USE_SSE
-  __m128i digits;
-#else
-  uint128 digits;
-#endif
-  int num_digits;
-};
-
 struct bcd_result {
   uint64_t bcd;
   int len;
@@ -854,6 +838,21 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> bcd_result {
 #endif  // ZMIJ_USE_SSE
 }
 
+template <int num_bits> struct dec_digits {
+  uint64_t digits;
+  int num_digits;
+};
+
+template <> struct dec_digits<64> {
+#if ZMIJ_USE_NEON
+  uint16x8_t digits;
+#elif ZMIJ_USE_SSE
+  __m128i digits;
+#else
+  uint128 digits;
+#endif
+  int num_digits;
+};
 
 // Converts a significand to decimal digits, removing trailing zeros. value has
 // up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
