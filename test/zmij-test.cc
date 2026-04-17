@@ -237,6 +237,12 @@ TEST(dtoa_test, to_decimal) {
   dec = zmij::to_decimal(garlic_nan);
   EXPECT_EQ(dec.sig, garlic);
 }
+
+TEST(ftoa_test, fixed_with_zeros) {
+  EXPECT_EQ(ftoa(43210.0f), "43210");
+  EXPECT_EQ(ftoa(43210.1f), "43210.1");
+  EXPECT_EQ(ftoa(10000.f), "10000");
+}
 #endif  // ZMIJ_C
 
 TEST(dtoa_test, no_overrun) {
