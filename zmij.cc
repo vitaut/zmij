@@ -1244,7 +1244,6 @@ auto write(Float value, char* buffer) noexcept -> char* {
   }
 
   char* start = buffer;
-  constexpr bool split_last_digit = traits::num_bits == 64;
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE) {
@@ -1255,24 +1254,24 @@ auto write(Float value, char* buffer) noexcept -> char* {
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
     char* sig_start = buffer + fmt.start_pos;
     auto dig = to_digits<traits::num_bits>(sig_start, dec.sig, extra_digit, *c);
-    if (split_last_digit) {
+    int num_digits = dig.num_digits;
+    if (traits::num_bits == 64) {
       memcpy(sig_start, &dig.digits, 16);
       if (!extra_digit) memmove(sig_start, sig_start + 1, 15);
       sig_start[15 + extra_digit] = '0' + dec.last_digit;
+      num_digits = dec.has_last_digit ? 16 : num_digits - 1;
     } else {
       memcpy(sig_start + extra_digit, &dig.digits, sizeof(dig.digits));
     }
     memmove(start + fmt.shift_pos, start + fmt.point_pos, sizeof(dig.digits));
     start[fmt.point_pos] = '.';
-    int num_digits = dig.num_digits;
-    if (split_last_digit) num_digits = dec.has_last_digit ? 16 : num_digits - 1;
     return sig_start + fmt.exp_pos[num_digits + extra_digit - 1];
   }
 
   auto dig = to_digits<traits::num_bits>(buffer + 1, dec.sig, extra_digit, *c);
-  buffer += extra_digit + (split_last_digit ? 0 : 1);
+  buffer += extra_digit + (traits::num_bits != 64);
   memcpy(buffer, &dig.digits, sizeof(dig.digits));
-  if (split_last_digit) {
+  if (traits::num_bits == 64) {
     buffer[16] = '0' + dec.last_digit;
     buffer += dec.has_last_digit ? 17 : dig.num_digits;
   } else {
