@@ -683,9 +683,8 @@ alignas(64) constexpr struct constants {
 #if ZMIJ_USE_NEON  // An optimized version for NEON by Dougall Johnson.
 
 // Converts four numbers < 10000, one in each 32bit lane, to BCD digits.
-ZMIJ_INLINE auto to_digits_4x4digits(int32x4_t ddee_bbcc_hhii_ffgg,
-                                     const constants& c) noexcept
-    -> uint8x16_t {
+ZMIJ_INLINE auto to_bcd_4x4(int32x4_t ddee_bbcc_hhii_ffgg,
+                            const constants& c) noexcept -> uint8x16_t {
   // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
   ZMIJ_ASM(("" : "+w"(ddee_bbcc_hhii_ffgg)));
 
@@ -731,7 +730,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const constants& c)
   int32x4_t ddee_bbcc_hhii_ffgg = vreinterpretq_s32_u32(
       vshll_n_u16(vreinterpret_u16_s32(ddee_bbcc_hhii_ffgg_32), 0));
 
-  return to_digits_4x4digits(ddee_bbcc_hhii_ffgg, c);
+  return to_bcd_4x4(ddee_bbcc_hhii_ffgg, c);
 }
 
 #elif ZMIJ_USE_SSE
@@ -739,8 +738,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const constants& c)
 using m128ptr = const __m128i*;
 
 // Converts four numbers < 10000, one in each 32bit lane, to BCD digits.
-ZMIJ_INLINE auto to_digits_4x4digits(__m128i y, const constants& c) noexcept
-    -> __m128i {
+ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const constants& c) noexcept -> __m128i {
   const __m128i div100 = _mm_load_si128(m128ptr(&c.div100));
   const __m128i div10 = _mm_load_si128(m128ptr(&c.div10));
 #  if ZMIJ_USE_SSE4_1
@@ -774,7 +772,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
-  return to_digits_4x4digits(y, c);
+  return to_bcd_4x4(y, c);
 }
 
 #endif  // ZMIJ_USE_SSE
@@ -813,7 +811,7 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
       abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
   int32x4_t abcd_efgh = vcombine_s32(
       vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
-  uint8x16_t digits_128 = to_digits_4x4digits(abcd_efgh, *c);
+  uint8x16_t digits_128 = to_bcd_4x4(abcd_efgh, *c);
   uint8x8_t digits = vget_low_u8(digits_128);
   uint64_t bcd = vget_lane_u64(vreinterpret_u64_u8(vrev64_u8(digits)), 0);
   return {bcd, count_trailing_nonzeros(bcd)};
@@ -821,7 +819,7 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd =
-      _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
+      _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *c));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bswap64(unshuffled_bcd), len};
 #elif ZMIJ_USE_SSE
@@ -831,7 +829,7 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
       (abcdefgh << 32) -
       uint64_t((10000ull << 32) - 1) * ((abcdefgh * div10k_sig) >> div10k_exp);
   uint64_t bcd =
-      _mm_cvtsi128_si64(to_digits_4x4digits(_mm_set_epi64x(0, abcd_efgh), *c));
+      _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *c));
   return {bcd, count_trailing_nonzeros(bcd)};
 #endif  // ZMIJ_USE_SSE
 }
