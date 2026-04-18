@@ -645,9 +645,15 @@ alignas(64) constexpr struct constants {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
+#if defined(__ARM_NEON) || defined(_M_ARM64)
   uint64_t threshold = 1e15;
   // +6 is needed for boundary cases found by verify.py.
   uint64_t biased_half = (uint64_t(1) << 63) + 6;
+#else
+  static constexpr uint64_t threshold = 1e15;
+  // +6 is needed for boundary cases found by verify.py.
+  static constexpr uint64_t biased_half = (uint64_t(1) << 63) + 6;
+#endif
 
 #if ZMIJ_USE_NEON
   static constexpr int32_t neg10k = -10000 + 0x10000;
