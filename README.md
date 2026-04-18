@@ -33,8 +33,8 @@ with implementations in C and C++
 
 int main() {
   char buf[zmij::double_buffer_size + 1];
-  auto size = zmij::write(buf, sizeof(buf), 5.0507837461e-27);
-  buf[size] = '\0';
+  auto end = zmij::write(buf, sizeof(buf), 5.0507837461e-27);
+  *end = '\0';
   puts(buf);
 }
 ```

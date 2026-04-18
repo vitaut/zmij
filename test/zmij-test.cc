@@ -18,11 +18,11 @@ enum {
   float_buffer_size = 16,
 };
 
-auto write(char* out, size_t n, double value) noexcept -> size_t {
-  return zmij_write_double(out, n, value);
+auto write(char* out, size_t n, double value) noexcept -> char* {
+  return out + zmij_write_double(out, n, value);
 }
-auto write(char* out, size_t n, float value) noexcept -> size_t {
-  return zmij_write_float(out, n, value);
+auto write(char* out, size_t n, float value) noexcept -> char* {
+  return out + zmij_write_float(out, n, value);
 }
 }
 #endif
@@ -38,15 +38,15 @@ auto write(char* out, size_t n, float value) noexcept -> size_t {
 auto dtoa(double value) -> std::string {
   char buffer[zmij::double_buffer_size + 1] = {};
   memset(buffer, '?', sizeof(buffer));
-  auto n = zmij::write(buffer + 1, sizeof(buffer), value);
+  auto end = zmij::write(buffer + 1, sizeof(buffer), value);
   if (buffer[0] != '?') throw std::runtime_error("buffer underrun");
-  return {buffer + 1, n};
+  return {buffer + 1, end};
 }
 
 auto ftoa(float value) -> std::string {
   char buffer[zmij::float_buffer_size] = {};
-  auto n = zmij::write(buffer, sizeof(buffer), value);
-  return {buffer, n};
+  auto end = zmij::write(buffer, sizeof(buffer), value);
+  return {buffer, end};
 }
 
 TEST(zmij_test, utilities) {
@@ -199,17 +199,17 @@ TEST(dtoa_test, fixed_with_zeros) {
 #if !ZMIJ_C
 TEST(dtoa_test, no_buffer) {
   double value = 6.62607015e-34;
-  auto n = zmij::write(nullptr, 0, value);
-  std::string result(n, '\0');
-  zmij::write(&result[0], n, value);
+  char buffer[zmij::double_buffer_size];
+  auto end = zmij::write(buffer, sizeof(buffer), value);
+  std::string result(buffer, end);
   EXPECT_EQ(result, "6.62607015e-34");
 }
 
 TEST(ftoa_test, no_buffer) {
   float value = 6.62607e-34;
-  auto n = zmij::write(nullptr, 0, value);
-  std::string result(n, '\0');
-  zmij::write(&result[0], n, value);
+  char buffer[zmij::float_buffer_size];
+  auto end = zmij::write(buffer, sizeof(buffer), value);
+  std::string result(buffer, end);
   EXPECT_EQ(result, "6.62607e-34");
 }
 
@@ -248,8 +248,8 @@ TEST(ftoa_test, fixed_with_zeros) {
 TEST(dtoa_test, no_overrun) {
   char buffer[zmij::double_buffer_size + 1];
   memset(buffer, '?', sizeof(buffer));
-  auto n = zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
-  EXPECT_EQ(std::string(buffer, n), std::string("-1.2345678901234567e+123"));
+  auto end = zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
+  EXPECT_EQ(std::string(buffer, end), std::string("-1.2345678901234567e+123"));
   EXPECT_EQ(buffer[zmij::double_buffer_size], '?');
 }
 
@@ -270,8 +270,8 @@ TEST(ftoa_test, subnormal) {
 TEST(ftoa_test, no_overrun) {
   char buffer[zmij::float_buffer_size + 1];
   memset(buffer, '?', sizeof(buffer));
-  auto n = zmij::write(buffer, zmij::float_buffer_size, -1.00000005e+15f);
-  EXPECT_EQ(std::string(buffer, n), std::string("-1.00000005e+15"));
+  auto end = zmij::write(buffer, zmij::float_buffer_size, -1.00000005e+15f);
+  EXPECT_EQ(std::string(buffer, end), std::string("-1.00000005e+15"));
   EXPECT_EQ(buffer[zmij::float_buffer_size], '?');
 }
 

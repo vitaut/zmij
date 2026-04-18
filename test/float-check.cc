@@ -54,7 +54,7 @@ auto main() -> int {
         float value = 0;
         memcpy(&value, &bits, sizeof(float));
 
-        actual[zmij::write(actual, sizeof(actual), value)] = '\0';
+        *zmij::write(actual, sizeof(actual), value) = '\0';
         int exp = 7;
         decltype(jkj::dragonbox::to_decimal(0.0f)) dec;
         if (value != 0 && std::isfinite(value)) {

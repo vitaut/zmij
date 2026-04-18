@@ -38,27 +38,29 @@ enum {
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
-/// `out` without a null terminator. Returns the length of the full
-/// representation; if this exceeds `n`, only the first `n` characters are
-/// written.
-inline auto write(char* out, size_t n, float value) noexcept -> size_t {
-  if (n >= float_buffer_size) return detail::write(value, out) - out;
+/// `out` without a null terminator. Returns a pointer past the last character
+/// written; if the representation exceeds `n` characters, only the first `n`
+/// are written.
+inline auto write(char* out, size_t n, float value) noexcept -> char* {
+  if (n >= float_buffer_size) return detail::write(value, out);
   char buffer[float_buffer_size];
-  size_t result = detail::write(value, buffer) - buffer;
-  memcpy(out, buffer, n);
-  return result;
+  size_t size = detail::write(value, buffer) - buffer;
+  if (size > n) size = n;
+  memcpy(out, buffer, size);
+  return out + size;
 }
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
-/// `out` without a null terminator. Returns the length of the full
-/// representation; if this exceeds `n`, only the first `n` characters are
-/// written.
-inline auto write(char* out, size_t n, double value) noexcept -> size_t {
-  if (n >= double_buffer_size) return detail::write(value, out) - out;
+/// `out` without a null terminator. Returns a pointer past the last character
+/// written; if the representation exceeds `n` characters, only the first `n`
+/// are written.
+inline auto write(char* out, size_t n, double value) noexcept -> char* {
+  if (n >= double_buffer_size) return detail::write(value, out);
   char buffer[double_buffer_size];
-  size_t result = detail::write(value, buffer) - buffer;
-  memcpy(out, buffer, n);
-  return result;
+  size_t size = detail::write(value, buffer) - buffer;
+  if (size > n) size = n;
+  memcpy(out, buffer, size);
+  return out + size;
 }
 
 }  // namespace zmij
