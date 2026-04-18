@@ -1088,18 +1088,12 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     uint64_t fractional = p.hi << (64 - extra_shift) | p.lo >> extra_shift;
 
     uint64_t half_ulp = pow10.hi >> (extra_shift + 1 - shift);
-    uint64_t down_half_ulp = half_ulp >> 1;
     bool round_up = half_ulp > ~uint64_t(0) - fractional;
-    bool round_down = down_half_ulp > fractional;
+    bool round_down = (half_ulp >> 1) > fractional;
     integral += round_up;
 
-    uint64_t rem = fractional * 10;
-    int digit = int(umul128_hi64(fractional, 10));
-    // Lower midpoint of the asymmetric interval in digit space.
-    uint64_t lo_frac = fractional - down_half_ulp;
-    int lo = int(umul128_add_hi64(lo_frac, 10, ~uint64_t(0)));
-    constexpr uint64_t half = uint64_t(1) << 63;
-    digit += (rem == half) ? (digit & 1) : int(rem + half < rem);
+    int digit = int(umul128_add_hi64(fractional, 10, (uint64_t(1) << 63) - 1));
+    int lo = int(umul128_add_hi64(fractional - (half_ulp >> 1), 10, ~uint64_t(0)));
     if (digit < lo) digit = lo;
     if (num_bits == 64)
       return {integral, dec_exp, digit, (round_up + round_down) == 0};
