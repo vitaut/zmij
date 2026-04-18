@@ -859,7 +859,7 @@ template <int num_bits>
 ZMIJ_INLINE auto to_digits(char* buffer, uint64_t value, bool extra_digit,
                            const constants& c) noexcept
     -> dec_digits<num_bits> {
-#if !ZMIJ_USE_SIMD
+#if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
   // Digits/pairs of digits are denoted by letters: value = bbccddeeffgghhii.
   uint32_t bbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
