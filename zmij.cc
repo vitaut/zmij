@@ -1240,16 +1240,12 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
-    if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE) {
-      dec.sig = dec.sig * 10 + (dec.has_last_digit ? dec.last_digit : 0);
-      return write_fixed_double_simd(buffer, dec.sig, dec_exp, extra_digit, *c);
-    }
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
     auto dig = to_digits<traits::num_bits>(dec.sig, extra_digit, *c);
     char* start = buffer + fmt.start_pos;
     memcpy(start, &dig.digits, bcd_size);
-    if (!extra_digit) memmove(start, start + 1, bcd_size - 1);
+    memmove(start, start + !extra_digit, bcd_size);  // Cheap on ARM.
     start[bcd_size - 1 + extra_digit] = '0' + dec.last_digit;
     memmove(buffer + fmt.shift_pos, buffer + fmt.point_pos, bcd_size);
     buffer[fmt.point_pos] = '.';
