@@ -1207,6 +1207,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   to_decimal_result dec;
   uint64_t threshold = uint64_t(traits::num_bits == 64 ? c->threshold : 1e7);
+  constexpr int bcd_size = traits::num_bits == 64 ? 16 : 8;
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
@@ -1236,7 +1237,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     dec.has_last_digit = false;
     --dec_exp;
   }
-  char* start = buffer;
+
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     if (traits::num_bits == 64 && dec_exp >= 0 && ZMIJ_USE_SIMD_SHUFFLE) {
@@ -1245,35 +1246,23 @@ auto write(Float value, char* buffer) noexcept -> char* {
     }
     memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
-    char* sig_start = buffer + fmt.start_pos;
     auto dig = to_digits<traits::num_bits>(dec.sig, extra_digit, *c);
-    int num_digits = dig.num_digits;
-    if (traits::num_bits == 64) {
-      memcpy(sig_start, &dig.digits, 16);
-      if (!extra_digit) memmove(sig_start, sig_start + 1, 15);
-      sig_start[15 + extra_digit] = '0' + dec.last_digit;
-      num_digits = dec.has_last_digit ? 16 : num_digits - 1;
-    } else {
-      memcpy(sig_start, &dig.digits, sizeof(dig.digits));
-      if (!extra_digit) memmove(sig_start, sig_start + 1, 7);
-      sig_start[7 + extra_digit] = '0' + dec.last_digit;
-      num_digits = dec.has_last_digit ? 8 : num_digits - 1;
-    }
-    memmove(start + fmt.shift_pos, start + fmt.point_pos, sizeof(dig.digits));
-    start[fmt.point_pos] = '.';
-    return sig_start + fmt.exp_pos[num_digits + extra_digit - 1];
+    char* start = buffer + fmt.start_pos;
+    memcpy(start, &dig.digits, bcd_size);
+    if (!extra_digit) memmove(start, start + 1, bcd_size - 1);
+    start[bcd_size - 1 + extra_digit] = '0' + dec.last_digit;
+    memmove(buffer + fmt.shift_pos, buffer + fmt.point_pos, bcd_size);
+    buffer[fmt.point_pos] = '.';
+    int num_digits = dec.has_last_digit ? bcd_size : dig.num_digits - 1;
+    return start + fmt.exp_pos[num_digits + extra_digit - 1];
   }
 
   auto dig = to_digits<traits::num_bits>(dec.sig, extra_digit, *c);
+  char* start = buffer;
   buffer += extra_digit;
-  memcpy(buffer, &dig.digits, sizeof(dig.digits));
-  if (traits::num_bits == 64) {
-    buffer[16] = '0' + dec.last_digit;
-    buffer += dec.has_last_digit ? 17 : dig.num_digits;
-  } else {
-    buffer[8] = '0' + dec.last_digit;
-    buffer += dec.has_last_digit ? 9 : dig.num_digits;
-  }
+  memcpy(buffer, &dig.digits, bcd_size);
+  buffer[bcd_size] = '0' + dec.last_digit;
+  buffer += dec.has_last_digit ? bcd_size + 1 : dig.num_digits;
   start[0] = start[1];
   start[1] = '.';
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
