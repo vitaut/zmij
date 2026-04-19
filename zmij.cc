@@ -516,9 +516,7 @@ struct exp_string_table {
       uint64_t bc = abs_e % 100;
       uint64_t val = ((bc % 10 + '0') << 8) | (bc / 10 + '0');
       if (uint64_t a = abs_e / 100) val = (val << 8) | (a + '0');
-      bool is_fixed =
-          e >= traits::min_fixed_dec_exp && e <= traits::max_fixed_dec_exp;
-      uint64_t len = is_fixed ? 0 : 4 + (abs_e >= 100);
+      uint64_t len = 4 + (abs_e >= 100);
       data[e + offset] =
           (len << 48) | (val << 16) | (uint64_t(e >= 0 ? '+' : '-') << 8) | 'e';
     }
@@ -1263,7 +1261,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
 
   // Write exponent.
-  if (exp_string_table::enable && traits::num_bits == 64) {
+  if (exp_string_table::enable) {
     uint64_t exp_data = exp_strings.data[dec_exp + exp_string_table::offset];
     int len = int(exp_data >> 48);
     if (is_big_endian) exp_data = bswap64(exp_data);
