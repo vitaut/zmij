@@ -1237,23 +1237,23 @@ auto write(Float value, char* buffer) noexcept -> char* {
     dec.has_last_digit = false;
     --dec_exp;
   }
-  auto dig = to_digits<traits::num_bits>(dec.sig, extra_digit, *c);
 
+  // Write significand/fixed.
+  char* start = buffer;
+  auto dig = to_digits<traits::num_bits>(dec.sig, extra_digit, *c);
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
-    memcpy(buffer, &zeros, 8);  // For dec_exp < 0.
+    memcpy(start, &zeros, 8);  // For dec_exp < 0.
     const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
-    char* start = buffer + fmt.start_pos;
-    memcpy(start, &dig.digits, bcd_size);
-    memmove(start, start + !extra_digit, bcd_size);  // Cheap on ARM.
-    start[bcd_size - 1 + extra_digit] = '0' + dec.last_digit;
-    memmove(buffer + fmt.shift_pos, buffer + fmt.point_pos, bcd_size);
-    buffer[fmt.point_pos] = '.';
+    buffer += fmt.start_pos;
+    memcpy(buffer, &dig.digits, bcd_size);
+    memmove(buffer, buffer + !extra_digit, bcd_size);  // Cheap on aarch64.
+    buffer[bcd_size - 1 + extra_digit] = '0' + dec.last_digit;
+    memmove(start + fmt.shift_pos, start + fmt.point_pos, bcd_size);
+    start[fmt.point_pos] = '.';
     int num_digits = dec.has_last_digit ? bcd_size : dig.num_digits - 1;
-    return start + fmt.exp_pos[num_digits + extra_digit - 1];
+    return buffer + fmt.exp_pos[num_digits + extra_digit - 1];
   }
-
-  char* start = buffer;
   buffer += extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
   buffer[bcd_size] = '0' + dec.last_digit;
