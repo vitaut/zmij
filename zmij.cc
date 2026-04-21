@@ -1164,7 +1164,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   const auto* c = &consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
-  uint64_t threshold = uint64_t(traits::num_bits == 64 ? c->threshold : 1e7);
+  uint64_t threshold = traits::num_bits == 64 ? c->threshold : uint64_t(1e7);
 
   to_decimal_result dec;
   bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
