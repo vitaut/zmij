@@ -24,6 +24,10 @@ struct dec_fp {
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
 
+#ifdef __STDCPP_FLOAT16_T__
+#include <stdfloat>
+#endif
+
 #ifndef ZMIJ_USE_SIMD
 #  define ZMIJ_USE_SIMD 1
 #endif
@@ -317,6 +321,13 @@ auto umulhi_inexact_to_odd(uint64_t x_hi, uint64_t, uint32_t y) noexcept
   uint64_t p = uint64_t(umul128(x_hi, y) >> 32);
   return uint32_t(p >> 32) | ((uint32_t(p) >> 1) != 0);
 }
+#ifdef __STDCPP_FLOAT16_T__
+auto umulhi_inexact_to_odd(uint64_t x_hi, uint64_t, uint16_t y) noexcept
+    -> uint16_t {
+  uint64_t p = uint64_t(umul128(x_hi, y) >> 16);
+  return uint16_t(p >> 16) | ((uint16_t(p) >> 1) != 0);
+}
+#endif
 
 // Computes the decimal exponent as floor(log10(2**bin_exp)) if regular or
 // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
@@ -333,7 +344,8 @@ constexpr auto compute_dec_exp(int bin_exp, bool regular = true) noexcept
 template <typename Float> struct float_traits : std::numeric_limits<Float> {
   static_assert(float_traits::is_iec559, "IEEE 754 required");
 
-  static constexpr int num_bits = float_traits::digits == 53 ? 64 : 32;
+  static constexpr int num_bits = float_traits::digits == 53 ? 64 :
+                                  (float_traits::digits == 24 ? 32 : 16);
   static constexpr int num_sig_bits = float_traits::digits - 1;
   static constexpr int num_exp_bits = num_bits - num_sig_bits - 1;
   static constexpr int exp_mask = (1 << num_exp_bits) - 1;
@@ -342,6 +354,8 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
   static constexpr int min_fixed_dec_exp = -4;
   static constexpr int max_fixed_dec_exp =
       compute_dec_exp(float_traits::digits + 1) - 1;
+  static constexpr long int threshold = num_bits == 64 ? 1000000000000000 :
+                                        (num_bits == 32 ? 10000000 : 10000);
 
   using sig_type = std::conditional_t<num_bits == 64, uint64_t, uint32_t>;
   static constexpr sig_type implicit_bit = sig_type(1) << num_sig_bits;
@@ -908,6 +922,15 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, bool, const constants&) noexcept
   return {result.bcd + zeros, result.len};
 }
 
+#ifdef __STDCPP_FLOAT16_T__
+template <>
+ZMIJ_INLINE auto to_digits<16>(uint64_t value, bool, const constants&) noexcept
+    -> dec_digits<16> {
+  auto result = to_bcd8(value);
+  return {result.bcd + zeros, result.len};
+}
+#endif
+
 #if ZMIJ_USE_SIMD_SHUFFLE
 struct shuffle_table {
   constexpr static bool merge_tables = ZMIJ_USE_SSE4_1;
@@ -1166,7 +1189,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   const auto* c = &consts;
   ZMIJ_ASM(("" : "+r"(c)));  // Load constants from memory.
-  uint64_t threshold = traits::num_bits == 64 ? c->threshold : uint64_t(1e7);
+  uint64_t threshold = traits::threshold;
 
   to_decimal_result dec;
   bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
@@ -1256,6 +1279,8 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
 template auto write(float value, char* buffer) noexcept -> char*;
 template auto write(double value, char* buffer) noexcept -> char*;
-
+#ifdef __STDCPP_FLOAT16_T__
+template auto write(std::float16_t value, char* buffer) noexcept -> char*;
+#endif
 }  // namespace detail
 }  // namespace zmij

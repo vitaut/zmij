@@ -9,6 +9,10 @@
 #include <stddef.h>  // size_t
 #include <string.h>  // memcpy
 
+#ifdef __STDCPP_FLOAT16_T__
+#include <stdfloat>
+#endif
+
 namespace zmij {
 namespace detail {
 template <typename Float>
@@ -33,6 +37,7 @@ struct dec_fp {
 auto to_decimal(double value) noexcept -> dec_fp;
 
 enum {
+  float16_t_buffer_size = 9,
   float_buffer_size = 17,
   double_buffer_size = 34,
 };
@@ -62,6 +67,16 @@ inline auto write(char* out, size_t n, double value) noexcept -> char* {
   memcpy(out, buffer, size);
   return out + size;
 }
+
+#ifdef __STDCPP_FLOAT16_T__
+inline auto write(char* out, size_t n, std::float16_t value) noexcept -> char* {
+  if (n >= float16_t_buffer_size) return detail::write(value, out);
+  char buffer[float16_t_buffer_size];
+  size_t size = detail::write(value, buffer) - buffer;
+  memcpy(out, buffer, n);
+  return out + size;
+}
+#endif
 
 }  // namespace zmij
 
