@@ -756,6 +756,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const constants& c)
 using m128ptr = const __m128i*;
 
 // Converts four numbers < 10000, one in each 32bit lane, to BCD digits.
+// Digits in each 32bit lane will be in order for SSE2, reversed for SSE4.1.
 ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const constants& c) noexcept -> __m128i {
   const __m128i div100 = _mm_load_si128(m128ptr(&c.div100));
   const __m128i div10 = _mm_load_si128(m128ptr(&c.div10));
@@ -780,10 +781,15 @@ ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const constants& c) noexcept -> __m128i {
 #  endif  // ZMIJ_USE_SSE4_1
 }
 
+struct bcd_2x8_result {
+  __m128i bcd;
+  int len;
+};
+
 // SSE parallel version of to_bcd8: converts bbccddee and ffgghhii into
-// individual BCD digits in SIMD lane order (caller must shuffle).
-ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
-                                      const constants& c) noexcept -> __m128i {
+// individual BCD digits.  SSE4.1 result will be in reverse order.
+ZMIJ_INLINE auto to_bcd_2x8(uint32_t bbccddee, uint32_t ffgghhii,
+                            const constants& c) noexcept -> bcd_2x8_result {
   const __m128i div10k = _mm_load_si128(m128ptr(&c.div10k));
   const __m128i neg10k = _mm_load_si128(m128ptr(&c.neg10k));
   __m128i x = _mm_set_epi64x(bbccddee, ffgghhii);
@@ -795,7 +801,28 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
     // Shuffle to ensure correctly ordered result from SSE2 path.
     y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
   }
-  return to_bcd_4x4(y, c);
+
+  __m128i bcdx4 = to_bcd_4x4(y, c);
+#  if ZMIJ_USE_SSE4_1
+  // The length is determined from the number of trailing zeros which are
+  // in the low bits before bswap.
+  __m128i mask128 = _mm_cmpgt_epi8(bcdx4, _mm_setzero_si128());
+  uint64_t mask = _mm_movemask_epi8(mask128);
+  int len = 16 - ctz(mask | (1 << 16));
+
+  const __m128i bswap = _mm_load_si128(m128ptr(&c.bswap));
+  auto bcd = _mm_shuffle_epi8(bcdx4, bswap);  // SSSE3
+#  else // ZMIJ_USE_SSE4_1
+  auto bcd = bcdx4; // Output is already in final order.
+
+  // The length is determined from the number of trailing zeros which are
+  // in the high bits.
+  __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
+  uint64_t mask = _mm_movemask_epi8(mask128);
+  int len = 63 - clz((mask << 1) | 1);
+#  endif // !ZMIJ_USE_SSE4_1
+
+  return {bcd, len};
 }
 
 #endif  // ZMIJ_USE_SSE
@@ -903,28 +930,10 @@ ZMIJ_INLINE auto to_digits(uint64_t value, bool extra_digit,
   uint32_t abbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
 
+  auto result = to_bcd_2x8(abbccddee, ffgghhii, c);
+
   const __m128i zeros = _mm_load_si128(m128ptr(&c.zeros));
-  auto unshuffled_bcd = to_unshuffled_digits(abbccddee, ffgghhii, c);
-#  if ZMIJ_USE_SSE4_1
-  // The length is determined from the number of trailing zeros which are
-  // in the low bits before the bswap.
-  __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
-  uint64_t mask = _mm_movemask_epi8(mask128);
-  int len = 16 - ctz(mask | (1 << 16));
-
-  const __m128i bswap = _mm_load_si128(m128ptr(&c.bswap));
-  auto bcd = _mm_shuffle_epi8(unshuffled_bcd, bswap);  // SSSE3
-  return {_mm_or_si128(bcd, zeros), len};
-#  else // ZMIJ_USE_SSE4_1
-  auto bcd = unshuffled_bcd; // Output is already in final order.
-
-  // The length is determined from the number of trailing zeros which are
-  // in the high bits.
-  __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
-  uint64_t mask = _mm_movemask_epi8(mask128);
-  int len = 63 - clz((mask << 1) | 1);
-  return {_mm_or_si128(bcd, zeros), len};
-#  endif // !ZMIJ_USE_SSE4_1
+  return {_mm_or_si128(result.bcd, zeros), result.len};
 #endif  // ZMIJ_USE_SSE
 }
 
