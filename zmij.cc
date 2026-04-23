@@ -790,6 +790,11 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint32_t bbccddee, uint32_t ffgghhii,
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
+
+  if (!ZMIJ_USE_SSE4_1) {
+    // Shuffle to ensure correctly ordered result from SSE2 path.
+    y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
+  }
   return to_bcd_4x4(y, c);
 }
 
@@ -911,8 +916,8 @@ ZMIJ_INLINE auto to_digits(uint64_t value, bool extra_digit,
   auto bcd = _mm_shuffle_epi8(unshuffled_bcd, bswap);  // SSSE3
   return {_mm_or_si128(bcd, zeros), len};
 #  else // ZMIJ_USE_SSE4_1
-  auto bcd = _mm_shuffle_epi32(unshuffled_bcd, _MM_SHUFFLE(0, 1, 2, 3));
-  
+  auto bcd = unshuffled_bcd; // Output is already in final order.
+
   // The length is determined from the number of trailing zeros which are
   // in the high bits.
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
