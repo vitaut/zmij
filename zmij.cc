@@ -901,21 +901,25 @@ ZMIJ_INLINE auto to_digits(uint64_t value, bool extra_digit,
   const __m128i zeros = _mm_load_si128(m128ptr(&c.zeros));
   auto unshuffled_bcd = to_unshuffled_digits(abbccddee, ffgghhii, c);
 #  if ZMIJ_USE_SSE4_1
+  // The length is determined from the number of trailing zeros which are
+  // in the low bits before the bswap.
+  __m128i mask128 = _mm_cmpgt_epi8(unshuffled_bcd, _mm_setzero_si128());
+  uint64_t mask = _mm_movemask_epi8(mask128);
+  int len = 16 - ctz(mask | (1 << 16));
+
   const __m128i bswap = _mm_load_si128(m128ptr(&c.bswap));
   auto bcd = _mm_shuffle_epi8(unshuffled_bcd, bswap);  // SSSE3
-#  else
+  return {_mm_or_si128(bcd, zeros), len};
+#  else // ZMIJ_USE_SSE4_1
   auto bcd = _mm_shuffle_epi32(unshuffled_bcd, _MM_SHUFFLE(0, 1, 2, 3));
-#  endif
-
-  // Count leading zeros.
+  
+  // The length is determined from the number of trailing zeros which are
+  // in the high bits.
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
   uint64_t mask = _mm_movemask_epi8(mask128);
-#  if defined(__LZCNT__) && !defined(ZMIJ_NO_BUILTINS)
-  int len = 32 - _lzcnt_u32(mask);
-#  else
   int len = 63 - clz((mask << 1) | 1);
-#  endif
   return {_mm_or_si128(bcd, zeros), len};
+#  endif // !ZMIJ_USE_SSE4_1
 #endif  // ZMIJ_USE_SSE
 }
 
