@@ -515,7 +515,6 @@ struct exp_shift_table {
     }
   }
 };
-constexpr exp_shift_table exp_shifts;
 
 // An optional table of precomputed exponent strings for scientific notation.
 // Each entry packs "e+dd" or "e+ddd" into a uint64_t with the length in byte 7.
@@ -539,7 +538,6 @@ struct exp_string_table {
     }
   }
 };
-constexpr exp_string_table exp_strings;
 
 // Per-decimal-exponent formatting positions for branchless output.
 // Each entry holds positions for the decimal point, leading zeros, and the
@@ -695,6 +693,8 @@ struct constants {
   uint128 zeros = splat64(::zeros);
 #endif    // ZMIJ_USE_SSE
 
+  exp_shift_table exp_shifts;
+  exp_string_table exp_strings;
   alignas(64) pow10_significand_table pow10_significands;
 };
 alignas(64) constexpr constants consts;
@@ -1037,7 +1037,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   // l - longer underestimate,  L - longer overestimate
   unsigned char shift =
       exp_shift_table::enable
-          ? exp_shifts.data[bin_exp + traits::exp_offset]
+          ? c.exp_shifts.data[bin_exp + traits::exp_offset]
           : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
   ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
   uint128 pow10 = c.pow10_significands[-dec_exp - 1];
@@ -1160,7 +1160,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   // Write exponent.
   if (exp_string_table::enable) {
-    uint64_t exp_data = exp_strings.data[dec_exp + exp_string_table::offset];
+    uint64_t exp_data = c->exp_strings.data[dec_exp + exp_string_table::offset];
     int len = int(exp_data >> 48);
     if (is_big_endian) exp_data = bswap64(exp_data);
     memcpy(buffer, &exp_data, traits::max_exponent10 >= 100 ? 8 : 4);
