@@ -578,7 +578,7 @@ struct fixed_layout_table {
   constexpr auto get(int dec_exp) const noexcept -> const entry& {
     constexpr auto min = traits::min_fixed_dec_exp;
     assert(dec_exp >= min && dec_exp <= traits::max_fixed_dec_exp);
-    return data[dec_exp - min];
+    return data[unsigned(dec_exp - min)];
   }
 };
 
