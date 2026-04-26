@@ -539,10 +539,10 @@ struct exp_string_table {
   }
 };
 
-// Per-decimal-exponent formatting positions for branchless output.
-// Each entry holds positions for the decimal point, leading zeros, and the
-// exponent, indexed by the decimal exponent (dec_exp).
-struct dec_exp_format_table {
+// Per-decimal-exponent buffer layout for branchless fixed-notation output.
+// Each entry holds the byte positions of the leading zeros, decimal point,
+// and end of output, indexed by the decimal exponent (dec_exp).
+struct fixed_layout_table {
   using traits = float_traits<double>;
   static constexpr int num_entries =
       traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 1;
@@ -553,14 +553,12 @@ struct dec_exp_format_table {
     unsigned char point_pos;
     // Start position for shifting digits right by one to insert the point.
     unsigned char shift_pos;
-    // Position where exponent notation starts, indexed by sig length - 1.
-    // For fixed-notation entries this points past all output digits.
-    unsigned char exp_pos[traits::max_digits10];
+    // Offset past the end of fixed-notation output, indexed by sig length - 1.
+    unsigned char end_pos[traits::max_digits10];
   };
-
   entry data[num_entries] = {};
 
-  constexpr dec_exp_format_table() {
+  constexpr fixed_layout_table() {
     for (int dec_exp = traits::min_fixed_dec_exp;
          dec_exp <= traits::max_fixed_dec_exp; ++dec_exp) {
       auto& e = data[dec_exp - traits::min_fixed_dec_exp];
@@ -572,7 +570,7 @@ struct dec_exp_format_table {
       for (int n = 1; n <= traits::max_digits10; ++n) {
         int end_pos = n;
         if (dec_exp >= 0) end_pos = n > dec_exp + 1 ? n + 1 : dec_exp + 1;
-        e.exp_pos[n - 1] = end_pos;
+        e.end_pos[n - 1] = end_pos;
       }
     }
   }
@@ -687,7 +685,7 @@ struct constants {
   exp_shift_table exp_shifts;
   exp_string_table exp_strings;
   alignas(64) pow10_significand_table pow10_significands;
-  dec_exp_format_table dec_exp_formats;
+  fixed_layout_table fixed_layouts;
 };
 alignas(64) constexpr constants consts;
 
@@ -1131,7 +1129,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    const auto& fmt = c->dec_exp_formats.get(dec_exp);
+    const auto& fmt = c->fixed_layouts.get(dec_exp);
     buffer += fmt.start_pos;
     memcpy(buffer, &dig.digits, bcd_size);
     memmove(buffer, buffer + !extra_digit, bcd_size);  // Cheap on aarch64.
@@ -1140,7 +1138,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     memmove(start + fmt.shift_pos, start + fmt.point_pos, bcd_size);
     start[fmt.point_pos] = '.';
     int num_digits = dec.has_last_digit ? bcd_size : dig.num_digits - 1;
-    return buffer + fmt.exp_pos[num_digits + extra_digit - 1];
+    return buffer + fmt.end_pos[num_digits + extra_digit - 1];
   }
   buffer += extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
