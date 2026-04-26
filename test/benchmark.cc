@@ -12,6 +12,7 @@
 
 #include <algorithm>  // std::sort, std::shuffle
 #include <cmath>      // std::abs
+#include <fstream>
 #include <limits>
 #include <random>  // std::mt19937
 #include <string>
@@ -173,10 +174,14 @@ class pretty_reporter : public benchmark::ConsoleReporter {
 
 auto main(int argc, char** argv) -> int {
   bool per_digit = false;
+  std::string_view json_out;
   int out = 1;
   for (int i = 1; i < argc; ++i) {
-    if (std::string_view(argv[i]) == "--per-digit") {
+    auto arg = std::string_view(argv[i]);
+    if (arg == "--per-digit") {
       per_digit = true;
+    } else if (arg.substr(0, 11) == "--json-out=") {
+      json_out = arg.substr(11);
     } else {
       argv[out++] = argv[i];
     }
@@ -197,7 +202,14 @@ auto main(int argc, char** argv) -> int {
   }
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
-  pretty_reporter reporter;
-  benchmark::RunSpecifiedBenchmarks(&reporter);
+  if (!json_out.empty()) {
+    std::ofstream json_file(std::string(json_out));
+    benchmark::JSONReporter json_reporter;
+    json_reporter.SetOutputStream(&json_file);
+    benchmark::RunSpecifiedBenchmarks(&json_reporter);
+  } else {
+    pretty_reporter reporter;
+    benchmark::RunSpecifiedBenchmarks(&reporter);
+  }
   benchmark::Shutdown();
 }

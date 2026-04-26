@@ -11,10 +11,12 @@ import sys
 import tempfile
 from pathlib import Path
 
+REPO = Path(__file__).resolve().parent.parent
+
 
 def run(cmd, cwd=None):
     p = subprocess.run(
-        cmd,
+        [str(c) for c in cmd],
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -25,65 +27,83 @@ def run(cmd, cwd=None):
     return p.stdout
 
 
-def benchmark_commit(sha: str, workdir: Path, build: Path, deps: Path,
-                     writer: csv.writer):
-    run(["git", "checkout", "-q", sha], cwd=workdir)
+def historical_file(repo: Path, sha: str, path: str):
+    p = subprocess.run(
+        ["git", "show", f"{sha}:{path}"],
+        cwd=repo,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    return p.stdout if p.returncode == 0 else None
 
-    if not (workdir / "test" / "benchmark.cc").exists():
-        print("  Skipping commit: test/benchmark.cc not found")
-        return
 
-    # Reset the build dir between commits to avoid stale state when
-    # CMakeLists.txt changes, but reuse cached fetched dependencies.
-    if build.exists():
-        shutil.rmtree(build)
-    build.mkdir(parents=True)
+def benchmark_commit(sha: str, repo: Path, src: Path, build: Path,
+                     deps: Path, writer: csv.writer):
+    zcc = historical_file(repo, sha, "zmij.cc")
+    zh = historical_file(repo, sha, "zmij.h")
+    if zcc is None or zh is None:
+        raise RuntimeError("zmij.cc/zmij.h missing at this commit")
 
-    run(["cmake", "-S", str(workdir), "-B", str(build),
+    (src / "zmij.cc").write_text(zcc)
+    (src / "zmij.h").write_text(zh)
+
+    run(["cmake", "-S", src, "-B", build,
          "-DCMAKE_BUILD_TYPE=Release",
          f"-DFETCHCONTENT_BASE_DIR={deps}"])
-    run(["cmake", "--build", str(build), "-j",
-         "--target", "dtoa-benchmark"])
+    run(["cmake", "--build", build, "-j", "--target", "dtoa-benchmark"])
 
     exe = build / "test" / "dtoa-benchmark"
-    output = run([str(exe), "--benchmark_format=json"])
-    data = json.loads(output)
+    # The binary uses a custom display reporter, so --benchmark_format=json
+    # is ineffective. Use the harness's --json-out flag which installs a
+    # JSONReporter writing to the given file.
+    out_json = build / "bench.json"
+    if out_json.exists():
+        out_json.unlink()
+    run([str(exe), f"--json-out={out_json}"])
+    data = json.loads(out_json.read_text())
 
     for b in data.get("benchmarks", []):
         if b.get("run_type") == "aggregate":
             continue
-        name = b.get("name", "")
-        real_time = b.get("real_time", "")
-        cpu_time = b.get("cpu_time", "")
-        iterations = b.get("iterations", "")
-        time_unit = b.get("time_unit", "")
-        # Common counters set by run_dtoa / run_dtoa_mixed.
         time_per_double = b.get("Time per double", b.get("Time/double", ""))
         throughput = b.get("Throughput", b.get("Speed", ""))
-        writer.writerow([sha, name, real_time, cpu_time, time_unit,
-                         iterations, time_per_double, throughput])
+        writer.writerow([
+            sha,
+            b.get("name", ""),
+            b.get("real_time", ""),
+            b.get("cpu_time", ""),
+            b.get("time_unit", ""),
+            b.get("iterations", ""),
+            time_per_double,
+            throughput,
+        ])
 
 
 def main():
     with tempfile.TemporaryDirectory(prefix="zmij_bench_") as tmp:
         tmp = Path(tmp)
-        workdir = tmp / "src"
+        src = tmp / "src"
         build = tmp / "build"
-        # Cache fetched dependencies (e.g. googlebenchmark) across commits to
+
+        # Cache fetched dependencies (e.g. googlebenchmark) across runs to
         # avoid re-downloading and re-building them every time.
         deps = Path.home() / ".cache" / "zmij_bench_deps"
         deps.mkdir(parents=True, exist_ok=True)
 
-        print("Cloning repository...")
-        run(["git", "clone", "https://github.com/vitaut/zmij.git",
-             str(workdir)])
+        print("Copying tracked files from current workspace...")
+        tracked = run(["git", "ls-files"], cwd=REPO).splitlines()
+        for rel in tracked:
+            dst = src / rel
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO / rel, dst)
 
         # 7a60b2667c52c328c574fbba0d08e75808e74d2a is a known good commit
         # with all improvements and regressions before it accounted for.
         commits = run(
             ["git", "rev-list", "--reverse", "--topo-order",
              "7a60b2667c52c328c574fbba0d08e75808e74d2a..HEAD"],
-            cwd=workdir
+            cwd=REPO,
         ).split()
 
         if not commits:
@@ -91,23 +111,29 @@ def main():
             return
 
         csv_path = Path("results.csv")
+        log_path = Path("results-errors.log")
+        log_path.write_text("")
         new_file = not csv_path.exists()
         with csv_path.open("a", newline="") as f:
             writer = csv.writer(f)
             if new_file:
                 writer.writerow(["commit", "name", "real_time", "cpu_time",
                                  "time_unit", "iterations",
-                                 "time_per_double_ns", "throughput_per_s"])
+                                 "time_per_double_ns", "throughput"])
 
             for i, sha in enumerate(commits, 1):
                 print(f"[{i}/{len(commits)}] {sha[:12]}")
                 try:
-                    benchmark_commit(sha, workdir, build, deps, writer)
+                    benchmark_commit(sha, REPO, src, build, deps, writer)
                     f.flush()
                 except Exception as e:
-                    print(f"  FAILED: {e}", file=sys.stderr)
+                    msg = str(e)
+                    first = msg.splitlines()[0] if msg else ""
+                    print(f"  FAILED: {first}", file=sys.stderr)
+                    with log_path.open("a") as lf:
+                        lf.write(f"=== {sha} ===\n{msg}\n\n")
                     writer.writerow([sha, "__FAILED__", "", "", "", "", "",
-                                     str(e)])
+                                     ""])
                     f.flush()
 
         print(f"\nResults written to {csv_path}")
