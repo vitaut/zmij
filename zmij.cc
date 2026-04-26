@@ -892,14 +892,10 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const constants& c) noexcept
   // is derived in parallel with the shuffle on the SSE4.1 path.
   uint64_t mask =
       _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
-
+  // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
+  int len = ZMIJ_USE_SSE4_1 ? 16 - ctz(mask) : 64 - clz(mask);
 #  if ZMIJ_USE_SSE4_1
-  // Trailing zeros are in the low bits before bswap.
-  int len = 16 - ctz(mask | (1 << 16));
   bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&c.bswap)));  // SSSE3
-#  else   // ZMIJ_USE_SSE4_1
-  // Output is already in final order; trailing zeros are in the high bits.
-  int len = 63 - clz((mask << 1) | 1);
 #  endif  // !ZMIJ_USE_SSE4_1
   return {_mm_or_si128(bcd, zeros), len};
 #endif  // ZMIJ_USE_SSE
