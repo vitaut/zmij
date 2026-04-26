@@ -545,7 +545,7 @@ struct exp_string_table {
 struct dec_exp_format_table {
   using traits = float_traits<double>;
   static constexpr int num_entries =
-      traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 2;  // +1 sentinel
+      traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 1;
 
   struct entry {
     // Byte offset past leading "0.00..." before first significant digit.
@@ -562,33 +562,25 @@ struct dec_exp_format_table {
 
   constexpr dec_exp_format_table() {
     for (int dec_exp = traits::min_fixed_dec_exp;
-         dec_exp <= traits::max_fixed_dec_exp + 1; ++dec_exp) {
+         dec_exp <= traits::max_fixed_dec_exp; ++dec_exp) {
       auto& e = data[dec_exp - traits::min_fixed_dec_exp];
-      bool neg_fixed = dec_exp >= traits::min_fixed_dec_exp && dec_exp <= -1;
-      bool pos_fixed = dec_exp >= 0 && dec_exp <= traits::max_fixed_dec_exp;
 
-      e.start_pos = neg_fixed ? 1 - dec_exp : 0;
-      e.point_pos = pos_fixed ? 1 + dec_exp : 1;
-      e.shift_pos =
-          e.point_pos + (dec_exp >= 0 || dec_exp < traits::min_fixed_dec_exp);
+      e.start_pos = dec_exp < 0 ? 1 - dec_exp : 0;
+      e.point_pos = dec_exp >= 0 ? 1 + dec_exp : 1;
+      e.shift_pos = e.point_pos + (dec_exp >= 0);
 
-      for (int s = 1; s <= traits::max_digits10; ++s) {
-        if (neg_fixed)
-          e.exp_pos[s - 1] = s;
-        else if (pos_fixed)
-          e.exp_pos[s - 1] = s > dec_exp + 1 ? s + 1 : dec_exp + 1;
-        else
-          e.exp_pos[s - 1] = s + 1 - (s == 1);
+      for (int n = 1; n <= traits::max_digits10; ++n) {
+        int end_pos = n;
+        if (dec_exp >= 0) end_pos = n > dec_exp + 1 ? n + 1 : dec_exp + 1;
+        e.exp_pos[n - 1] = end_pos;
       }
     }
   }
 
-  template <typename Traits>
   constexpr auto get(int dec_exp) const noexcept -> const entry& {
-    constexpr auto min = traits::min_fixed_dec_exp,
-                   max = Traits::max_fixed_dec_exp;
-    unsigned i = unsigned(dec_exp - min);
-    return data[i <= unsigned(max - min) ? i : num_entries - 1];
+    constexpr auto min = traits::min_fixed_dec_exp;
+    assert(dec_exp >= min && dec_exp <= traits::max_fixed_dec_exp);
+    return data[dec_exp - min];
   }
 };
 
@@ -1139,7 +1131,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    const auto& fmt = c->dec_exp_formats.get<traits>(dec_exp);
+    const auto& fmt = c->dec_exp_formats.get(dec_exp);
     buffer += fmt.start_pos;
     memcpy(buffer, &dig.digits, bcd_size);
     memmove(buffer, buffer + !extra_digit, bcd_size);  // Cheap on aarch64.
