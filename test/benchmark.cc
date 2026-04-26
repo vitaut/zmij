@@ -90,6 +90,10 @@ static void run_dtoa(benchmark::State& state,
     }
   }
   state.SetItemsProcessed(state.iterations() * int64_t(num_doubles_per_digit));
+  state.counters["time_per_double"] = benchmark::Counter(
+      static_cast<double>(num_doubles_per_digit),
+      benchmark::Counter::kIsIterationInvariantRate |
+          benchmark::Counter::kInvert);
 }
 
 static void run_dtoa_mixed(benchmark::State& state,
@@ -105,6 +109,10 @@ static void run_dtoa_mixed(benchmark::State& state,
   }
   state.SetItemsProcessed(state.iterations() *
                           static_cast<int64_t>(pool.size()));
+  state.counters["time_per_double"] = benchmark::Counter(
+      static_cast<double>(pool.size()),
+      benchmark::Counter::kIsIterationInvariantRate |
+          benchmark::Counter::kInvert);
 }
 
 auto main(int argc, char** argv) -> int {
