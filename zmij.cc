@@ -871,7 +871,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const constants& c) noexcept
   uint64_t nonzero_mask =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
   return {str, 16 - (clz(nonzero_mask) >> 2)};
-#else   // ZMIJ_USE_SSE
+#else  // ZMIJ_USE_SSE
   uint32_t abbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
 
@@ -890,15 +890,14 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const constants& c) noexcept
 
   // Computed against current bcd (rather than the post-bswap bcd) so the mask
   // is derived in parallel with the shuffle on the SSE4.1 path.
-  uint64_t mask =
-      _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
+  uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
   int len = ZMIJ_USE_SSE4_1 ? 16 - ctz(mask) : 64 - clz(mask);
 #  if ZMIJ_USE_SSE4_1
   bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&c.bswap)));  // SSSE3
 #  endif  // !ZMIJ_USE_SSE4_1
   return {_mm_or_si128(bcd, zeros), len};
-#endif  // ZMIJ_USE_SSE
+#endif    // ZMIJ_USE_SSE
 }
 
 template <>
@@ -1088,11 +1087,12 @@ auto write(Float value, char* buffer) noexcept -> char* {
     dec = ::to_decimal<Float>(bin_sig | traits::implicit_bit, bin_exp,
                               bin_sig != 0, *c);
   }
+  bool has_last_digit = dec.has_last_digit;
   bool extra_digit = dec.sig >= threshold;
   int dec_exp = dec.exp + traits::max_digits10 - 2 + extra_digit;
   if (traits::num_bits == 32 && dec.sig < uint32_t(1e6)) [[ZMIJ_UNLIKELY]] {
-    dec.sig = 10 * dec.sig + (dec.has_last_digit ? dec.last_digit : 0);
-    dec.has_last_digit = false;
+    dec.sig = 10 * dec.sig + (has_last_digit ? dec.last_digit : 0);
+    has_last_digit = false;
     --dec_exp;
   }
 
@@ -1108,16 +1108,16 @@ auto write(Float value, char* buffer) noexcept -> char* {
     memcpy(buffer, &dig.digits, bcd_size);
     memmove(buffer, buffer + !extra_digit, bcd_size);  // Cheap on aarch64.
     buffer[bcd_size + extra_digit - 1] =
-        '0' + (dec.has_last_digit ? dec.last_digit : 0);
+        '0' + (-has_last_digit & dec.last_digit);
     memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
     start[layout.point_pos] = '.';
-    int num_digits = dec.has_last_digit ? bcd_size : dig.num_digits - 1;
+    int num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
     return buffer + layout.end_pos[num_digits + extra_digit - 1];
   }
   buffer += extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
   buffer[bcd_size] = '0' + dec.last_digit;
-  buffer += dec.has_last_digit ? bcd_size + 1 : dig.num_digits;
+  buffer += has_last_digit ? bcd_size + 1 : dig.num_digits;
   start[0] = start[1];
   start[1] = '.';
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
