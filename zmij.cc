@@ -591,7 +591,6 @@ struct dec_exp_format_table {
     return data[i <= unsigned(max - min) ? i : num_entries - 1];
   }
 };
-constexpr dec_exp_format_table dec_exp_formats;
 
 inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // We count the number of bytes until there are only zeros left.
@@ -696,6 +695,7 @@ struct constants {
   exp_shift_table exp_shifts;
   exp_string_table exp_strings;
   alignas(64) pow10_significand_table pow10_significands;
+  dec_exp_format_table dec_exp_formats;
 };
 alignas(64) constexpr constants consts;
 
@@ -812,15 +812,15 @@ ZMIJ_INLINE auto to_bcd_2x8(uint32_t bbccddee, uint32_t ffgghhii,
 
   const __m128i bswap = _mm_load_si128(m128ptr(&c.bswap));
   auto bcd = _mm_shuffle_epi8(bcdx4, bswap);  // SSSE3
-#  else // ZMIJ_USE_SSE4_1
-  auto bcd = bcdx4; // Output is already in final order.
+#  else   // ZMIJ_USE_SSE4_1
+  auto bcd = bcdx4;  // Output is already in final order.
 
   // The length is determined from the number of trailing zeros which are
   // in the high bits.
   __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
   uint64_t mask = _mm_movemask_epi8(mask128);
   int len = 63 - clz((mask << 1) | 1);
-#  endif // !ZMIJ_USE_SSE4_1
+#  endif  // !ZMIJ_USE_SSE4_1
 
   return {bcd, len};
 }
@@ -926,7 +926,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, bool extra_digit,
   uint64_t zeroes =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
   return {str, 16 - (clz(zeroes) >> 2)};
-#else  // ZMIJ_USE_SSE
+#else   // ZMIJ_USE_SSE
   uint32_t abbccddee = uint32_t(value / 100'000'000);
   uint32_t ffgghhii = uint32_t(value % 100'000'000);
 
@@ -1139,7 +1139,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    const auto& fmt = dec_exp_formats.get<traits>(dec_exp);
+    const auto& fmt = c->dec_exp_formats.get<traits>(dec_exp);
     buffer += fmt.start_pos;
     memcpy(buffer, &dig.digits, bcd_size);
     memmove(buffer, buffer + !extra_digit, bcd_size);  // Cheap on aarch64.
