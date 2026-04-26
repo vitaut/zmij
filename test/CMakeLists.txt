@@ -51,9 +51,9 @@ add_executable(float-check float-check.cc)
 target_compile_features(float-check PRIVATE ${ZMIJ_CHECK_STANDARD})
 target_link_libraries(float-check fmt dragonbox zmij)
 
-add_executable(benchmark benchmark.cc zmij-benchmark.cc)
-target_compile_features(benchmark PRIVATE cxx_std_20)
-target_link_libraries(benchmark fmt dragonbox zmij)
+add_executable(dtoa-benchmark benchmark.cc zmij-benchmark.cc)
+target_compile_features(dtoa-benchmark PRIVATE cxx_std_20)
+target_link_libraries(dtoa-benchmark fmt dragonbox zmij benchmark::benchmark)
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   add_executable(double-check double-check.cc)
