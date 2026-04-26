@@ -894,8 +894,7 @@ template <> struct dec_digits<64> {
 // up to 17 decimal digits (16-17 for normals) for double (num_bits == 64) and
 // up to 9 digits (8-9 for normals) for float.
 template <int num_bits>
-ZMIJ_INLINE auto to_digits(uint64_t value, bool extra_digit,
-                           const constants& c) noexcept
+ZMIJ_INLINE auto to_digits(uint64_t value, const constants& c) noexcept
     -> dec_digits<num_bits> {
 #if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
   // Digits/pairs of digits are denoted by letters: value = bbccddeeffgghhii.
@@ -928,7 +927,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, bool extra_digit,
 }
 
 template <>
-ZMIJ_INLINE auto to_digits<32>(uint64_t value, bool, const constants&) noexcept
+ZMIJ_INLINE auto to_digits<32>(uint64_t value, const constants&) noexcept
     -> dec_digits<32> {
   auto result = to_bcd8(value);
   return {result.bcd + zeros, result.len};
@@ -1124,21 +1123,21 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
   // Write significand/fixed.
   char* start = buffer;
-  auto dig = to_digits<traits::num_bits>(dec.sig, extra_digit, *c);
+  auto dig = to_digits<traits::num_bits>(dec.sig, *c);
   constexpr int bcd_size = traits::num_bits == 64 ? 16 : 8;
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    const auto& fmt = c->fixed_layouts.get(dec_exp);
-    buffer += fmt.start_pos;
+    const auto& layout = c->fixed_layouts.get(dec_exp);
+    buffer += layout.start_pos;
     memcpy(buffer, &dig.digits, bcd_size);
     memmove(buffer, buffer + !extra_digit, bcd_size);  // Cheap on aarch64.
     buffer[bcd_size + extra_digit - 1] =
         '0' + (dec.has_last_digit ? dec.last_digit : 0);
-    memmove(start + fmt.shift_pos, start + fmt.point_pos, bcd_size);
-    start[fmt.point_pos] = '.';
+    memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
+    start[layout.point_pos] = '.';
     int num_digits = dec.has_last_digit ? bcd_size : dig.num_digits - 1;
-    return buffer + fmt.end_pos[num_digits + extra_digit - 1];
+    return buffer + layout.end_pos[num_digits + extra_digit - 1];
   }
   buffer += extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
