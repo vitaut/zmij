@@ -90,8 +90,10 @@ static void run_dtoa(benchmark::State& state,
       benchmark::ClobberMemory();
     }
   }
-  state.SetItemsProcessed(state.iterations() * int64_t(num_doubles_per_digit));
-  state.counters["time_per_double"] = benchmark::Counter(
+  state.counters["Speed"] = benchmark::Counter(
+      static_cast<double>(num_doubles_per_digit),
+      benchmark::Counter::kIsIterationInvariantRate);
+  state.counters["Time per double"] = benchmark::Counter(
       static_cast<double>(num_doubles_per_digit),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
@@ -108,15 +110,16 @@ static void run_dtoa_mixed(benchmark::State& state,
       benchmark::ClobberMemory();
     }
   }
-  state.SetItemsProcessed(state.iterations() *
-                          static_cast<int64_t>(pool.size()));
-  state.counters["time_per_double"] = benchmark::Counter(
+  state.counters["Throughput"] = benchmark::Counter(
+      static_cast<double>(pool.size()),
+      benchmark::Counter::kIsIterationInvariantRate);
+  state.counters["Time/double"] = benchmark::Counter(
       static_cast<double>(pool.size()),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
 }
 
-// Format a counter value with 2 fractional digits, applying SI auto-scaling
+// Formats a counter value with 2 fractional digits, applying SI auto-scaling
 // so the mantissa always sits in [1, 1000) (or in [0.01, 1) for tiny values).
 static auto format_counter(double n) -> std::string {
   static const char* const big[] = {"k", "M", "G", "T", "P", "E", "Z", "Y"};
