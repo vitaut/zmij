@@ -174,14 +174,14 @@ class pretty_reporter : public benchmark::ConsoleReporter {
 
 auto main(int argc, char** argv) -> int {
   bool per_digit = false;
-  std::string_view json_out;
+  std::string json_out;
   int out = 1;
   for (int i = 1; i < argc; ++i) {
     auto arg = std::string_view(argv[i]);
     if (arg == "--per-digit") {
       per_digit = true;
     } else if (arg.substr(0, 11) == "--json-out=") {
-      json_out = arg.substr(11);
+      json_out = std::string(arg.substr(11));
     } else {
       argv[out++] = argv[i];
     }
@@ -203,7 +203,7 @@ auto main(int argc, char** argv) -> int {
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
   if (!json_out.empty()) {
-    std::ofstream json_file(std::string(json_out));
+    std::ofstream json_file(json_out);
     benchmark::JSONReporter json_reporter;
     json_reporter.SetOutputStream(&json_file);
     benchmark::RunSpecifiedBenchmarks(&json_reporter);
