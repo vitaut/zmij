@@ -11,12 +11,13 @@
 #include <string.h>  // memcpy
 
 #include <algorithm>  // std::sort, std::shuffle
+#include <cmath>      // std::abs
 #include <limits>
 #include <random>  // std::mt19937
 #include <string>
 #include <string_view>
 
-#include "fmt/base.h"
+#include "fmt/format.h"
 
 constexpr int max_digits = std::numeric_limits<double>::max_digits10;
 constexpr int num_doubles_per_digit = 100'000;
@@ -115,6 +116,58 @@ static void run_dtoa_mixed(benchmark::State& state,
           benchmark::Counter::kInvert);
 }
 
+// Format a counter value with 2 fractional digits, applying SI auto-scaling
+// so the mantissa always sits in [1, 1000) (or in [0.01, 1) for tiny values).
+static auto format_counter(double n) -> std::string {
+  static const char* const big[] = {"k", "M", "G", "T", "P", "E", "Z", "Y"};
+  static const char* const small[] = {"m", "u", "n", "p", "f", "a", "z", "y"};
+  double v = n;
+  const char* prefix = "";
+  double a = std::abs(v);
+  if (a > 999) {
+    for (int i = 0; i < 8 && std::abs(v) > 999; ++i) {
+      v /= 1000;
+      prefix = big[i];
+    }
+  } else if (a > 0 && a < 0.01) {
+    for (int i = 0; i < 8 && std::abs(v) < 1.0; ++i) {
+      v *= 1000;
+      prefix = small[i];
+    }
+  }
+  return fmt::format("{:.2f}{}", v, prefix);
+}
+
+// Console reporter that formats counter cells with 2 fractional digits while
+// reusing google benchmark's tabular column layout for everything else.
+class pretty_reporter : public benchmark::ConsoleReporter {
+ public:
+  pretty_reporter() : benchmark::ConsoleReporter(OO_Tabular) {}
+
+ protected:
+  void PrintRunData(const Run& report) override {
+    Run copy = report;
+    std::string cells;
+    for (const auto& kv : copy.counters) {
+      const auto& c = kv.second;
+      const char* unit = "";
+      if (c.flags & benchmark::Counter::kIsRate)
+        unit = (c.flags & benchmark::Counter::kInvert) ? "s" : "/s";
+      auto cell = format_counter(c.value) + unit;
+      std::size_t w = std::max<std::size_t>(10, kv.first.length());
+      if (!cells.empty()) cells += ' ';
+      cells += fmt::format("{:>{}}", cell, w);
+    }
+    if (!copy.report_label.empty()) {
+      if (!cells.empty()) cells += ' ';
+      cells += copy.report_label;
+    }
+    copy.counters.clear();
+    copy.report_label = std::move(cells);
+    benchmark::ConsoleReporter::PrintRunData(copy);
+  }
+};
+
 auto main(int argc, char** argv) -> int {
   bool per_digit = false;
   int out = 1;
@@ -141,6 +194,7 @@ auto main(int argc, char** argv) -> int {
   }
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
-  benchmark::RunSpecifiedBenchmarks();
+  pretty_reporter reporter;
+  benchmark::RunSpecifiedBenchmarks(&reporter);
   benchmark::Shutdown();
 }
