@@ -1039,7 +1039,7 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
   }
   auto dec = ::to_decimal<double>(bin_sig ^ traits::implicit_bit, bin_exp,
                                   bin_sig != 0, consts);
-  auto last_digit = dec.has_last_digit ? dec.last_digit : 0;
+  auto last_digit = -dec.has_last_digit & dec.last_digit;
   return {dec.sig * 10 + last_digit, dec.exp, negative};
 }
 
@@ -1074,7 +1074,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     }
     dec = ::to_decimal<Float>(bin_sig, 1, true, *c);
     long long dec_sig =
-        dec.sig * 10 + (dec.has_last_digit ? dec.last_digit : 0);
+        dec.sig * 10 + (-dec.has_last_digit & dec.last_digit);
     int dec_exp = dec.exp;
     while (dec_sig < threshold) {
       dec_sig *= 10;
@@ -1091,7 +1091,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   bool extra_digit = dec.sig >= threshold;
   int dec_exp = dec.exp + traits::max_digits10 - 2 + extra_digit;
   if (traits::num_bits == 32 && dec.sig < uint32_t(1e6)) [[ZMIJ_UNLIKELY]] {
-    dec.sig = 10 * dec.sig + (has_last_digit ? dec.last_digit : 0);
+    dec.sig = 10 * dec.sig + (-has_last_digit & dec.last_digit);
     has_last_digit = false;
     --dec_exp;
   }
