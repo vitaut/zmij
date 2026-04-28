@@ -56,7 +56,7 @@ constexpr auto debias(int raw_exp) -> int {
 
 inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp, int raw_exp,
                    bool& has_errors) -> bool {
-  to_decimal_result actual = to_decimal<double>(bin_sig, raw_exp, true, consts);
+  to_decimal_result actual = to_decimal<double>(bin_sig, raw_exp, true, static_data);
   long long actual_sig = actual.sig * 10 + actual.last_digit;
 
   double value;
@@ -90,9 +90,9 @@ inline auto verify(uint64_t bits, uint64_t bin_sig, int bin_exp, int raw_exp,
 auto is_pow10_exact_for_bin_exp(int bin_exp) -> bool {
   int dec_exp = compute_dec_exp(bin_exp, true);
   constexpr int exact_begin = -0, exact_end = 55;
-  static_assert(consts.pow10_significands[exact_begin].hi ==
+  static_assert(static_data.pow10_significands[exact_begin].hi ==
                 0x8000000000000000);
-  static_assert(consts.pow10_significands[exact_end].hi == 0xd0cf4b50cfe20765);
+  static_assert(static_data.pow10_significands[exact_end].hi == 0xd0cf4b50cfe20765);
   return -dec_exp >= exact_begin && -dec_exp <= exact_end;
 }
 
@@ -107,7 +107,7 @@ void run(uint64_t bin_sig_first, uint64_t bin_sig_last, stats& s) {
   constexpr int bin_exp = debias(raw_exp);
   constexpr int dec_exp = compute_dec_exp(bin_exp, true);
   constexpr int exp_shift = compute_exp_shift(bin_exp, dec_exp);
-  constexpr uint64_t pow10_lo = consts.pow10_significands[-dec_exp].lo;
+  constexpr uint64_t pow10_lo = static_data.pow10_significands[-dec_exp].lo;
   constexpr uint64_t exp_bits =
       uint64_t(raw_exp) << traits::num_sig_bits ^ traits::implicit_bit;
 
