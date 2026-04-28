@@ -695,15 +695,15 @@ struct constants {
   uint128 zeros = splat64(::zeros);
 #endif    // ZMIJ_USE_SSE
 
-  // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
-  // shift left by 1 (drops the leading '0' of a 16-digit significand).
-  unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
-                                     9, 10, 11, 12, 13, 14, 15, 0};
-
   exp_shift_table exp_shifts;
   exp_string_table exp_strings;
   alignas(64) pow10_significand_table pow10_significands;
   fixed_layout_table fixed_layouts;
+
+  // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
+  // shift left by 1 (drops the leading '0' of a 16-digit significand).
+  unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
+                                     9, 10, 11, 12, 13, 14, 15, 0};
 };
 alignas(64) constexpr constants consts;
 
