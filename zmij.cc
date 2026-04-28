@@ -228,6 +228,19 @@ inline auto ctz(uint64_t x) noexcept -> int {
 #endif
 }
 
+// Returns true_value if condition != 0, else false_value, without branching.
+ZMIJ_INLINE auto select(uint64_t condition, int64_t true_value,
+                        int64_t false_value) -> int64_t {
+  // Clang can figure it out on its own.
+  if (!ZMIJ_X86_64 || ZMIJ_CLANG) return condition ? true_value : false_value;
+  ZMIJ_ASM(
+      volatile("test %2, %2\n\t"
+               "cmovne %1, %0\n\t" :  //
+               "+r"(false_value) : "r"(true_value),
+               "r"(condition) : "cc"));
+  return false_value;
+}
+
 struct uint128 {
   uint64_t hi;
   uint64_t lo;
@@ -1117,7 +1130,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   buffer += extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
   buffer[bcd_size] = '0' + dec.last_digit;
-  buffer += has_last_digit ? bcd_size + 1 : dig.num_digits;
+  buffer += select(has_last_digit, bcd_size + 1, dig.num_digits);
   start[0] = start[1];
   start[1] = '.';
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
