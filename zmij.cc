@@ -695,6 +695,11 @@ struct constants {
   uint128 zeros = splat64(::zeros);
 #endif    // ZMIJ_USE_SSE
 
+  // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
+  // shift left by 1 (drops the leading '0' of a 16-digit significand).
+  unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
+                                     9, 10, 11, 12, 13, 14, 15, 0};
+
   exp_shift_table exp_shifts;
   exp_string_table exp_strings;
   alignas(64) pow10_significand_table pow10_significands;
@@ -920,6 +925,36 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, const constants&) noexcept
   return {result.bcd + zeros, result.len};
 }
 
+// Writes `dig` to `buffer`, dropping the leading '0' when drop_leading_zero
+// is set. On SIMD, folds the shift into the digit shuffle to avoid a
+// dependent 16-byte memmove.
+ZMIJ_INLINE void store_significand(char* buffer, dec_digits<64> dig,
+                                   bool drop_leading_zero,
+                                   const constants& c) noexcept {
+  if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
+    memcpy(buffer, &dig.digits, 16);
+    memmove(buffer, buffer + drop_leading_zero, 16);
+    return;
+  }
+#if ZMIJ_USE_NEON
+  uint8x16_t shuffle = vld1q_u8(c.shift_shuffle + drop_leading_zero);
+  uint8x16_t shifted = vqtbl1q_u8(vreinterpretq_u8_u16(dig.digits), shuffle);
+  vst1q_u8(reinterpret_cast<uint8_t*>(buffer), shifted);
+#elif ZMIJ_USE_SSE4_1
+  __m128i shuffle = _mm_loadu_si128(
+      reinterpret_cast<const __m128i*>(c.shift_shuffle + drop_leading_zero));
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
+                   _mm_shuffle_epi8(dig.digits, shuffle));
+#endif
+}
+
+ZMIJ_INLINE void store_significand(char* buffer, dec_digits<32> dig,
+                                   bool drop_leading_zero,
+                                   const constants&) noexcept {
+  memcpy(buffer, &dig.digits, 8);
+  memmove(buffer, buffer + drop_leading_zero, 8);
+}
+
 struct to_decimal_result {
   long long sig;
   int exp;
@@ -1086,8 +1121,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
       return buffer + 1;
     }
     dec = ::to_decimal<Float>(bin_sig, 1, true, *c);
-    long long dec_sig =
-        dec.sig * 10 + (-dec.has_last_digit & dec.last_digit);
+    long long dec_sig = dec.sig * 10 + (-dec.has_last_digit & dec.last_digit);
     int dec_exp = dec.exp;
     while (dec_sig < threshold) {
       dec_sig *= 10;
@@ -1118,8 +1152,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
     const auto& layout = c->fixed_layouts.get(dec_exp);
     buffer += layout.start_pos;
-    memcpy(buffer, &dig.digits, bcd_size);
-    memmove(buffer, buffer + !extra_digit, bcd_size);  // Cheap on aarch64.
+    store_significand(buffer, dig, !extra_digit, *c);
     buffer[bcd_size + extra_digit - 1] =
         '0' + (-has_last_digit & dec.last_digit);
     memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
