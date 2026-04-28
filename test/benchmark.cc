@@ -120,6 +120,33 @@ static void run_dtoa_mixed(benchmark::State& state,
           benchmark::Counter::kInvert);
 }
 
+// Doubles extracted from the canonical canada.json corpus (GeoJSON polygon of
+// Canada). canada.h is a bare initializer list, one number per line.
+static const double canada_numbers[] = {
+#include "canada.h"
+};
+
+static void run_dtoa_canada(benchmark::State& state,
+                            auto (*dtoa)(double, char*)->char*) {
+  constexpr size_t canada_numbers_count =
+      sizeof(canada_numbers) / sizeof(canada_numbers[0]);
+  char buffer[256];
+  for (auto _ : state) {
+    for (size_t i = 0; i < canada_numbers_count; ++i) {
+      char* end = dtoa(canada_numbers[i], buffer);
+      benchmark::DoNotOptimize(end);
+      benchmark::ClobberMemory();
+    }
+  }
+  state.counters["Throughput"] = benchmark::Counter(
+      static_cast<double>(canada_numbers_count),
+      benchmark::Counter::kIsIterationInvariantRate);
+  state.counters["Time/double"] = benchmark::Counter(
+      static_cast<double>(canada_numbers_count),
+      benchmark::Counter::kIsIterationInvariantRate |
+          benchmark::Counter::kInvert);
+}
+
 // Formats a counter value with 2 fractional digits, applying SI auto-scaling
 // so the mantissa always sits in [1, 1000) (or in [0.01, 1) for tiny values).
 static auto format_counter(double n) -> std::string {
@@ -199,6 +226,8 @@ auto main(int argc, char** argv) -> int {
       }
     }
     benchmark::RegisterBenchmark(m.name.c_str(), run_dtoa_mixed, m.dtoa);
+    auto canada_name = m.name + "/canada";
+    benchmark::RegisterBenchmark(canada_name.c_str(), run_dtoa_canada, m.dtoa);
   }
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
