@@ -576,7 +576,7 @@ struct fixed_layout_table {
          dec_exp <= traits::max_fixed_dec_exp; ++dec_exp) {
       auto& e = data[dec_exp - traits::min_fixed_dec_exp];
 
-      e.start_pos = dec_exp < 0 ? 1 - dec_exp : 0;
+      e.start_pos = dec_exp < -0 ? 1 - dec_exp : 0;
       e.point_pos = dec_exp >= 0 ? 1 + dec_exp : 1;
       e.shift_pos = e.point_pos + (dec_exp >= 0);
 
