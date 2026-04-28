@@ -871,31 +871,29 @@ template <int num_bits>
 ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
     -> dec_digits<num_bits> {
 #if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
-  // Digits/pairs of digits are denoted by letters: value = bbccddeeffgghhii.
-  uint32_t bbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
-  auto hi = to_bcd8(bbccddee);
-  if (ffgghhii == 0) return {{hi.bcd + zeros, zeros}, hi.len};
-  auto lo = to_bcd8(ffgghhii);
-  return {{hi.bcd + zeros, lo.bcd + zeros}, 8 + lo.len};
+  uint32_t hi = uint32_t(value / 100'000'000);
+  uint32_t lo = uint32_t(value % 100'000'000);
+  auto hi_bcd = to_bcd8(hi);
+  if (lo == 0) return {{hi_bcd.bcd + zeros, zeros}, hi_bcd.len};
+  auto lo_bcd = to_bcd8(lo);
+  return {{hi_bcd.bcd + zeros, lo_bcd.bcd + zeros}, 8 + lo_bcd.len};
 #elif ZMIJ_USE_NEON
   auto unshuffled_digits = to_unshuffled_digits(value, d);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
                              vreinterpretq_u16_s8(vdupq_n_s8('0')));
-
   uint16x8_t is_not_zero =
       vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
   uint64_t nonzero_mask =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
   return {str, 16 - (clz(nonzero_mask) >> 2)};
 #else  // ZMIJ_USE_SSE
-  uint32_t abbccddee = uint32_t(value / 100'000'000);
-  uint32_t ffgghhii = uint32_t(value % 100'000'000);
+  uint32_t hi = uint32_t(value / 100'000'000);
+  uint32_t lo = uint32_t(value % 100'000'000);
 
   const __m128i div10k = _mm_load_si128(m128ptr(&d.div10k));
   const __m128i neg10k = _mm_load_si128(m128ptr(&d.neg10k));
-  __m128i x = _mm_set_epi64x(abbccddee, ffgghhii);
+  __m128i x = _mm_set_epi64x(hi, lo);
   __m128i y = _mm_add_epi64(
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
