@@ -51,9 +51,45 @@ add_executable(float-check float-check.cc)
 target_compile_features(float-check PRIVATE ${ZMIJ_CHECK_STANDARD})
 target_link_libraries(float-check fmt dragonbox zmij)
 
-add_executable(dtoa-benchmark benchmark.cc zmij-benchmark.cc)
-target_compile_features(dtoa-benchmark PRIVATE cxx_std_20)
-target_link_libraries(dtoa-benchmark fmt dragonbox zmij benchmark::benchmark)
+include(FetchContent)
+set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+set(BENCHMARK_ENABLE_WERROR OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+  googlebenchmark
+  GIT_REPOSITORY https://github.com/google/benchmark.git
+  GIT_TAG        v1.9.1
+)
+
+# Make Google Benchmark available if possible: reuse a previously fetched
+# source tree, otherwise probe with `git ls-remote` before letting
+# FetchContent clone. If unreachable, skip the benchmark target instead of
+# breaking configure.
+if (EXISTS "${FETCHCONTENT_BASE_DIR}/googlebenchmark-src/CMakeLists.txt")
+  FetchContent_MakeAvailable(googlebenchmark)
+else ()
+  find_package(Git QUIET)
+  if (GIT_EXECUTABLE)
+    execute_process(
+      COMMAND "${GIT_EXECUTABLE}" ls-remote --exit-code
+              https://github.com/google/benchmark.git v1.9.1
+      RESULT_VARIABLE _zmij_result
+      OUTPUT_QUIET ERROR_QUIET
+      TIMEOUT 5)
+    if (_zmij_result EQUAL 0)
+      FetchContent_MakeAvailable(googlebenchmark)
+    endif ()
+  endif ()
+endif ()
+
+if (TARGET benchmark::benchmark)
+  add_executable(dtoa-benchmark benchmark.cc zmij-benchmark.cc)
+  target_compile_features(dtoa-benchmark PRIVATE cxx_std_20)
+  target_link_libraries(dtoa-benchmark fmt dragonbox zmij benchmark::benchmark)
+else ()
+  message(STATUS
+    "Google Benchmark unavailable; skipping benchmark target")
+endif ()
 
 if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
   add_executable(double-check double-check.cc)
