@@ -559,6 +559,9 @@ struct fixed_layout_table {
   using traits = float_traits<double>;
   static constexpr int num_entries =
       traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 1;
+  // On AArch64, pad entry to 32 bytes so indexing uses `lsl #5` not `umaddl`.
+  static constexpr int padding =
+      ZMIJ_AARCH64 && !ZMIJ_OPTIMIZE_SIZE ? 32 - traits::max_digits10 - 3 : 0;
 
   struct entry {
     // Byte offset past leading "0.00..." before first significant digit.
@@ -567,7 +570,7 @@ struct fixed_layout_table {
     // Start position for shifting digits right by one to insert the point.
     unsigned char shift_pos;
     // Offset past the end of fixed-notation output, indexed by sig length - 1.
-    unsigned char end_pos[traits::max_digits10];
+    unsigned char end_pos[traits::max_digits10 + padding];
   };
   entry data[num_entries] = {};
 
