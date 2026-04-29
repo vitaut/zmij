@@ -988,7 +988,12 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
 
   if (num_bits == 32) {
     constexpr int extra_shift = 34;
-    unsigned char shift = compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
+    unsigned char shift =
+        exp_shift_table::enable
+            ? static_cast<unsigned char>(
+                  d.exp_shifts.data[bin_exp + float_traits<double>::exp_offset] +
+                  (extra_shift - exp_shift_table::extra_shift))
+            : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
     uint64_t pow10_hi = d.pow10_significands[-dec_exp - 1].hi;
     uint64_t p = umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << shift);
 
