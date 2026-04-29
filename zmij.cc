@@ -698,19 +698,19 @@ alignas(64) constexpr data static_data;
 #if ZMIJ_USE_NEON  // An optimized version for NEON by Dougall Johnson.
 
 // Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
-ZMIJ_INLINE auto to_bcd_4x4(int32x4_t ddee_bbcc_hhii_ffgg,
+ZMIJ_INLINE auto to_bcd_4x4(int32x4_t efgh_abcd_mnop_ijkl,
                             const data& d) noexcept -> uint8x16_t {
   // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
-  ZMIJ_ASM(("" : "+w"(ddee_bbcc_hhii_ffgg)));
+  ZMIJ_ASM(("" : "+w"(efgh_abcd_mnop_ijkl)));
 
-  int32x4_t dd_bb_hh_ff =
-      vqdmulhq_n_s32(ddee_bbcc_hhii_ffgg, d.multipliers32[2]);
-  int16x8_t ee_dd_cc_bb_ii_hh_gg_ff = vreinterpretq_s16_s32(
-      vmlaq_n_s32(ddee_bbcc_hhii_ffgg, dd_bb_hh_ff, d.multipliers32[3]));
+  int32x4_t ef_ab_mn_ij =
+      vqdmulhq_n_s32(efgh_abcd_mnop_ijkl, d.multipliers32[2]);
+  int16x8_t gh_ef_cd_ab_op_mn_kl_ij = vreinterpretq_s16_s32(
+      vmlaq_n_s32(efgh_abcd_mnop_ijkl, ef_ab_mn_ij, d.multipliers32[3]));
   int16x8_t high_10s =
-      vqdmulhq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, d.multipliers16[0]);
+      vqdmulhq_n_s16(gh_ef_cd_ab_op_mn_kl_ij, d.multipliers16[0]);
   return vreinterpretq_u8_s16(
-      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, d.multipliers16[1]));
+      vmlaq_n_s16(gh_ef_cd_ab_op_mn_kl_ij, high_10s, d.multipliers16[1]));
 }
 
 ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
@@ -720,23 +720,23 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
   // Compiler barrier, or clang narrows the load to 32-bit and unpairs it.
   ZMIJ_ASM(("" : "+r"(hundred_million)));
 
-  // Equivalent to abbccddee = value / 100000000, ffgghhii = value % 100000000.
-  uint64_t abbccddee = uint64_t(umul128(value, d.mul_const) >> 90);
-  uint64_t ffgghhii = value - abbccddee * hundred_million;
+  // abcdefgh = value / 100000000, ijklmnop = value % 100000000.
+  uint64_t abcdefgh = uint64_t(umul128(value, d.mul_const) >> 90);
+  uint64_t ijklmnop = value - abcdefgh * hundred_million;
 
-  uint64x1_t ffgghhii_bbccddee_64 = {(ffgghhii << 32) | abbccddee};
-  int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
+  uint64x1_t ijklmnop_abcdefgh_64 = {ijklmnop << 32 | abcdefgh};
+  int32x2_t abcdefgh_ijklmnop = vreinterpret_s32_u64(ijklmnop_abcdefgh_64);
 
-  int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
+  int32x2_t abcd_ijkl = vreinterpret_s32_u32(
       vshr_n_u32(vreinterpret_u32_s32(
-                     vqdmulh_n_s32(bbccddee_ffgghhii, d.multipliers32[0])),
+                     vqdmulh_n_s32(abcdefgh_ijklmnop, d.multipliers32[0])),
                  9));
-  int32x2_t ddee_bbcc_hhii_ffgg_32 =
-      vmla_n_s32(bbccddee_ffgghhii, bbcc_ffgg, d.multipliers32[1]);
+  int32x2_t efgh_abcd_mnop_ijkl_32 =
+      vmla_n_s32(abcdefgh_ijklmnop, abcd_ijkl, d.multipliers32[1]);
 
-  int32x4_t ddee_bbcc_hhii_ffgg = vreinterpretq_s32_u32(
-      vshll_n_u16(vreinterpret_u16_s32(ddee_bbcc_hhii_ffgg_32), 0));
-  return to_bcd_4x4(ddee_bbcc_hhii_ffgg, d);
+  int32x4_t efgh_abcd_mnop_ijkl = vreinterpretq_s32_u32(
+      vshll_n_u16(vreinterpret_u16_s32(efgh_abcd_mnop_ijkl_32), 0));
+  return to_bcd_4x4(efgh_abcd_mnop_ijkl, d);
 }
 
 #elif ZMIJ_USE_SSE
