@@ -1139,13 +1139,13 @@ auto write(Float value, char* buffer) noexcept -> char* {
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
     const auto& layout = d->fixed_layouts.get(dec_exp);
+    char last_digit = '0' + (-has_last_digit & dec.last_digit);
+    int num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
     buffer += layout.start_pos;
     store_significand(buffer, dig, !extra_digit, *d);
-    buffer[bcd_size + extra_digit - 1] =
-        '0' + (-has_last_digit & dec.last_digit);
+    buffer[bcd_size + extra_digit - 1] = last_digit;
     memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
     start[layout.point_pos] = '.';
-    int num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
     return buffer + layout.end_pos[num_digits + extra_digit - 1];
   }
   buffer += extra_digit;
