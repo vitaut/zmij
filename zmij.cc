@@ -956,13 +956,6 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   using traits = float_traits<Float>;
   int64_t bin_exp = raw_exp - traits::exp_offset;
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
-
-  constexpr uint64_t log10_2_sig = 78'913;
-  constexpr int log10_2_exp = 18;
-  int dec_exp = use_umul128_hi64
-                    ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
-                    : compute_dec_exp(bin_exp);
-  uint64_t even = 1 - (bin_sig & 1);
   constexpr int extra_shift = exp_shift_table::extra_shift;
 
   if (!regular) [[ZMIJ_UNLIKELY]] {
@@ -986,15 +979,21 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     return {integral, dec_exp, digit, (round_up + round_down) == 0};
   }
 
+  constexpr uint64_t log10_2_sig = 78'913;
+  constexpr int log10_2_exp = 18;
+  int dec_exp = use_umul128_hi64
+                    ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
+                    : compute_dec_exp(bin_exp);
+  ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
+  unsigned char shift =
+      exp_shift_table::enable
+          ? d.exp_shifts.data[bin_exp + float_traits<double>::exp_offset]
+          : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
+  uint64_t even = 1 - (bin_sig & 1);
+
   if (num_bits == 32) {
     constexpr int extra_shift = 34;
-    unsigned char shift =
-        exp_shift_table::enable
-            ? static_cast<unsigned char>(
-                  d.exp_shifts
-                      .data[bin_exp + float_traits<double>::exp_offset] +
-                  (extra_shift - exp_shift_table::extra_shift))
-            : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
+    shift += extra_shift - exp_shift_table::extra_shift;
     uint64_t pow10_hi = d.pow10_significands[-dec_exp - 1].hi;
     uint64_t p = umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << shift);
 
@@ -1036,11 +1035,6 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   //
   // s - shorter underestimate, S - shorter overestimate
   // l - longer underestimate,  L - longer overestimate
-  unsigned char shift =
-      exp_shift_table::enable
-          ? d.exp_shifts.data[bin_exp + traits::exp_offset]
-          : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
-  ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
   uint128 pow10 = d.pow10_significands[-dec_exp - 1];
   uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
 
