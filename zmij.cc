@@ -845,12 +845,13 @@ template <int num_bits> struct dec_digits {
 
 template <> struct dec_digits<64> {
 #if ZMIJ_USE_NEON
-  uint16x8_t digits;
+  using digits_type = uint16x8_t;
 #elif ZMIJ_USE_SSE
-  __m128i digits;
+  using digits_type = __m128i;
 #else
-  uint128 digits;
+  using digits_type = uint128;
 #endif
+  digits_type digits;
   int num_digits;
 };
 
@@ -916,30 +917,30 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, const data&) noexcept
 // Writes `dig` to `buffer`, dropping the leading '0' when drop_leading_zero
 // is set. On SIMD, folds the shift into the digit shuffle to avoid a
 // dependent 16-byte memmove.
-ZMIJ_INLINE void store_significand(char* buffer, dec_digits<64> dig,
-                                   bool drop_leading_zero,
-                                   const data& d) noexcept {
+ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
+                              bool drop_leading_zero,
+                              const data& d) noexcept {
   if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
-    memcpy(buffer, &dig.digits, 16);
+    memcpy(buffer, &digits, 16);
     memmove(buffer, buffer + drop_leading_zero, 16);
     return;
   }
 #if ZMIJ_USE_NEON
   uint8x16_t shuffle = vld1q_u8(d.shift_shuffle + drop_leading_zero);
-  uint8x16_t shifted = vqtbl1q_u8(vreinterpretq_u8_u16(dig.digits), shuffle);
+  uint8x16_t shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
   vst1q_u8(reinterpret_cast<uint8_t*>(buffer), shifted);
 #elif ZMIJ_USE_SSE4_1
   __m128i shuffle = _mm_loadu_si128(
       reinterpret_cast<const __m128i*>(d.shift_shuffle + drop_leading_zero));
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
-                   _mm_shuffle_epi8(dig.digits, shuffle));
+                   _mm_shuffle_epi8(digits, shuffle));
 #endif
 }
 
-ZMIJ_INLINE void store_significand(char* buffer, dec_digits<32> dig,
-                                   bool drop_leading_zero,
-                                   const data&) noexcept {
-  memcpy(buffer, &dig.digits, 8);
+ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
+                              bool drop_leading_zero,
+                              const data&) noexcept {
+  memcpy(buffer, &digits, 8);
   memmove(buffer, buffer + drop_leading_zero, 8);
 }
 
@@ -1142,7 +1143,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     char last_digit = '0' + (-has_last_digit & dec.last_digit);
     int num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
     buffer += layout.start_pos;
-    store_significand(buffer, dig, !extra_digit, *d);
+    write_digits(buffer, dig.digits, !extra_digit, *d);
     buffer[bcd_size + extra_digit - 1] = last_digit;
     memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
     start[layout.point_pos] = '.';
