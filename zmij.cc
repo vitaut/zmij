@@ -699,7 +699,7 @@ alignas(64) constexpr data static_data;
 
 #if ZMIJ_USE_NEON  // An optimized version for NEON by Dougall Johnson.
 
-// Converts four numbers < 10000, one in each 32bit lane, to BCD digits.
+// Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
 ZMIJ_INLINE auto to_bcd_4x4(int32x4_t ddee_bbcc_hhii_ffgg,
                             const data& d) noexcept -> uint8x16_t {
   // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
@@ -753,8 +753,8 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
 
 using m128ptr = const __m128i*;
 
-// Converts four numbers < 10000, one in each 32bit lane, to BCD digits.
-// Digits in each 32bit lane will be in order for SSE2, reversed for SSE4.1.
+// Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
+// Digits in each 32-bit lane will be in order for SSE2, reversed for SSE4.1.
 ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const data& d) noexcept -> __m128i {
   const __m128i div100 = _mm_load_si128(m128ptr(&d.div100));
   const __m128i div10 = _mm_load_si128(m128ptr(&d.div10));
