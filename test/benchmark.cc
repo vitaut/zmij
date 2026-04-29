@@ -103,7 +103,9 @@ static void run_to_chars(benchmark::State& state,
   state.counters["Throughput"] = benchmark::Counter(
       static_cast<double>(num_per_digit),
       benchmark::Counter::kIsIterationInvariantRate);
-  state.counters["Time/value"] = benchmark::Counter(
+  const char* time_label =
+      std::is_same_v<T, double> ? "Time/double" : "Time/float";
+  state.counters[time_label] = benchmark::Counter(
       static_cast<double>(num_per_digit),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
@@ -124,7 +126,9 @@ static void run_to_chars_mixed(benchmark::State& state,
   state.counters["Throughput"] = benchmark::Counter(
       static_cast<double>(pool.size()),
       benchmark::Counter::kIsIterationInvariantRate);
-  state.counters["Time/value"] = benchmark::Counter(
+  const char* time_label =
+      std::is_same_v<T, double> ? "Time/double" : "Time/float";
+  state.counters[time_label] = benchmark::Counter(
       static_cast<double>(pool.size()),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
@@ -151,7 +155,7 @@ static void run_to_chars_canada(benchmark::State& state,
   state.counters["Throughput"] = benchmark::Counter(
       static_cast<double>(canada_numbers_count),
       benchmark::Counter::kIsIterationInvariantRate);
-  state.counters["Time/value"] = benchmark::Counter(
+  state.counters["Time/double"] = benchmark::Counter(
       static_cast<double>(canada_numbers_count),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
