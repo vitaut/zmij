@@ -1140,8 +1140,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
     buffer += layout.start_pos;
     write_digits(buffer, dig.digits, !extra_digit, *d);
     buffer[bcd_size + extra_digit - 1] = last_digit;
-    memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
-    start[layout.point_pos] = '.';
+    unsigned point_pos = layout.point_pos;
+    memmove(start + layout.shift_pos, start + point_pos, bcd_size);
+    start[point_pos] = '.';
     return buffer + layout.end_pos[num_digits + extra_digit - 1];
   }
   buffer += extra_digit;
