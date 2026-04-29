@@ -328,19 +328,6 @@ inline auto umul192_hi128(uint64_t x_hi, uint64_t x_lo, uint64_t y) noexcept
   return {uint64_t(p >> 64) + (lo < uint64_t(p)), lo};
 }
 
-// Computes high 64 bits of multiplication of x and y, discards the least
-// significant bit and rounds to odd, where x = uint128_t(x_hi << 64) | x_lo.
-auto umulhi_inexact_to_odd(uint64_t x_hi, uint64_t x_lo, uint64_t y) noexcept
-    -> uint64_t {
-  uint128 p = umul192_hi128(x_hi, x_lo, y);
-  return p.hi | ((p.lo >> 1) != 0);
-}
-auto umulhi_inexact_to_odd(uint64_t x_hi, uint64_t, uint32_t y) noexcept
-    -> uint32_t {
-  uint64_t p = uint64_t(umul128(x_hi, y) >> 32);
-  return uint32_t(p >> 32) | ((uint32_t(p) >> 1) != 0);
-}
-
 // Returns x / 10 for x <= 2**62.
 ZMIJ_INLINE auto div10(uint64_t x) noexcept -> uint64_t {
   assert(x <= (1ull << 62));
