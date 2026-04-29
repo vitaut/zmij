@@ -902,9 +902,9 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   int len = ZMIJ_USE_SSE4_1 ? 16 - ctz(mask) : 64 - clz(mask);
 #  if ZMIJ_USE_SSE4_1
   bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));  // SSSE3
-#  endif  // !ZMIJ_USE_SSE4_1
+#  endif
   return {_mm_or_si128(bcd, zeros), len};
-#endif    // ZMIJ_USE_SSE
+#endif  // ZMIJ_USE_SSE
 }
 
 template <>
@@ -918,8 +918,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, const data&) noexcept
 // is set. On SIMD, folds the shift into the digit shuffle to avoid a
 // dependent 16-byte memmove.
 ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
-                              bool drop_leading_zero,
-                              const data& d) noexcept {
+                              bool drop_leading_zero, const data& d) noexcept {
   if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
     memcpy(buffer, &digits, sizeof(digits));
     memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
@@ -938,8 +937,7 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
 }
 
 ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
-                              bool drop_leading_zero,
-                              const data&) noexcept {
+                              bool drop_leading_zero, const data&) noexcept {
   memcpy(buffer, &digits, sizeof(digits));
   memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
 }
