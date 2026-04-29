@@ -5,25 +5,22 @@
 #include "benchmark.h"
 
 #include <benchmark/benchmark.h>
-#include <math.h>    // isnan
-#include <stdint.h>  // uint64_t
-#include <stdlib.h>  // strtod
+#include <stdint.h>  // uint32_t, uint64_t
+#include <stdlib.h>  // strtod, strtof
 #include <string.h>  // memcpy
 
 #include <algorithm>  // std::sort, std::shuffle
-#include <cmath>      // std::abs
+#include <cmath>      // std::abs, std::isnan, std::isinf
 #include <fstream>
 #include <limits>
 #include <random>  // std::mt19937
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 #include "fmt/format.h"
 
-constexpr int max_digits = std::numeric_limits<double>::max_digits10;
-constexpr int num_doubles_per_digit = 100'000;
-
-std::vector<method> methods;
+constexpr int num_per_digit = 100'000;
 
 // Random number generator from dtoa-benchmark.
 class rng {
@@ -39,40 +36,51 @@ class rng {
   unsigned seed_;
 };
 
-auto get_random_digit_data(int digit) -> const double* {
-  static const std::vector<double> random_digit_data = []() {
-    std::vector<double> data;
-    data.reserve(num_doubles_per_digit * max_digits);
+template <typename T>
+auto get_random_digit_data(int digit) -> const T* {
+  constexpr int max_digits = std::numeric_limits<T>::max_digits10;
+  static const std::vector<T> random_digit_data = []() {
+    std::vector<T> data;
+    data.reserve(num_per_digit * max_digits);
     rng r;
-    for (int digit = 1; digit <= max_digits; digit++) {
-      for (size_t i = 0; i < num_doubles_per_digit; i++) {
-        double d = 0;
-        uint64_t bits = 0;
+    for (int d = 1; d <= max_digits; ++d) {
+      for (size_t i = 0; i < num_per_digit; ++i) {
+        T val = 0;
         do {
-          bits = uint64_t(r()) << 32;
-          bits |= r();  // Must be a separate statement to prevent reordering.
-          memcpy(&d, &bits, sizeof(d));
-        } while (isnan(d) || isinf(d));
+          if constexpr (sizeof(T) == sizeof(uint32_t)) {
+            uint32_t bits = r();
+            memcpy(&val, &bits, sizeof(val));
+          } else {
+            uint64_t bits = uint64_t(r()) << 32;
+            bits |= r();  // Separate statement to prevent reordering.
+            memcpy(&val, &bits, sizeof(val));
+          }
+        } while (std::isnan(val) || std::isinf(val));
 
         // Limit the number of digits.
         char buffer[64] = {};
-        fmt::format_to_n(buffer, sizeof(buffer), "{:.{}}", d, digit);
-        d = strtod(buffer, nullptr);
-        data.push_back(d);
+        fmt::format_to_n(buffer, sizeof(buffer), "{:.{}}", val, d);
+        if constexpr (std::is_same_v<T, double>)
+          val = strtod(buffer, nullptr);
+        else
+          val = strtof(buffer, nullptr);
+        data.push_back(val);
       }
     }
     return data;
   }();
-  return random_digit_data.data() + (digit - 1) * num_doubles_per_digit;
+  return random_digit_data.data() + (digit - 1) * num_per_digit;
 }
 
-auto get_mixed_pool() -> const std::vector<double>& {
-  static const std::vector<double> pool = [] {
-    std::vector<double> v;
-    v.reserve(num_doubles_per_digit * max_digits);
+template <typename T>
+auto get_mixed_pool() -> const std::vector<T>& {
+  constexpr int max_digits = std::numeric_limits<T>::max_digits10;
+  static const std::vector<T> pool = [] {
+    std::vector<T> v;
+    v.reserve(num_per_digit * max_digits);
     for (int d = 1; d <= max_digits; ++d) {
-      const double* p = get_random_digit_data(d);
-      v.insert(v.end(), p, p + num_doubles_per_digit);
+      const T* p = get_random_digit_data<T>(d);
+      v.insert(v.end(), p, p + num_per_digit);
     }
     std::shuffle(v.begin(), v.end(), std::mt19937(0));
     return v;
@@ -80,33 +88,35 @@ auto get_mixed_pool() -> const std::vector<double>& {
   return pool;
 }
 
-static void run_dtoa(benchmark::State& state,
-                     auto (*dtoa)(double, char*)->char*, int digit) {
-  const double* data = get_random_digit_data(digit);
+template <typename T>
+static void run_to_chars(benchmark::State& state,
+                         auto (*to_chars)(T, char*)->char*, int digit) {
+  const T* data = get_random_digit_data<T>(digit);
   char buffer[256];
   for (auto _ : state) {
-    for (int i = 0; i < num_doubles_per_digit; ++i) {
-      char* end = dtoa(data[i], buffer);
+    for (int i = 0; i < num_per_digit; ++i) {
+      char* end = to_chars(data[i], buffer);
       benchmark::DoNotOptimize(end);
       benchmark::ClobberMemory();
     }
   }
-  state.counters["Speed"] = benchmark::Counter(
-      static_cast<double>(num_doubles_per_digit),
+  state.counters["Throughput"] = benchmark::Counter(
+      static_cast<double>(num_per_digit),
       benchmark::Counter::kIsIterationInvariantRate);
-  state.counters["Time per double"] = benchmark::Counter(
-      static_cast<double>(num_doubles_per_digit),
+  state.counters["Time/value"] = benchmark::Counter(
+      static_cast<double>(num_per_digit),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
 }
 
-static void run_dtoa_mixed(benchmark::State& state,
-                           auto (*dtoa)(double, char*)->char*) {
-  const auto& pool = get_mixed_pool();
+template <typename T>
+static void run_to_chars_mixed(benchmark::State& state,
+                               auto (*to_chars)(T, char*)->char*) {
+  const auto& pool = get_mixed_pool<T>();
   char buffer[256];
   for (auto _ : state) {
-    for (double x : pool) {
-      char* end = dtoa(x, buffer);
+    for (T x : pool) {
+      char* end = to_chars(x, buffer);
       benchmark::DoNotOptimize(end);
       benchmark::ClobberMemory();
     }
@@ -114,7 +124,7 @@ static void run_dtoa_mixed(benchmark::State& state,
   state.counters["Throughput"] = benchmark::Counter(
       static_cast<double>(pool.size()),
       benchmark::Counter::kIsIterationInvariantRate);
-  state.counters["Time/double"] = benchmark::Counter(
+  state.counters["Time/value"] = benchmark::Counter(
       static_cast<double>(pool.size()),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
@@ -126,14 +136,14 @@ static const double canada_numbers[] = {
 #include "canada.h"
 };
 
-static void run_dtoa_canada(benchmark::State& state,
-                            auto (*dtoa)(double, char*)->char*) {
+static void run_to_chars_canada(benchmark::State& state,
+                                auto (*to_chars)(double, char*)->char*) {
   constexpr size_t canada_numbers_count =
       sizeof(canada_numbers) / sizeof(canada_numbers[0]);
   char buffer[256];
   for (auto _ : state) {
     for (size_t i = 0; i < canada_numbers_count; ++i) {
-      char* end = dtoa(canada_numbers[i], buffer);
+      char* end = to_chars(canada_numbers[i], buffer);
       benchmark::DoNotOptimize(end);
       benchmark::ClobberMemory();
     }
@@ -141,7 +151,7 @@ static void run_dtoa_canada(benchmark::State& state,
   state.counters["Throughput"] = benchmark::Counter(
       static_cast<double>(canada_numbers_count),
       benchmark::Counter::kIsIterationInvariantRate);
-  state.counters["Time/double"] = benchmark::Counter(
+  state.counters["Time/value"] = benchmark::Counter(
       static_cast<double>(canada_numbers_count),
       benchmark::Counter::kIsIterationInvariantRate |
           benchmark::Counter::kInvert);
@@ -199,6 +209,31 @@ class pretty_reporter : public benchmark::ConsoleReporter {
   }
 };
 
+template <typename T>
+static void register_all(bool per_digit) {
+  auto& v = methods<T>;
+  std::sort(v.begin(), v.end(), [](const method<T>& a, const method<T>& b) {
+    return a.name < b.name;
+  });
+  constexpr int max_digits = std::numeric_limits<T>::max_digits10;
+  for (const auto& m : v) {
+    if (per_digit) {
+      for (int d = 1; d <= max_digits; ++d) {
+        auto name = m.name + "/d" + std::to_string(d);
+        benchmark::RegisterBenchmark(name.c_str(), run_to_chars<T>, m.to_chars,
+                                     d);
+      }
+    }
+    benchmark::RegisterBenchmark(m.name.c_str(), run_to_chars_mixed<T>,
+                                 m.to_chars);
+    if constexpr (std::is_same_v<T, double>) {
+      auto canada_name = m.name + "/canada";
+      benchmark::RegisterBenchmark(canada_name.c_str(), run_to_chars_canada,
+                                   m.to_chars);
+    }
+  }
+}
+
 auto main(int argc, char** argv) -> int {
   bool per_digit = false;
   std::string json_out;
@@ -215,20 +250,9 @@ auto main(int argc, char** argv) -> int {
   }
   argc = out;
 
-  std::sort(
-      methods.begin(), methods.end(),
-      [](const method& lhs, const method& rhs) { return lhs.name < rhs.name; });
-  for (const method& m : methods) {
-    if (per_digit) {
-      for (int digit = 1; digit <= max_digits; ++digit) {
-        auto name = m.name + "/d" + std::to_string(digit);
-        benchmark::RegisterBenchmark(name.c_str(), run_dtoa, m.dtoa, digit);
-      }
-    }
-    benchmark::RegisterBenchmark(m.name.c_str(), run_dtoa_mixed, m.dtoa);
-    auto canada_name = m.name + "/canada";
-    benchmark::RegisterBenchmark(canada_name.c_str(), run_dtoa_canada, m.dtoa);
-  }
+  register_all<double>(per_digit);
+  register_all<float>(per_digit);
+
   benchmark::Initialize(&argc, argv);
   if (benchmark::ReportUnrecognizedArguments(argc, argv)) return 1;
   if (!json_out.empty()) {

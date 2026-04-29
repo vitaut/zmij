@@ -29,10 +29,10 @@ auto dtoa_zmij(double value, char* buffer) -> char* {
   return nullptr;
 }
 
-REGISTER_METHOD(zmij);
+REGISTER_DTOA(zmij);
 
 auto dtoa_dragonbox(double value, char* buffer) -> char* {
   return jkj::dragonbox::to_chars(value, buffer, jkj::dragonbox::policy::cache::full);
 }
 
-REGISTER_METHOD(dragonbox);
+REGISTER_DTOA(dragonbox);
