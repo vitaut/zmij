@@ -1135,9 +1135,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    const auto& layout = d->fixed_layouts.get(dec_exp);
     char last_digit = '0' + (-has_last_digit & dec.last_digit);
     int num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
+    const auto& layout = d->fixed_layouts.get(dec_exp);
     buffer += layout.start_pos;
     write_digits(buffer, dig.digits, !extra_digit, *d);
     buffer[bcd_size + extra_digit - 1] = last_digit;
