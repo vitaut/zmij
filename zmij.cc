@@ -914,7 +914,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, const data&) noexcept
   return {result.bcd + zeros, result.len};
 }
 
-// Writes `dig` to `buffer`, dropping the leading '0' when drop_leading_zero
+// Writes `digits` to `buffer`, dropping the leading '0' when drop_leading_zero
 // is set. On SIMD, folds the shift into the digit shuffle to avoid a
 // dependent 16-byte memmove.
 ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
