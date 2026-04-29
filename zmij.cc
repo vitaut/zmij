@@ -713,10 +713,6 @@ ZMIJ_INLINE auto to_bcd_4x4(int32x4_t ddee_bbcc_hhii_ffgg,
       vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, d.multipliers16[1]));
 }
 
-// When reverse_hi_lo is true, the two 8-digit halves are returned in reversed
-// order so that trailing zeros become leading zero bytes, letting ctz count
-// them while the shuffle runs in parallel.
-template <bool reverse_hi_lo = false>
 ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
     -> uint8x16_t {
   uint64_t hundred_million = d.hundred_million;
@@ -728,11 +724,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
   uint64_t abbccddee = uint64_t(umul128(value, d.mul_const) >> 90);
   uint64_t ffgghhii = value - abbccddee * hundred_million;
 
-  // When reverse_hi_lo, actual order is abbccddee|ffgghhii; the 17th digit
-  // ends up at byte index 0, so it can be extracted for the trailing write.
-  uint64x1_t ffgghhii_bbccddee_64 = {reverse_hi_lo
-                                         ? (abbccddee << 32) | ffgghhii
-                                         : (ffgghhii << 32) | abbccddee};
+  uint64x1_t ffgghhii_bbccddee_64 = {(ffgghhii << 32) | abbccddee};
   int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
 
   int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
