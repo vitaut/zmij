@@ -83,9 +83,9 @@ else ()
 endif ()
 
 if (TARGET benchmark::benchmark)
-  add_executable(zmij-benchmark benchmark.cc zmij-benchmark.cc)
-  target_compile_features(zmij-benchmark PRIVATE cxx_std_20)
-  target_link_libraries(zmij-benchmark fmt dragonbox zmij benchmark::benchmark)
+  add_executable(dtoa-benchmark benchmark.cc dtoa-benchmark.cc)
+  target_compile_features(dtoa-benchmark PRIVATE cxx_std_20)
+  target_link_libraries(dtoa-benchmark fmt dragonbox zmij benchmark::benchmark)
 else ()
   message(STATUS
     "Google Benchmark unavailable; skipping benchmark target")
