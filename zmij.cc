@@ -43,7 +43,7 @@ struct dec_fp {
 // Use the provided definition.
 #elif defined(__SSE2__)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)
+#elif defined(_M_AMD64)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_SSE 0
