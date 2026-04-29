@@ -991,7 +991,8 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     unsigned char shift =
         exp_shift_table::enable
             ? static_cast<unsigned char>(
-                  d.exp_shifts.data[bin_exp + float_traits<double>::exp_offset] +
+                  d.exp_shifts
+                      .data[bin_exp + float_traits<double>::exp_offset] +
                   (extra_shift - exp_shift_table::extra_shift))
             : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
     uint64_t pow10_hi = d.pow10_significands[-dec_exp - 1].hi;
@@ -1005,11 +1006,10 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     bool round_down = half_ulp > fractional;
     integral += round_up;
 
-    uint64_t prod = fractional * 10;
-    int digit = int(prod >> extra_shift);
-    uint64_t rem = prod & ((1ull << extra_shift) - 1);
-    digit += rem > (1ull << (extra_shift - 1)) ||
-             (rem == (1ull << (extra_shift - 1)) && (digit & 1));
+    int digit = int((fractional * 10 + (uint64_t(1) << (extra_shift - 1))) >>
+                    extra_shift);
+    if (fractional == (uint64_t(1) << (extra_shift - 2))) [[ZMIJ_UNLIKELY]]
+      digit = 2;  // Round 2.5 to 2.
     return {integral, dec_exp, digit, (round_up + round_down) == 0};
   }
 
