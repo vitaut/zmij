@@ -469,12 +469,14 @@ struct pow10_significand_table {
     if (compress) return compute(i);
     if (!split_tables) return {data[i * 2], data[i * 2 + 1]};
 
-    const uint64_t* hi = data + num_pow10s + dec_exp_min - 1;
-    const uint64_t* lo = hi + num_pow10s;
+    // The caller passes `-e - 1` for its own dec_exp `e`, so `~dec_exp`
+    // (i.e. `-dec_exp - 1`) recovers `e` directly. Picking the base so that
+    // `e` itself is the right index avoids an extra add in the load.
+    const uint64_t* hi = data + num_pow10s + dec_exp_min;
 
     // Force indexed loads.
-    if (!is_constant_evaluated()) ZMIJ_ASM(volatile("" : "+r"(hi), "+r"(lo)));
-    return {hi[-dec_exp], lo[-dec_exp]};
+    if (!is_constant_evaluated()) ZMIJ_ASM(volatile("" : "+r"(hi)));
+    return {hi[~dec_exp], hi[~dec_exp + num_pow10s]};
   }
 };
 
@@ -1128,7 +1130,13 @@ auto write(Float value, char* buffer) noexcept -> char* {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
     char last_digit = '0' + (-has_last_digit & dec.last_digit);
     int num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
-    const auto& layout = d->fixed_layouts.get(dec_exp);
+
+    // Materialize the base early so the entry address is `base + idx*32`;
+    // otherwise Clang folds the offset in and adds a cycle to the idx chain.
+    const auto* fixed_layouts = &d->fixed_layouts;
+    if (ZMIJ_AARCH64) ZMIJ_ASM(("" : "+r"(fixed_layouts)));
+
+    const auto& layout = fixed_layouts->get(dec_exp);
     buffer += layout.start_pos;
     write_digits(buffer, dig.digits, !extra_digit, *d);
     buffer[bcd_size + extra_digit - 1] = last_digit;
