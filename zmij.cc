@@ -43,7 +43,7 @@ struct dec_fp {
 // Use the provided definition.
 #elif defined(__SSE2__)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#elif defined(_M_AMD64)
+#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_SSE 0
@@ -275,6 +275,18 @@ using uint128_t = uint128;
 constexpr bool use_umul128_hi64 = true;  // Use umul128_hi64 for division.
 #else
 constexpr bool use_umul128_hi64 = false;
+#endif
+
+#if ZMIJ_USE_SSE
+inline auto extract_u64(__m128i v) noexcept -> uint64_t {
+#  if defined(__x86_64__) || defined(_M_X64)
+  return (uint64_t)_mm_cvtsi128_si64(v);
+#  else
+  uint32_t lo = _mm_cvtsi128_si32(v);
+  uint32_t hi = _mm_cvtsi128_si32(_mm_srli_si128(v, 4));
+  return ((uint64_t)hi << 32) | lo;
+#  endif
+}
 #endif
 
 // Computes 128-bit result of multiplication of two 64-bit unsigned integers.
@@ -824,8 +836,8 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
   uint64_t abcd_efgh =
       (abcdefgh << 32) -
       uint64_t((10000ull << 32) - 1) * ((abcdefgh * div10k_sig) >> div10k_exp);
-  uint64_t bcd =
-      _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d));
+  __m128i v = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d);
+  uint64_t bcd = extract_u64(v);
   return {bcd, count_trailing_nonzeros(bcd)};
 #endif  // ZMIJ_USE_SSE
 }
