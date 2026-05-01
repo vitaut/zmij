@@ -142,10 +142,11 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
 #  define ZMIJ_ALIGNAS(x)
 #endif
 
-static inline bool is_big_endian() {
-  int n = 1;
-  return *(char*)(&n) != 1;
-}
+#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+static const bool is_big_endian = true;
+#else
+static const bool is_big_endian = false;
+#endif
 
 static inline uint64_t bswap64(uint64_t x) {
 #if ZMIJ_HAS_BUILTIN(__builtin_bswap64)
@@ -1065,7 +1066,7 @@ static inline int count_trailing_nonzeros(uint64_t x) {
   // high bit is unused we can avoid the zero check by shifting the
   // datum left by one and inserting a sentinel bit at the end. This can
   // be faster than the automatically inserted range check.
-  if (is_big_endian()) x = bswap64(x);
+  if (is_big_endian) x = bswap64(x);
   return ((size_t)70 - clz((x << 1) | 1)) / 8;  // size_t for native arithmetic
 }
 
@@ -1101,25 +1102,6 @@ static const uint32_t div10_sig = (1 << div10_exp) / 10 + 1;
 static const uint32_t neg10 = (1 << 8) - 10;
 
 static const uint64_t zeros = 0x0101010101010101u * '0';
-
-static uint64_t to_bcd8(uint64_t abcdefgh) {
-  // An optimization from Xiang JunBo.
-  // Three steps BCD. Base 10000 -> base 100 -> base 10.
-  // div and mod are evaluated simultaneously as, e.g.
-  //   (abcdefgh / 10000) << 32 + (abcdefgh % 10000)
-  //      == abcdefgh + (2**32 - 10000) * (abcdefgh / 10000)))
-  // where the division on the RHS is implemented by the usual multiply + shift
-  // trick and the fractional bits are masked away.
-  uint64_t abcd_efgh =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
-  uint64_t ab_cd_ef_gh =
-      abcd_efgh +
-      neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
-  uint64_t a_b_c_d_e_f_g_h =
-      ab_cd_ef_gh +
-      neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
-  return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
-}
 
 static inline void write8(char* buffer, uint64_t value) {
   memcpy(buffer, &value, 8);
@@ -1836,9 +1818,24 @@ static ZMIJ_INLINE int ctz(uint64_t x) {
 
 // Converts an 8-decimal-digit value to its BCD representation along with the
 // number of trailing-zero-trimmed bytes.
-static ZMIJ_INLINE bcd_result to_bcd8_full(uint64_t abcdefgh) {
+static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh) {
   if (!ZMIJ_USE_SSE && !ZMIJ_USE_NEON) {
-    uint64_t bcd = to_bcd8(abcdefgh);
+    // An optimization from Xiang JunBo.
+    // Three steps BCD. Base 10000 -> base 100 -> base 10.
+    // div and mod are evaluated simultaneously as, e.g.
+    //   (abcdefgh / 10000) << 32 + (abcdefgh % 10000)
+    //      == abcdefgh + (2**32 - 10000) * (abcdefgh / 10000)))
+    // where the division on the RHS is implemented by the multiply + shift
+    // trick and the fractional bits are masked away.
+    uint64_t abcd_efgh =
+        abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+    uint64_t ab_cd_ef_gh =
+        abcd_efgh +
+        neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
+    uint64_t a_b_c_d_e_f_g_h =
+        ab_cd_ef_gh +
+        neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
+    uint64_t bcd = is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
     bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
     return result;
   }
@@ -1881,7 +1878,7 @@ static ZMIJ_INLINE bcd_result to_bcd8_full(uint64_t abcdefgh) {
 
 // Converts a value (up to 8 decimal digits) to BCD representation.
 static ZMIJ_INLINE dec_digits_float to_digits_float(uint64_t value) {
-  bcd_result result = to_bcd8_full(value);
+  bcd_result result = to_bcd8(value);
   dec_digits_float dig = {result.bcd + zeros, result.len};
   return dig;
 }
@@ -1891,13 +1888,13 @@ static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value) {
 #if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
   uint32_t hi = (uint32_t)(value / 100000000);
   uint32_t lo = (uint32_t)(value % 100000000);
-  bcd_result hi_bcd = to_bcd8_full(hi);
+  bcd_result hi_bcd = to_bcd8(hi);
   if (lo == 0) {
     digits_double_type d = {hi_bcd.bcd + zeros, zeros};
     dec_digits_double result = {d, hi_bcd.len};
     return result;
   }
-  bcd_result lo_bcd = to_bcd8_full(lo);
+  bcd_result lo_bcd = to_bcd8(lo);
   digits_double_type d = {hi_bcd.bcd + zeros, lo_bcd.bcd + zeros};
   dec_digits_double result = {d, 8 + lo_bcd.len};
   return result;
@@ -2148,15 +2145,15 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
     dec = num_bits == 64 ? to_decimal_double(bin_sig, 1, true)
                          : to_decimal_float((uint32_t)bin_sig, 1, true);
     long long dec_sig = dec.sig * 10 + (-dec.has_last_digit & dec.last_digit);
-    int sub_exp = dec.exp;
+    int dec_exp = dec.exp;
     while ((uint64_t)dec_sig < threshold) {
       dec_sig *= 10;
-      --sub_exp;
+      --dec_exp;
     }
     long long q = div10(dec_sig);
     int last_digit = (int)(dec_sig - q * 10);
     dec.sig = q;
-    dec.exp = sub_exp;
+    dec.exp = dec_exp;
     dec.last_digit = last_digit;
     dec.has_last_digit = last_digit != 0;
   } else {
@@ -2225,7 +2222,7 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
   // Write exponent.
   uint64_t exp_data = exp_string_data[dec_exp + exp_string_offset];
   int len = (int)(exp_data >> 48);
-  if (is_big_endian()) exp_data = bswap64(exp_data);
+  if (is_big_endian) exp_data = bswap64(exp_data);
   memcpy(buffer, &exp_data, num_bits == 64 ? 8 : 4);
   return buffer + len;
 }
