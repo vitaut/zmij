@@ -471,15 +471,11 @@ struct pow10_significand_table {
       const uint64_t* p = data + i * 2;
       return {p[0], p[1]};
     }
-
-    // The caller passes `-e - 1` for its own dec_exp `e`, so `~dec_exp`
-    // (i.e. `-dec_exp - 1`) recovers `e` directly. Picking the base so that
-    // `e` itself is the right index avoids an extra add in the load.
-    const uint64_t* hi = data + num_pow10s + dec_exp_min;
-
-    // Force indexed loads.
-    if (!is_constant_evaluated()) ZMIJ_ASM(volatile("" : "+r"(hi)));
-    return {hi[~dec_exp], hi[~dec_exp + num_pow10s]};
+    // The caller passes -e - 1 as dec_exp, so ~dec_exp recovers e. Picking the
+    // base so that e itself is the index lets both loads share sxtw addressing.
+    const uint64_t* p = data + num_pow10s + dec_exp_min;
+    if (!is_constant_evaluated()) ZMIJ_ASM(("" : "+r"(p)));
+    return {p[~dec_exp], p[~dec_exp + num_pow10s]};
   }
 };
 
