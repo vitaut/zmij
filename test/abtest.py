@@ -2,10 +2,13 @@
 # A/B benchmark driver for https://github.com/vitaut/zmij/.
 # Copyright (c) 2025 - present, Victor Zverovich
 # Distributed under the MIT license (see LICENSE).
-"""Compare working-tree zmij.{cc,h} against a base git ref using paired,
-ABBA-interleaved trials with host sleep/idle prevention where available.
+"""Compare two versions of zmij.{cc,h} using paired, ABBA-interleaved trials
+with host sleep/idle prevention where available. With one ref, compares the
+working tree against it; with two, compares the second commit against the
+first.
 
-    Usage: python3 test/abtest.py [--float] [<base-ref>]   # default: HEAD
+    Usage: python3 test/abtest.py [--float] [<base-ref> [<test-ref>]]
+                                # defaults: base=HEAD, test=working tree
 
 Exits non-zero if any benchmark regresses with p < 0.01.
 """
@@ -98,46 +101,61 @@ def bench_run(exe, json_path):
     return out
 
 
-def welch(base, cand):
+def welch(base, test):
     """Welch's statistic with a normal-approximation tail (erfc + 1.96
     instead of Student's t with Welch-Satterthwaite df, which would need
     a stdlib regularized-incomplete-beta implementation). At n=40 per
     side, this shifts the α=0.01 critical value by ~2.5% (Z=2.576 vs
     t78=2.640), well inside the headroom from using α=0.01 vs the
     textbook 0.05. Don't lower TRIALS below ~5 without revisiting.
-    Returns (mean_b, mean_c, pct, ci_lo_pct, ci_hi_pct, p)."""
-    mb, mc = mean(base), mean(cand)
-    if len(base) < 2 or len(cand) < 2 or mb == 0:
-        return mb, mc, 0.0, 0.0, 0.0, 1.0
+    Returns (mean_b, mean_t, pct, ci_lo_pct, ci_hi_pct, p)."""
+    mb, mt = mean(base), mean(test)
+    if len(base) < 2 or len(test) < 2 or mb == 0:
+        return mb, mt, 0.0, 0.0, 0.0, 1.0
     vb = sum((x - mb) ** 2 for x in base) / (len(base) - 1)
-    vc = sum((x - mc) ** 2 for x in cand) / (len(cand) - 1)
-    se = math.sqrt(vb / len(base) + vc / len(cand))
-    pct = (mc - mb) / mb * 100
+    vt = sum((x - mt) ** 2 for x in test) / (len(test) - 1)
+    se = math.sqrt(vb / len(base) + vt / len(test))
+    pct = (mt - mb) / mb * 100
     if se == 0:
-        return mb, mc, pct, pct, pct, (0.0 if mc != mb else 1.0)
+        return mb, mt, pct, pct, pct, (0.0 if mt != mb else 1.0)
     ci = 1.96 * se / mb * 100
-    p = math.erfc(abs(mc - mb) / se / math.sqrt(2))
-    return mb, mc, pct, pct - ci, pct + ci, p
+    p = math.erfc(abs(mt - mb) / se / math.sqrt(2))
+    return mb, mt, pct, pct - ci, pct + ci, p
+
+
+def read_ref(ref):
+    """Resolve `ref` and return (sha, zmij.cc, zmij.h) at that commit."""
+    sha = run(["git", "rev-parse", "--verify", ref], cwd=REPO).strip()
+    return (sha,
+            run(["git", "show", f"{sha}:zmij.cc"], cwd=REPO),
+            run(["git", "show", f"{sha}:zmij.h"], cwd=REPO))
 
 
 def main():
-    usage = f"Usage: {sys.argv[0]} [--float] [<base-ref>]   # default: HEAD"
+    usage = (f"Usage: {sys.argv[0]} [--float] [<base-ref> [<test-ref>]]"
+             "   # defaults: base=HEAD, test=working tree")
     args = sys.argv[1:]
     if "-h" in args or "--help" in args:
         sys.exit(usage)
     target = "ftoa-benchmark" if "--float" in args else "dtoa-benchmark"
     args = [a for a in args if a != "--float"]
-    if len(args) > 1:
+    if len(args) > 2:
         sys.exit(usage)
-    ref = args[0] if args else "HEAD"
+    base_ref = args[0] if args else "HEAD"
+    test_ref = args[1] if len(args) > 1 else None
 
-    sha = run(["git", "rev-parse", "--verify", ref], cwd=REPO).strip()
-    base_cc = run(["git", "show", f"{sha}:zmij.cc"], cwd=REPO)
-    base_h = run(["git", "show", f"{sha}:zmij.h"], cwd=REPO)
-    cand_cc = (REPO / "zmij.cc").read_text()
-    cand_h = (REPO / "zmij.h").read_text()
-    if (cand_cc, cand_h) == (base_cc, base_h):
-        print("note: working tree zmij.{cc,h} is identical to base ref.",
+    base_sha, base_cc, base_h = read_ref(base_ref)
+    if test_ref is None:
+        test_label = "working tree"
+        test_cc = (REPO / "zmij.cc").read_text()
+        test_h = (REPO / "zmij.h").read_text()
+    else:
+        test_sha, test_cc, test_h = read_ref(test_ref)
+        test_label = test_sha[:12]
+    print(f"comparing base={base_sha[:12]} vs test={test_label}",
+          file=sys.stderr)
+    if (test_cc, test_h) == (base_cc, base_h):
+        print("note: test version of zmij.{cc,h} is identical to base.",
               file=sys.stderr)
 
     deps = Path.home() / ".cache" / "zmij_bench_deps"
@@ -151,22 +169,22 @@ def main():
             shutil.copy2(REPO / rel, src / rel)
 
         base_exe = build("base", src, tmp / "build/base", deps, base_cc, base_h, target)
-        cand_exe = build("cand", src, tmp / "build/cand", deps, cand_cc, cand_h, target)
+        test_exe = build("test", src, tmp / "build/test", deps, test_cc, test_h, target)
 
         # ABBA-interleaved trials: any monotonic drift (thermal, battery,
         # background work) is split symmetrically between the two variants.
         order = ("A", "B", "B", "A") * ((TRIALS + 1) // 2)
         order = order[: 2 * TRIALS]
-        base_d, cand_d = {}, {}
+        base_d, test_d = {}, {}
         for i, slot in enumerate(order, 1):
-            exe, sink = (base_exe, base_d) if slot == "A" else (cand_exe, cand_d)
+            exe, sink = (base_exe, base_d) if slot == "A" else (test_exe, test_d)
             print(f"[{i}/{len(order)}] {slot}", file=sys.stderr)
             for name, samples in bench_run(exe, tmp / f"b{i}.json").items():
                 sink.setdefault(name, []).extend(samples)
 
     rows = []
-    for name in sorted(set(base_d) & set(cand_d)):
-        mb, mc, pct, lo, hi, p = welch(base_d[name], cand_d[name])
+    for name in sorted(set(base_d) & set(test_d)):
+        mb, mt, pct, lo, hi, p = welch(base_d[name], test_d[name])
         # The winner takes it all (else NOISE).
         if p < 0.01 and hi < 0:
             v = "FASTER"
@@ -174,14 +192,14 @@ def main():
             v = "SLOWER"
         else:
             v = "NOISE"
-        rows.append((name, mb, mc, pct, lo, hi, p, v))
+        rows.append((name, mb, mt, pct, lo, hi, p, v))
     rows.sort(key=lambda r: -abs(r[3]))
 
     name_w = max(9, max((len(r[0]) for r in rows), default=9))
-    print(f"\n{'benchmark':<{name_w}}  {'base':>10} {'cand':>10}  {'Δ%':>6}  "
+    print(f"\n{'benchmark':<{name_w}}  {'base':>10} {'test':>10}  {'Δ%':>6}  "
           f"{'95% CI':>13}  {'p':>7}  verdict")
-    for name, mb, mc, pct, lo, hi, p, v in rows:
-        print(f"{name:<{name_w}}  {mb:>8.2f}ns {mc:>8.2f}ns  "
+    for name, mb, mt, pct, lo, hi, p, v in rows:
+        print(f"{name:<{name_w}}  {mb:>8.2f}ns {mt:>8.2f}ns  "
               f"{pct:+5.1f}%  [{lo:+5.1f},{hi:+5.1f}]  {p:>7.2g}  {v}")
 
     return 1 if any(r[7] == "SLOWER" for r in rows) else 0
