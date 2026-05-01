@@ -3,7 +3,7 @@
 # Copyright (c) 2025 - present, Victor Zverovich
 # Distributed under the MIT license (see LICENSE).
 """Compare working-tree zmij.{cc,h} against a base git ref using paired,
-ABBA-interleaved trials with macOS sleep prevention.
+ABBA-interleaved trials with host sleep/idle prevention where available.
 
     Usage: python3 test/abtest.py [--float] [<base-ref>]   # default: HEAD
 
@@ -25,6 +25,22 @@ TRIALS = 8        # per variant; total runs = 2*TRIALS in ABBA order
 REPS = 5          # --benchmark_repetitions per run
 MIN_TIME = 0.5    # --benchmark_min_time seconds per repetition
 FILTER = ""       # regex like "^zmij$" to narrow benchmarks; "" = all
+
+
+def nosleep_prefix():
+    """Command prefix that keeps the host awake for the duration of a
+    wrapped command. Returns [] on platforms without a known inhibitor or
+    when the tool isn't installed; the bench still runs, it just isn't
+    protected from idle sleep."""
+    if sys.platform == "darwin" and shutil.which("caffeinate"):
+        return ["caffeinate", "-dimsu"]
+    if sys.platform.startswith("linux") and shutil.which("systemd-inhibit"):
+        return ["systemd-inhibit", "--what=idle:sleep",
+                "--who=abtest", "--why=benchmark"]
+    return []
+
+
+NOSLEEP = nosleep_prefix()
 
 
 def run(cmd, cwd=None):
@@ -51,7 +67,7 @@ def build(label, src, build_dir, deps, zcc, zh, target):
 
 
 def bench_run(exe, json_path):
-    cmd = ["caffeinate", "-dimsu", str(exe),
+    cmd = [*NOSLEEP, str(exe),
            f"--benchmark_repetitions={REPS}",
            f"--benchmark_min_time={MIN_TIME}s",
            "--benchmark_enable_random_interleaving=true",
