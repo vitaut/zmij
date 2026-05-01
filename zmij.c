@@ -38,7 +38,7 @@
 // Use the provided definition.
 #elif defined(__SSE2__)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86FP == 2)
+#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_SSE 0
@@ -64,6 +64,18 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
 #  define ZMIJ_AARCH64 0
 #endif
 
+#ifdef __x86_64__
+#  define ZMIJ_X86_64 1
+#else
+#  define ZMIJ_X86_64 0
+#endif
+
+#ifdef __clang__
+#  define ZMIJ_CLANG 1
+#else
+#  define ZMIJ_CLANG 0
+#endif
+
 #ifdef _MSC_VER
 #  define ZMIJ_MSC_VER _MSC_VER
 #  include <intrin.h>  // __lzcnt64/_umul128/__umulh
@@ -82,7 +94,29 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
 #  define ZMIJ_HAS_ATTRIBUTE(x) 0
 #endif
 
-#if ZMIJ_HAS_ATTRIBUTE(always_inline)
+#if ZMIJ_HAS_BUILTIN(__builtin_expect)
+#  define ZMIJ_LIKELY(x) __builtin_expect(!!(x), 1)
+#  define ZMIJ_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#else
+#  define ZMIJ_LIKELY(x) (x)
+#  define ZMIJ_UNLIKELY(x) (x)
+#endif
+
+#ifdef ZMIJ_OPTIMIZE_SIZE
+// Use the provided definition.
+#elif defined(__OPTIMIZE_SIZE__)
+#  define ZMIJ_OPTIMIZE_SIZE 1
+#else
+#  define ZMIJ_OPTIMIZE_SIZE 0
+#endif
+#ifndef ZMIJ_USE_EXP_STRING_TABLE
+#  define ZMIJ_USE_EXP_STRING_TABLE (ZMIJ_OPTIMIZE_SIZE == 0)
+#endif
+
+#define ZMIJ_USE_SIMD_SHUFFLE \
+  ((ZMIJ_USE_NEON || ZMIJ_USE_SSE4_1) && !ZMIJ_OPTIMIZE_SIZE)
+
+#if ZMIJ_HAS_ATTRIBUTE(always_inline) && !ZMIJ_OPTIMIZE_SIZE
 #  define ZMIJ_INLINE __attribute__((always_inline)) inline
 #elif ZMIJ_MSC_VER
 #  define ZMIJ_INLINE __forceinline
@@ -269,15 +303,35 @@ static inline uint128 umul192_hi128(uint64_t x_hi, uint64_t x_lo, uint64_t y) {
   return result;
 }
 
-// Computes high 64 bits of multiplication of x and y, discards the least
-// significant bit and rounds to odd, where x = uint128_t(x_hi << 64) | x_lo.
-uint64_t umulhi_inexact_to_odd64(uint64_t x_hi, uint64_t x_lo, uint64_t y) {
-  uint128 p = umul192_hi128(x_hi, x_lo, y);
-  return p.hi | ((p.lo >> 1) != 0);
+// Returns (x * y + c) >> 64.
+static inline uint64_t umul128_add_hi64(uint64_t x, uint64_t y, uint64_t c) {
+#if ZMIJ_USE_INT128
+  return (uint64_t)(((uint128_t)x * y + c) >> 64);
+#else
+  uint128 p = umul128(x, y);
+  return p.hi + (p.lo + c < p.lo);
+#endif
 }
-uint32_t umulhi_inexact_to_odd32(uint64_t x_hi, uint64_t _, uint32_t y) {
-  uint64_t p = lo64(uint128_rshift(umul128(x_hi, y), 32));
-  return (uint32_t)(p >> 32) | (((uint32_t)p >> 1) != 0);
+
+// Returns x / 10 for x <= 2**62.
+static ZMIJ_INLINE uint64_t div10(uint64_t x) {
+  assert(x <= (1ull << 62));
+  // ceil(2**64 / 10) computed as (1 << 63) / 5 + 1 to avoid int128.
+  const uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
+  return ZMIJ_USE_INT128 ? umul128_hi64(x, div10_sig64) : x / 10;
+}
+
+// Returns true_value if condition != 0, else false_value, without branching.
+static ZMIJ_INLINE int64_t select(uint64_t condition, int64_t true_value,
+                                  int64_t false_value) {
+  // Clang can figure it out on its own.
+  if (!ZMIJ_X86_64 || ZMIJ_CLANG) return condition ? true_value : false_value;
+  ZMIJ_ASM(
+      volatile("test %2, %2\n\t"
+               "cmovne %1, %0\n\t" :  //
+               "+r"(false_value) : "r"(true_value),
+               "r"(condition) : "cc"));
+  return false_value;
 }
 
 enum {
@@ -341,6 +395,7 @@ static int64_t float_get_exp(float_sig_type bits) {
 // 128-bit significands of powers of 10 rounded down.
 ZMIJ_ALIGNAS(64)
 const uint128 pow10_significands_data[] = {
+    {0xcc5fc196fefd7d0c, 0x1e53ed49a96272c8},  // -293
     {0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a},  // -292
     {0x9faacf3df73609b1, 0x77b191618c54e9ac},  // -291
     {0xc795830d75038c1d, 0xd59df5b9ef6a2417},  // -290
@@ -961,7 +1016,7 @@ const uint128 pow10_significands_data[] = {
 };
 
 static uint128 get_pow10_significand(int dec_exp) {
-  const int dec_exp_min = -292;
+  const int dec_exp_min = -293;
   return pow10_significands_data[dec_exp - dec_exp_min];
 }
 
@@ -1066,19 +1121,8 @@ static uint64_t to_bcd8(uint64_t abcdefgh) {
   return is_big_endian() ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
 }
 
-static inline char* write_if(char* buffer, uint32_t digit, bool condition) {
-  *buffer = (char)('0' + digit);
-  return buffer + condition;
-}
-
 static inline void write8(char* buffer, uint64_t value) {
   memcpy(buffer, &value, 8);
-}
-
-static inline uint64_t read8(char* buffer) {
-  uint64_t r;
-  memcpy(&r, buffer, 8);
-  return r;
 }
 
 #if ZMIJ_USE_SSE && !ZMIJ_MSC_VER
@@ -1097,514 +1141,1004 @@ typedef struct {
    (uint64_t)(e) << 32 | (uint64_t)(d) << 24 | (uint64_t)(c) << 16 | \
    (uint64_t)(b) << 8 | (uint64_t)(a))
 
-// Writes a significand consisting of up to 9 decimal digits (7-9 for normals)
-// and removes trailing zeros.
-static char* write_significand9(char* buffer, uint32_t value, bool has9digits) {
-  char* start = buffer;
-  buffer = write_if(buffer, value / 100000000, has9digits);
-  uint64_t bcd = to_bcd8(value % 100000000);
-  write8(buffer, bcd | zeros);
-  buffer += count_trailing_nonzeros(bcd);
-  return buffer - (int)(buffer - start == 1);
-}
-
-// Writes a significand consisting of up to 17 decimal digits (16-17 for
-// normals) and removes trailing zeros.  The significant digits start
-// from buffer[1].  buffer[0] may contain '0' after this function if
-// the significand has length 16.
-static char* write_significand17_no_simd(char* buffer, uint64_t value,
-                                         bool has17digits) {
-  {
-    // Each digit is denoted by a letter so value is abbccddeeffgghhii.
-    uint32_t abbccddee = (uint32_t)(value / 100000000);
-    uint32_t ffgghhii = (uint32_t)(value % 100000000);
-    buffer = write_if(buffer, abbccddee / 100000000, has17digits);
-    uint64_t bcd = to_bcd8(abbccddee % 100000000);
-    write8(buffer, bcd | zeros);
-    if (ffgghhii == 0) {
-      write8(buffer + 8, zeros);
-      return buffer + count_trailing_nonzeros(bcd);
-    }
-    bcd = to_bcd8(ffgghhii);
-    write8(buffer + 8, bcd | zeros);
-    return buffer + 8 + count_trailing_nonzeros(bcd);
-  }
-}
-
-static char* write_significand17(char* buffer, uint64_t value, bool has17digits,
-                                 long long value_div10) {
-  if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE) {
-    return write_significand17_no_simd(buffer, value, has17digits);
-  }
+// File-scope SIMD constants used by to_bcd_4x4, to_unshuffled_digits, and
+// write_digits. The non-SIMD scalar paths don't need these.
 #if ZMIJ_USE_NEON
-  // An optimized version for NEON by Dougall Johnson.
-  const int32_t neg10k = -10000 + 0x10000;
 #  if ZMIJ_MSC_VER
-  typedef int32_t int32x4[4];
-  typedef int16_t int16x8[8];
+typedef int32_t int32x4_storage[4];
+typedef int16_t int16x8_storage[8];
 #  else
-  typedef int32x4_t int32x4;
-  typedef int16x8_t int16x8;
+typedef int32x4_t int32x4_storage;
+typedef int16x8_t int16x8_storage;
 #  endif
-  typedef struct {
-    uint64_t mul_const;
-    uint64_t hundred_million;
-    int32x4 multipliers32;
-    int16x8 multipliers16;
-  } mul_constants;
-  static const mul_constants constants = {
-      0xabcc77118461cefd,
-      100000000,
-      {div10k_sig, neg10k, div100_sig << 12, neg100},
-      {0xce0, neg10}};
-  const mul_constants* c = &constants;
+#endif
 
-  // Compiler barrier, or clang doesn't load from memory and generates 15 more
-  // instructions
-  ZMIJ_ASM(("" : "+r"(c)));
+ZMIJ_ALIGNAS(64)
+static const struct {
+#if ZMIJ_USE_NEON
+  uint64_t mul_const;
+  uint64_t hundred_million;
+  int32x4_storage multipliers32;
+  int16x8_storage multipliers16;
+#elif ZMIJ_USE_SSE
+  // Ordered so that the values used to format floats fit in a single cache
+  // line.
+  m128i div100;
+  m128i div10;
+#  if ZMIJ_USE_SSE4_1
+  m128i neg100;
+  m128i neg10;
+  m128i bswap;
+#  else
+  m128i hundred;
+  m128i moddiv10;
+#  endif
+  m128i div10k;
+  m128i neg10k;
+  m128i zeros_v;
+#endif
+  // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
+  // shift left by 1 (drops the leading '0' of a 16-digit significand).
+  unsigned char shift_shuffle[17];
+} static_data = {
+#if ZMIJ_USE_NEON
+    0xabcc77118461cefd,
+    100000000,
+    {div10k_sig, (int32_t)(0x10000 - 10000), div100_sig << 12, neg100},
+    {0xce0, neg10, 0, 0, 0, 0, 0, 0},
+#elif ZMIJ_USE_SSE
+    ZMIJ_SPLAT32(div100_sig),
+    ZMIJ_SPLAT16((1 << 16) / 10 + 1),
+#  if ZMIJ_USE_SSE4_1
+    ZMIJ_SPLAT32(neg100),
+    ZMIJ_SPLAT16((1 << 8) - 10),
+    {ZMIJ_PACK8(15, 14, 13, 12, 11, 10, 9, 8),
+     ZMIJ_PACK8(7, 6, 5, 4, 3, 2, 1, 0)},
+#  else
+    ZMIJ_SPLAT32(100),
+    ZMIJ_SPLAT16(10 * (1 << 8) - 1),
+#  endif
+    ZMIJ_SPLAT64(div10k_sig),
+    ZMIJ_SPLAT64(neg10k),
+    ZMIJ_SPLAT64(zeros),
+#endif
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0},
+};
 
-  uint64_t hundred_million = c->hundred_million;
+// Per-decimal-exponent buffer layout for branchless fixed-notation output.
+// Generated from C++ fixed_layout_table for double, dec_exp in [-4, 15].
+typedef struct {
+  // Byte offset past leading "0.00..." before first significant digit.
+  unsigned char start_pos;
+  unsigned char point_pos;
+  // Start position for shifting digits right by one to insert the point.
+  unsigned char shift_pos;
+  // Offset past end of fixed-notation output, indexed by sig length - 1.
+  unsigned char end_pos[17];
+} fixed_layout_entry;
+
+#if ZMIJ_AARCH64 && !ZMIJ_OPTIMIZE_SIZE
+// Align to 32 bytes so indexing uses `lsl #5` not `umaddl`.
+ZMIJ_ALIGNAS(32)
+#endif
+static const fixed_layout_entry fixed_layout_table[20] = {
+    {5,
+     1,
+     1,
+     {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}},  // -4
+    {4,
+     1,
+     1,
+     {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}},  // -3
+    {3,
+     1,
+     1,
+     {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}},  // -2
+    {2,
+     1,
+     1,
+     {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}},  // -1
+    {0,
+     1,
+     2,
+     {1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 0
+    {0,
+     2,
+     3,
+     {2, 2, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 1
+    {0,
+     3,
+     4,
+     {3, 3, 3, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 2
+    {0,
+     4,
+     5,
+     {4, 4, 4, 4, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 3
+    {0,
+     5,
+     6,
+     {5, 5, 5, 5, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 4
+    {0,
+     6,
+     7,
+     {6, 6, 6, 6, 6, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 5
+    {0,
+     7,
+     8,
+     {7, 7, 7, 7, 7, 7, 7, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 6
+    {0,
+     8,
+     9,
+     {8, 8, 8, 8, 8, 8, 8, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18}},  // 7
+    {0,
+     9,
+     10,
+     {9, 9, 9, 9, 9, 9, 9, 9, 9, 11, 12, 13, 14, 15, 16, 17, 18}},  // 8
+    {0,
+     10,
+     11,
+     {10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 12, 13, 14, 15, 16, 17,
+      18}},  // 9
+    {0,
+     11,
+     12,
+     {11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 11, 13, 14, 15, 16, 17,
+      18}},  // 10
+    {0,
+     12,
+     13,
+     {12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 14, 15, 16, 17,
+      18}},  // 11
+    {0,
+     13,
+     14,
+     {13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 13, 15, 16, 17,
+      18}},  // 12
+    {0,
+     14,
+     15,
+     {14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 14, 16, 17,
+      18}},  // 13
+    {0,
+     15,
+     16,
+     {15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 17,
+      18}},  // 14
+    {0,
+     16,
+     17,
+     {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16,
+      18}},  // 15
+};
+
+enum {
+  double_min_fixed_dec_exp = -4,
+  double_max_fixed_dec_exp = 15,
+  float_min_fixed_dec_exp = -4,
+  float_max_fixed_dec_exp = 6,
+};
+
+// A table of precomputed exponent strings for scientific notation.
+// Each entry packs "e+dd" or "e+ddd" into a uint64_t with the length in byte 7.
+// Indexed by `dec_exp + exp_string_offset` for dec_exp in [-324, 308].
+// Generated from the C++ exp_string_table.
+enum {
+  exp_string_offset = 324,
+};
+static const uint64_t exp_string_data[633] = {
+    0x0005003432332d65ull, 0x0005003332332d65ull, 0x0005003232332d65ull,
+    0x0005003132332d65ull, 0x0005003032332d65ull, 0x0005003931332d65ull,
+    0x0005003831332d65ull, 0x0005003731332d65ull, 0x0005003631332d65ull,
+    0x0005003531332d65ull, 0x0005003431332d65ull, 0x0005003331332d65ull,
+    0x0005003231332d65ull, 0x0005003131332d65ull, 0x0005003031332d65ull,
+    0x0005003930332d65ull, 0x0005003830332d65ull, 0x0005003730332d65ull,
+    0x0005003630332d65ull, 0x0005003530332d65ull, 0x0005003430332d65ull,
+    0x0005003330332d65ull, 0x0005003230332d65ull, 0x0005003130332d65ull,
+    0x0005003030332d65ull, 0x0005003939322d65ull, 0x0005003839322d65ull,
+    0x0005003739322d65ull, 0x0005003639322d65ull, 0x0005003539322d65ull,
+    0x0005003439322d65ull, 0x0005003339322d65ull, 0x0005003239322d65ull,
+    0x0005003139322d65ull, 0x0005003039322d65ull, 0x0005003938322d65ull,
+    0x0005003838322d65ull, 0x0005003738322d65ull, 0x0005003638322d65ull,
+    0x0005003538322d65ull, 0x0005003438322d65ull, 0x0005003338322d65ull,
+    0x0005003238322d65ull, 0x0005003138322d65ull, 0x0005003038322d65ull,
+    0x0005003937322d65ull, 0x0005003837322d65ull, 0x0005003737322d65ull,
+    0x0005003637322d65ull, 0x0005003537322d65ull, 0x0005003437322d65ull,
+    0x0005003337322d65ull, 0x0005003237322d65ull, 0x0005003137322d65ull,
+    0x0005003037322d65ull, 0x0005003936322d65ull, 0x0005003836322d65ull,
+    0x0005003736322d65ull, 0x0005003636322d65ull, 0x0005003536322d65ull,
+    0x0005003436322d65ull, 0x0005003336322d65ull, 0x0005003236322d65ull,
+    0x0005003136322d65ull, 0x0005003036322d65ull, 0x0005003935322d65ull,
+    0x0005003835322d65ull, 0x0005003735322d65ull, 0x0005003635322d65ull,
+    0x0005003535322d65ull, 0x0005003435322d65ull, 0x0005003335322d65ull,
+    0x0005003235322d65ull, 0x0005003135322d65ull, 0x0005003035322d65ull,
+    0x0005003934322d65ull, 0x0005003834322d65ull, 0x0005003734322d65ull,
+    0x0005003634322d65ull, 0x0005003534322d65ull, 0x0005003434322d65ull,
+    0x0005003334322d65ull, 0x0005003234322d65ull, 0x0005003134322d65ull,
+    0x0005003034322d65ull, 0x0005003933322d65ull, 0x0005003833322d65ull,
+    0x0005003733322d65ull, 0x0005003633322d65ull, 0x0005003533322d65ull,
+    0x0005003433322d65ull, 0x0005003333322d65ull, 0x0005003233322d65ull,
+    0x0005003133322d65ull, 0x0005003033322d65ull, 0x0005003932322d65ull,
+    0x0005003832322d65ull, 0x0005003732322d65ull, 0x0005003632322d65ull,
+    0x0005003532322d65ull, 0x0005003432322d65ull, 0x0005003332322d65ull,
+    0x0005003232322d65ull, 0x0005003132322d65ull, 0x0005003032322d65ull,
+    0x0005003931322d65ull, 0x0005003831322d65ull, 0x0005003731322d65ull,
+    0x0005003631322d65ull, 0x0005003531322d65ull, 0x0005003431322d65ull,
+    0x0005003331322d65ull, 0x0005003231322d65ull, 0x0005003131322d65ull,
+    0x0005003031322d65ull, 0x0005003930322d65ull, 0x0005003830322d65ull,
+    0x0005003730322d65ull, 0x0005003630322d65ull, 0x0005003530322d65ull,
+    0x0005003430322d65ull, 0x0005003330322d65ull, 0x0005003230322d65ull,
+    0x0005003130322d65ull, 0x0005003030322d65ull, 0x0005003939312d65ull,
+    0x0005003839312d65ull, 0x0005003739312d65ull, 0x0005003639312d65ull,
+    0x0005003539312d65ull, 0x0005003439312d65ull, 0x0005003339312d65ull,
+    0x0005003239312d65ull, 0x0005003139312d65ull, 0x0005003039312d65ull,
+    0x0005003938312d65ull, 0x0005003838312d65ull, 0x0005003738312d65ull,
+    0x0005003638312d65ull, 0x0005003538312d65ull, 0x0005003438312d65ull,
+    0x0005003338312d65ull, 0x0005003238312d65ull, 0x0005003138312d65ull,
+    0x0005003038312d65ull, 0x0005003937312d65ull, 0x0005003837312d65ull,
+    0x0005003737312d65ull, 0x0005003637312d65ull, 0x0005003537312d65ull,
+    0x0005003437312d65ull, 0x0005003337312d65ull, 0x0005003237312d65ull,
+    0x0005003137312d65ull, 0x0005003037312d65ull, 0x0005003936312d65ull,
+    0x0005003836312d65ull, 0x0005003736312d65ull, 0x0005003636312d65ull,
+    0x0005003536312d65ull, 0x0005003436312d65ull, 0x0005003336312d65ull,
+    0x0005003236312d65ull, 0x0005003136312d65ull, 0x0005003036312d65ull,
+    0x0005003935312d65ull, 0x0005003835312d65ull, 0x0005003735312d65ull,
+    0x0005003635312d65ull, 0x0005003535312d65ull, 0x0005003435312d65ull,
+    0x0005003335312d65ull, 0x0005003235312d65ull, 0x0005003135312d65ull,
+    0x0005003035312d65ull, 0x0005003934312d65ull, 0x0005003834312d65ull,
+    0x0005003734312d65ull, 0x0005003634312d65ull, 0x0005003534312d65ull,
+    0x0005003434312d65ull, 0x0005003334312d65ull, 0x0005003234312d65ull,
+    0x0005003134312d65ull, 0x0005003034312d65ull, 0x0005003933312d65ull,
+    0x0005003833312d65ull, 0x0005003733312d65ull, 0x0005003633312d65ull,
+    0x0005003533312d65ull, 0x0005003433312d65ull, 0x0005003333312d65ull,
+    0x0005003233312d65ull, 0x0005003133312d65ull, 0x0005003033312d65ull,
+    0x0005003932312d65ull, 0x0005003832312d65ull, 0x0005003732312d65ull,
+    0x0005003632312d65ull, 0x0005003532312d65ull, 0x0005003432312d65ull,
+    0x0005003332312d65ull, 0x0005003232312d65ull, 0x0005003132312d65ull,
+    0x0005003032312d65ull, 0x0005003931312d65ull, 0x0005003831312d65ull,
+    0x0005003731312d65ull, 0x0005003631312d65ull, 0x0005003531312d65ull,
+    0x0005003431312d65ull, 0x0005003331312d65ull, 0x0005003231312d65ull,
+    0x0005003131312d65ull, 0x0005003031312d65ull, 0x0005003930312d65ull,
+    0x0005003830312d65ull, 0x0005003730312d65ull, 0x0005003630312d65ull,
+    0x0005003530312d65ull, 0x0005003430312d65ull, 0x0005003330312d65ull,
+    0x0005003230312d65ull, 0x0005003130312d65ull, 0x0005003030312d65ull,
+    0x0004000039392d65ull, 0x0004000038392d65ull, 0x0004000037392d65ull,
+    0x0004000036392d65ull, 0x0004000035392d65ull, 0x0004000034392d65ull,
+    0x0004000033392d65ull, 0x0004000032392d65ull, 0x0004000031392d65ull,
+    0x0004000030392d65ull, 0x0004000039382d65ull, 0x0004000038382d65ull,
+    0x0004000037382d65ull, 0x0004000036382d65ull, 0x0004000035382d65ull,
+    0x0004000034382d65ull, 0x0004000033382d65ull, 0x0004000032382d65ull,
+    0x0004000031382d65ull, 0x0004000030382d65ull, 0x0004000039372d65ull,
+    0x0004000038372d65ull, 0x0004000037372d65ull, 0x0004000036372d65ull,
+    0x0004000035372d65ull, 0x0004000034372d65ull, 0x0004000033372d65ull,
+    0x0004000032372d65ull, 0x0004000031372d65ull, 0x0004000030372d65ull,
+    0x0004000039362d65ull, 0x0004000038362d65ull, 0x0004000037362d65ull,
+    0x0004000036362d65ull, 0x0004000035362d65ull, 0x0004000034362d65ull,
+    0x0004000033362d65ull, 0x0004000032362d65ull, 0x0004000031362d65ull,
+    0x0004000030362d65ull, 0x0004000039352d65ull, 0x0004000038352d65ull,
+    0x0004000037352d65ull, 0x0004000036352d65ull, 0x0004000035352d65ull,
+    0x0004000034352d65ull, 0x0004000033352d65ull, 0x0004000032352d65ull,
+    0x0004000031352d65ull, 0x0004000030352d65ull, 0x0004000039342d65ull,
+    0x0004000038342d65ull, 0x0004000037342d65ull, 0x0004000036342d65ull,
+    0x0004000035342d65ull, 0x0004000034342d65ull, 0x0004000033342d65ull,
+    0x0004000032342d65ull, 0x0004000031342d65ull, 0x0004000030342d65ull,
+    0x0004000039332d65ull, 0x0004000038332d65ull, 0x0004000037332d65ull,
+    0x0004000036332d65ull, 0x0004000035332d65ull, 0x0004000034332d65ull,
+    0x0004000033332d65ull, 0x0004000032332d65ull, 0x0004000031332d65ull,
+    0x0004000030332d65ull, 0x0004000039322d65ull, 0x0004000038322d65ull,
+    0x0004000037322d65ull, 0x0004000036322d65ull, 0x0004000035322d65ull,
+    0x0004000034322d65ull, 0x0004000033322d65ull, 0x0004000032322d65ull,
+    0x0004000031322d65ull, 0x0004000030322d65ull, 0x0004000039312d65ull,
+    0x0004000038312d65ull, 0x0004000037312d65ull, 0x0004000036312d65ull,
+    0x0004000035312d65ull, 0x0004000034312d65ull, 0x0004000033312d65ull,
+    0x0004000032312d65ull, 0x0004000031312d65ull, 0x0004000030312d65ull,
+    0x0004000039302d65ull, 0x0004000038302d65ull, 0x0004000037302d65ull,
+    0x0004000036302d65ull, 0x0004000035302d65ull, 0x0004000034302d65ull,
+    0x0004000033302d65ull, 0x0004000032302d65ull, 0x0004000031302d65ull,
+    0x0004000030302b65ull, 0x0004000031302b65ull, 0x0004000032302b65ull,
+    0x0004000033302b65ull, 0x0004000034302b65ull, 0x0004000035302b65ull,
+    0x0004000036302b65ull, 0x0004000037302b65ull, 0x0004000038302b65ull,
+    0x0004000039302b65ull, 0x0004000030312b65ull, 0x0004000031312b65ull,
+    0x0004000032312b65ull, 0x0004000033312b65ull, 0x0004000034312b65ull,
+    0x0004000035312b65ull, 0x0004000036312b65ull, 0x0004000037312b65ull,
+    0x0004000038312b65ull, 0x0004000039312b65ull, 0x0004000030322b65ull,
+    0x0004000031322b65ull, 0x0004000032322b65ull, 0x0004000033322b65ull,
+    0x0004000034322b65ull, 0x0004000035322b65ull, 0x0004000036322b65ull,
+    0x0004000037322b65ull, 0x0004000038322b65ull, 0x0004000039322b65ull,
+    0x0004000030332b65ull, 0x0004000031332b65ull, 0x0004000032332b65ull,
+    0x0004000033332b65ull, 0x0004000034332b65ull, 0x0004000035332b65ull,
+    0x0004000036332b65ull, 0x0004000037332b65ull, 0x0004000038332b65ull,
+    0x0004000039332b65ull, 0x0004000030342b65ull, 0x0004000031342b65ull,
+    0x0004000032342b65ull, 0x0004000033342b65ull, 0x0004000034342b65ull,
+    0x0004000035342b65ull, 0x0004000036342b65ull, 0x0004000037342b65ull,
+    0x0004000038342b65ull, 0x0004000039342b65ull, 0x0004000030352b65ull,
+    0x0004000031352b65ull, 0x0004000032352b65ull, 0x0004000033352b65ull,
+    0x0004000034352b65ull, 0x0004000035352b65ull, 0x0004000036352b65ull,
+    0x0004000037352b65ull, 0x0004000038352b65ull, 0x0004000039352b65ull,
+    0x0004000030362b65ull, 0x0004000031362b65ull, 0x0004000032362b65ull,
+    0x0004000033362b65ull, 0x0004000034362b65ull, 0x0004000035362b65ull,
+    0x0004000036362b65ull, 0x0004000037362b65ull, 0x0004000038362b65ull,
+    0x0004000039362b65ull, 0x0004000030372b65ull, 0x0004000031372b65ull,
+    0x0004000032372b65ull, 0x0004000033372b65ull, 0x0004000034372b65ull,
+    0x0004000035372b65ull, 0x0004000036372b65ull, 0x0004000037372b65ull,
+    0x0004000038372b65ull, 0x0004000039372b65ull, 0x0004000030382b65ull,
+    0x0004000031382b65ull, 0x0004000032382b65ull, 0x0004000033382b65ull,
+    0x0004000034382b65ull, 0x0004000035382b65ull, 0x0004000036382b65ull,
+    0x0004000037382b65ull, 0x0004000038382b65ull, 0x0004000039382b65ull,
+    0x0004000030392b65ull, 0x0004000031392b65ull, 0x0004000032392b65ull,
+    0x0004000033392b65ull, 0x0004000034392b65ull, 0x0004000035392b65ull,
+    0x0004000036392b65ull, 0x0004000037392b65ull, 0x0004000038392b65ull,
+    0x0004000039392b65ull, 0x0005003030312b65ull, 0x0005003130312b65ull,
+    0x0005003230312b65ull, 0x0005003330312b65ull, 0x0005003430312b65ull,
+    0x0005003530312b65ull, 0x0005003630312b65ull, 0x0005003730312b65ull,
+    0x0005003830312b65ull, 0x0005003930312b65ull, 0x0005003031312b65ull,
+    0x0005003131312b65ull, 0x0005003231312b65ull, 0x0005003331312b65ull,
+    0x0005003431312b65ull, 0x0005003531312b65ull, 0x0005003631312b65ull,
+    0x0005003731312b65ull, 0x0005003831312b65ull, 0x0005003931312b65ull,
+    0x0005003032312b65ull, 0x0005003132312b65ull, 0x0005003232312b65ull,
+    0x0005003332312b65ull, 0x0005003432312b65ull, 0x0005003532312b65ull,
+    0x0005003632312b65ull, 0x0005003732312b65ull, 0x0005003832312b65ull,
+    0x0005003932312b65ull, 0x0005003033312b65ull, 0x0005003133312b65ull,
+    0x0005003233312b65ull, 0x0005003333312b65ull, 0x0005003433312b65ull,
+    0x0005003533312b65ull, 0x0005003633312b65ull, 0x0005003733312b65ull,
+    0x0005003833312b65ull, 0x0005003933312b65ull, 0x0005003034312b65ull,
+    0x0005003134312b65ull, 0x0005003234312b65ull, 0x0005003334312b65ull,
+    0x0005003434312b65ull, 0x0005003534312b65ull, 0x0005003634312b65ull,
+    0x0005003734312b65ull, 0x0005003834312b65ull, 0x0005003934312b65ull,
+    0x0005003035312b65ull, 0x0005003135312b65ull, 0x0005003235312b65ull,
+    0x0005003335312b65ull, 0x0005003435312b65ull, 0x0005003535312b65ull,
+    0x0005003635312b65ull, 0x0005003735312b65ull, 0x0005003835312b65ull,
+    0x0005003935312b65ull, 0x0005003036312b65ull, 0x0005003136312b65ull,
+    0x0005003236312b65ull, 0x0005003336312b65ull, 0x0005003436312b65ull,
+    0x0005003536312b65ull, 0x0005003636312b65ull, 0x0005003736312b65ull,
+    0x0005003836312b65ull, 0x0005003936312b65ull, 0x0005003037312b65ull,
+    0x0005003137312b65ull, 0x0005003237312b65ull, 0x0005003337312b65ull,
+    0x0005003437312b65ull, 0x0005003537312b65ull, 0x0005003637312b65ull,
+    0x0005003737312b65ull, 0x0005003837312b65ull, 0x0005003937312b65ull,
+    0x0005003038312b65ull, 0x0005003138312b65ull, 0x0005003238312b65ull,
+    0x0005003338312b65ull, 0x0005003438312b65ull, 0x0005003538312b65ull,
+    0x0005003638312b65ull, 0x0005003738312b65ull, 0x0005003838312b65ull,
+    0x0005003938312b65ull, 0x0005003039312b65ull, 0x0005003139312b65ull,
+    0x0005003239312b65ull, 0x0005003339312b65ull, 0x0005003439312b65ull,
+    0x0005003539312b65ull, 0x0005003639312b65ull, 0x0005003739312b65ull,
+    0x0005003839312b65ull, 0x0005003939312b65ull, 0x0005003030322b65ull,
+    0x0005003130322b65ull, 0x0005003230322b65ull, 0x0005003330322b65ull,
+    0x0005003430322b65ull, 0x0005003530322b65ull, 0x0005003630322b65ull,
+    0x0005003730322b65ull, 0x0005003830322b65ull, 0x0005003930322b65ull,
+    0x0005003031322b65ull, 0x0005003131322b65ull, 0x0005003231322b65ull,
+    0x0005003331322b65ull, 0x0005003431322b65ull, 0x0005003531322b65ull,
+    0x0005003631322b65ull, 0x0005003731322b65ull, 0x0005003831322b65ull,
+    0x0005003931322b65ull, 0x0005003032322b65ull, 0x0005003132322b65ull,
+    0x0005003232322b65ull, 0x0005003332322b65ull, 0x0005003432322b65ull,
+    0x0005003532322b65ull, 0x0005003632322b65ull, 0x0005003732322b65ull,
+    0x0005003832322b65ull, 0x0005003932322b65ull, 0x0005003033322b65ull,
+    0x0005003133322b65ull, 0x0005003233322b65ull, 0x0005003333322b65ull,
+    0x0005003433322b65ull, 0x0005003533322b65ull, 0x0005003633322b65ull,
+    0x0005003733322b65ull, 0x0005003833322b65ull, 0x0005003933322b65ull,
+    0x0005003034322b65ull, 0x0005003134322b65ull, 0x0005003234322b65ull,
+    0x0005003334322b65ull, 0x0005003434322b65ull, 0x0005003534322b65ull,
+    0x0005003634322b65ull, 0x0005003734322b65ull, 0x0005003834322b65ull,
+    0x0005003934322b65ull, 0x0005003035322b65ull, 0x0005003135322b65ull,
+    0x0005003235322b65ull, 0x0005003335322b65ull, 0x0005003435322b65ull,
+    0x0005003535322b65ull, 0x0005003635322b65ull, 0x0005003735322b65ull,
+    0x0005003835322b65ull, 0x0005003935322b65ull, 0x0005003036322b65ull,
+    0x0005003136322b65ull, 0x0005003236322b65ull, 0x0005003336322b65ull,
+    0x0005003436322b65ull, 0x0005003536322b65ull, 0x0005003636322b65ull,
+    0x0005003736322b65ull, 0x0005003836322b65ull, 0x0005003936322b65ull,
+    0x0005003037322b65ull, 0x0005003137322b65ull, 0x0005003237322b65ull,
+    0x0005003337322b65ull, 0x0005003437322b65ull, 0x0005003537322b65ull,
+    0x0005003637322b65ull, 0x0005003737322b65ull, 0x0005003837322b65ull,
+    0x0005003937322b65ull, 0x0005003038322b65ull, 0x0005003138322b65ull,
+    0x0005003238322b65ull, 0x0005003338322b65ull, 0x0005003438322b65ull,
+    0x0005003538322b65ull, 0x0005003638322b65ull, 0x0005003738322b65ull,
+    0x0005003838322b65ull, 0x0005003938322b65ull, 0x0005003039322b65ull,
+    0x0005003139322b65ull, 0x0005003239322b65ull, 0x0005003339322b65ull,
+    0x0005003439322b65ull, 0x0005003539322b65ull, 0x0005003639322b65ull,
+    0x0005003739322b65ull, 0x0005003839322b65ull, 0x0005003939322b65ull,
+    0x0005003030332b65ull, 0x0005003130332b65ull, 0x0005003230332b65ull,
+    0x0005003330332b65ull, 0x0005003430332b65ull, 0x0005003530332b65ull,
+    0x0005003630332b65ull, 0x0005003730332b65ull, 0x0005003830332b65ull,
+};
+
+// A table of precomputed shifts for the new direct-scaling algorithm.
+// `data[raw_exp] = compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift`
+// where extra_shift = 6 and bin_exp = max(raw_exp, 1) - double_exp_offset.
+// Shared between float and double via double_exp_offset.
+// Generated from the C++ exp_shift_table for double.
+enum {
+  exp_shift_extra_shift = 6,
+};
+static const unsigned char exp_shift_data[2048] = {
+    0x05, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06,
+    0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04,
+    0x05, 0x06, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06,
+    0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+    0x06, 0x04, 0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05, 0x06, 0x04,
+    0x05, 0x06, 0x03, 0x04, 0x05, 0x06, 0x04, 0x05,
+};
+
+typedef struct {
+  uint64_t bcd;
+  int len;
+} bcd_result;
+
+#if ZMIJ_USE_NEON
+typedef uint16x8_t digits_double_type;
+#elif ZMIJ_USE_SSE
+typedef __m128i digits_double_type;
+#else
+typedef struct {
+  uint64_t hi;
+  uint64_t lo;
+} digits_double_type;
+#endif
+
+typedef struct {
+  digits_double_type digits;
+  int num_digits;
+} dec_digits_double;
+
+typedef struct {
+  uint64_t digits;
+  int num_digits;
+} dec_digits_float;
+
+#if ZMIJ_USE_NEON
+// Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
+static ZMIJ_INLINE uint8x16_t to_bcd_4x4(int32x4_t efgh_abcd_mnop_ijkl) {
+  // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
+  ZMIJ_ASM(("" : "+w"(efgh_abcd_mnop_ijkl)));
+
+  int32x4_t ef_ab_mn_ij =
+      vqdmulhq_n_s32(efgh_abcd_mnop_ijkl, static_data.multipliers32[2]);
+  int16x8_t gh_ef_cd_ab_op_mn_kl_ij = vreinterpretq_s16_s32(vmlaq_n_s32(
+      efgh_abcd_mnop_ijkl, ef_ab_mn_ij, static_data.multipliers32[3]));
+  int16x8_t high_10s =
+      vqdmulhq_n_s16(gh_ef_cd_ab_op_mn_kl_ij, static_data.multipliers16[0]);
+  return vreinterpretq_u8_s16(vmlaq_n_s16(gh_ef_cd_ab_op_mn_kl_ij, high_10s,
+                                          static_data.multipliers16[1]));
+}
+
+static ZMIJ_INLINE uint8x16_t to_unshuffled_digits(uint64_t value) {
+  uint64_t hundred_million = static_data.hundred_million;
+  uint64_t mul_const = static_data.mul_const;
 
   // Compiler barrier, or clang narrows the load to 32-bit and unpairs it.
   ZMIJ_ASM(("" : "+r"(hundred_million)));
 
-  // Equivalent to abbccddee = value / 100000000, ffgghhii = value % 100000000.
-  uint64_t abbccddee = lo64(uint128_rshift(umul128(value, c->mul_const), 90));
-  uint64_t ffgghhii = value - abbccddee * hundred_million;
+  // abcdefgh = value / 100000000, ijklmnop = value % 100000000.
+  uint64_t abcdefgh = lo64(uint128_rshift(umul128(value, mul_const), 90));
+  uint64_t ijklmnop = value - abcdefgh * hundred_million;
 
-  // We could probably make this bit faster, but we're preferring to
-  // reuse the constants for now.
-  uint64_t a = lo64(uint128_rshift(umul128(abbccddee, c->mul_const), 90));
-  uint64_t bbccddee = abbccddee - a * hundred_million;
+  uint64x1_t ijklmnop_abcdefgh_64 = {(ijklmnop << 32) | abcdefgh};
+  int32x2_t abcdefgh_ijklmnop = vreinterpret_s32_u64(ijklmnop_abcdefgh_64);
 
-  buffer = write_if(buffer, a, has17digits);
-
-  uint64x1_t ffgghhii_bbccddee_64 = {((uint64_t)(ffgghhii) << 32) | bbccddee};
-  int32x2_t bbccddee_ffgghhii = vreinterpret_s32_u64(ffgghhii_bbccddee_64);
-
-  int32x2_t bbcc_ffgg = vreinterpret_s32_u32(
-      vshr_n_u32(vreinterpret_u32_s32(
-                     vqdmulh_n_s32(bbccddee_ffgghhii, c->multipliers32[0])),
+  int32x2_t abcd_ijkl = vreinterpret_s32_u32(
+      vshr_n_u32(vreinterpret_u32_s32(vqdmulh_n_s32(
+                     abcdefgh_ijklmnop, static_data.multipliers32[0])),
                  9));
-  int32x2_t ddee_bbcc_hhii_ffgg_32 =
-      vmla_n_s32(bbccddee_ffgghhii, bbcc_ffgg, c->multipliers32[1]);
+  int32x2_t efgh_abcd_mnop_ijkl_32 =
+      vmla_n_s32(abcdefgh_ijklmnop, abcd_ijkl, static_data.multipliers32[1]);
 
-  int32x4_t ddee_bbcc_hhii_ffgg = vreinterpretq_s32_u32(
-      vshll_n_u16(vreinterpret_u16_s32(ddee_bbcc_hhii_ffgg_32), 0));
-
-  // Compiler barrier, or clang breaks the subsequent MLA into UADDW + MUL.
-  ZMIJ_ASM(("" : "+w"(ddee_bbcc_hhii_ffgg)));
-
-  int32x4_t dd_bb_hh_ff =
-      vqdmulhq_n_s32(ddee_bbcc_hhii_ffgg, c->multipliers32[2]);
-  int16x8_t ee_dd_cc_bb_ii_hh_gg_ff = vreinterpretq_s16_s32(
-      vmlaq_n_s32(ddee_bbcc_hhii_ffgg, dd_bb_hh_ff, c->multipliers32[3]));
-  int16x8_t high_10s =
-      vqdmulhq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, c->multipliers16[0]);
-  uint8x16_t digits = vrev64q_u8(vreinterpretq_u8_s16(
-      vmlaq_n_s16(ee_dd_cc_bb_ii_hh_gg_ff, high_10s, c->multipliers16[1])));
-  uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
-                             vreinterpretq_u16_s8(vdupq_n_s8('0')));
-  memcpy(buffer, &str, sizeof(str));
-
-  uint16x8_t is_not_zero =
-      vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
-  uint64_t zeroes =
-      vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
-
-  buffer += 16 - ((zeroes != 0 ? clz(zeroes) : 64) >> 2);
-  return buffer;
+  int32x4_t efgh_abcd_mnop_ijkl = vreinterpretq_s32_u32(
+      vshll_n_u16(vreinterpret_u16_s32(efgh_abcd_mnop_ijkl_32), 0));
+  return to_bcd_4x4(efgh_abcd_mnop_ijkl);
+}
 #elif ZMIJ_USE_SSE
-  uint32_t last_digit = value - value_div10 * 10;
-
-  // We always write 17 digits into the buffer, but the first one can be zero.
-  // buffer points to the second place in the output buffer to allow for the
-  // insertion of the decimal point, so we can use the first place as scratch.
-  buffer += has17digits - 1;
-  buffer[16] = (char)(last_digit + '0');
-
-  uint32_t abcdefgh = value_div10 / (uint64_t)1e8;
-  uint32_t ijklmnop = value_div10 % (uint64_t)1e8;
-
-  ZMIJ_ALIGNAS(64)
-  static const struct {
-    m128i div10k;
-    m128i neg10k;
-    m128i div100;
-    m128i div10;
+// Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
+// Digits in each 32-bit lane will be in order for SSE2, reversed for SSE4.1.
+static ZMIJ_INLINE __m128i to_bcd_4x4(__m128i y) {
+  const __m128i div100 = _mm_load_si128((const __m128i*)&static_data.div100);
+  const __m128i div10 = _mm_load_si128((const __m128i*)&static_data.div10);
 #  if ZMIJ_USE_SSE4_1
-    m128i neg100;
-    m128i neg10;
-    m128i bswap;
-#  else
-    m128i hundred;
-    m128i moddiv10;
-#  endif
-    m128i zeros;
-  } consts = {ZMIJ_SPLAT64(div10k_sig),
-              ZMIJ_SPLAT64(neg10k),
-              ZMIJ_SPLAT32(div100_sig),
-              ZMIJ_SPLAT16((1 << 16) / 10 + 1),
-#  if ZMIJ_USE_SSE4_1
-              ZMIJ_SPLAT32(neg100),
-              ZMIJ_SPLAT16((1 << 8) - 10),
-              {ZMIJ_PACK8(15, 14, 13, 12, 11, 10, 9, 8),
-               ZMIJ_PACK8(7, 6, 5, 4, 3, 2, 1, 0)},
-#  else
-              ZMIJ_SPLAT32(100),        ZMIJ_SPLAT16(10 * (1 << 8) - 1),
-#  endif
-              ZMIJ_SPLAT64(zeros)};
+  const __m128i neg100 = _mm_load_si128((const __m128i*)&static_data.neg100);
+  const __m128i neg10 = _mm_load_si128((const __m128i*)&static_data.neg10);
 
-  const __m128i div10k = _mm_load_si128((__m128i*)&consts.div10k);
-  const __m128i neg10k = _mm_load_si128((__m128i*)&consts.neg10k);
-  const __m128i div100 = _mm_load_si128((__m128i*)&consts.div100);
-  const __m128i div10 = _mm_load_si128((__m128i*)&consts.div10);
-#  if ZMIJ_USE_SSE4_1
-  const __m128i neg100 = _mm_load_si128((__m128i*)&consts.neg100);
-  const __m128i neg10 = _mm_load_si128((__m128i*)&consts.neg10);
-  const __m128i bswap = _mm_load_si128((__m128i*)&consts.bswap);
-#  else
-  const __m128i hundred = _mm_load_si128((__m128i*)&consts.hundred);
-  const __m128i moddiv10 = _mm_load_si128((__m128i*)&consts.moddiv10);
-#  endif
-  const __m128i zeros = _mm_load_si128((__m128i*)&consts.zeros);
-
-  // The BCD sequences are based on ones provided by Xiang JunBo.
-  __m128i x = _mm_set_epi64x(abcdefgh, ijklmnop);
-  __m128i y = _mm_add_epi64(
-      x, _mm_mul_epu32(neg10k,
-                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
-#  if ZMIJ_USE_SSE4_1
   // _mm_mullo_epi32 is SSE 4.1
   __m128i z = _mm_add_epi64(
       y,
       _mm_mullo_epi32(neg100, _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
-  __m128i big_endian_bcd =
-      _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
-  __m128i bcd = _mm_shuffle_epi8(big_endian_bcd, bswap);  // SSSE3
+  return _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
 #  else
+  const __m128i hundred = _mm_load_si128((const __m128i*)&static_data.hundred);
+  const __m128i moddiv10 =
+      _mm_load_si128((const __m128i*)&static_data.moddiv10);
+
   __m128i y_div_100 = _mm_srli_epi16(_mm_mulhi_epu16(y, div100), 3);
   __m128i y_mod_100 = _mm_sub_epi16(y, _mm_mullo_epi16(y_div_100, hundred));
   __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
-  __m128i bcd_shuffled =
-      _mm_sub_epi16(_mm_slli_epi16(z, 8),
-                    _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
-  __m128i bcd = _mm_shuffle_epi32(bcd_shuffled, _MM_SHUFFLE(0, 1, 2, 3));
+  return _mm_sub_epi16(_mm_slli_epi16(z, 8),
+                       _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
 #  endif  // ZMIJ_USE_SSE4_1
-
-  __m128i digits = _mm_or_si128(bcd, zeros);
-
-  // determine number of leading zeros
-  __m128i mask128 = _mm_cmpgt_epi8(bcd, _mm_setzero_si128());
-  uint32_t mask = _mm_movemask_epi8(mask128);
-  // We don't need a zero-check here: if the mask were zero, either the
-  // significand is zero which is handled elsewhere or the only non-zero digit
-  // is the last digit which we factored off. But in that case the number would
-  // be printed with a different exponent that shifts the last digit into the
-  // first position.
-  size_t len = (size_t)64 - clz(mask);  // size_t for native arithmetic
-
-  _mm_storeu_si128((__m128i*)buffer, digits);
-  return buffer + (last_digit != 0 ? 17 : len);
+}
 #endif    // ZMIJ_USE_SSE
+
+#if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
+static ZMIJ_INLINE int ctz(uint64_t x) { return __builtin_ctzll(x); }
+#elif ZMIJ_MSC_VER
+static ZMIJ_INLINE int ctz(uint64_t x) {
+  unsigned long index;
+  _BitScanForward64(&index, x);
+  return (int)index;
+}
+#else
+static ZMIJ_INLINE int ctz(uint64_t x) {
+  int n = 0;
+  while ((x & 1) == 0) {
+    x >>= 1;
+    ++n;
+  }
+  return n;
+}
+#endif
+
+// Converts an 8-decimal-digit value to its BCD representation along with the
+// number of trailing-zero-trimmed bytes.
+static ZMIJ_INLINE bcd_result to_bcd8_full(uint64_t abcdefgh) {
+  if (!ZMIJ_USE_SSE && !ZMIJ_USE_NEON) {
+    uint64_t bcd = to_bcd8(abcdefgh);
+    bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
+    return result;
+  }
+
+#if ZMIJ_USE_NEON
+  uint64_t abcd_efgh_64 =
+      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+  int32x4_t abcd_efgh = vcombine_s32(
+      vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
+  uint8x16_t digits_128 = to_bcd_4x4(abcd_efgh);
+  uint8x8_t digits = vget_low_u8(digits_128);
+  uint64_t bcd = vget_lane_u64(vreinterpret_u64_u8(vrev64_u8(digits)), 0);
+  bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
+  return result;
+#elif ZMIJ_USE_SSE4_1
+  uint64_t abcd_efgh =
+      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+  uint64_t unshuffled_bcd =
+      _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh)));
+  int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
+  bcd_result result = {bswap64(unshuffled_bcd), len};
+  return result;
+#elif ZMIJ_USE_SSE
+  // Evaluate the 4-digit limbs and arrange them such that we get a result
+  // which is in the correct order.
+  uint64_t abcd_efgh =
+      (abcdefgh << 32) - (uint64_t)((10000ull << 32) - 1) *
+                             ((abcdefgh * div10k_sig) >> div10k_exp);
+  __m128i v = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh));
+#  if ZMIJ_X86_64
+  uint64_t bcd = _mm_cvtsi128_si64(v);
+#  else
+  uint64_t bcd = (uint64_t)_mm_cvtsi128_si32(_mm_srli_si128(v, 4)) << 32 |
+                 (uint32_t)_mm_cvtsi128_si32(v);
+#  endif
+  bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
+  return result;
+#endif
+}
+
+// Converts a value (up to 8 decimal digits) to BCD representation.
+static ZMIJ_INLINE dec_digits_float to_digits_float(uint64_t value) {
+  bcd_result result = to_bcd8_full(value);
+  dec_digits_float dig = {result.bcd + zeros, result.len};
+  return dig;
+}
+
+// Converts a value (up to 16 decimal digits) to BCD representation.
+static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value) {
+#if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
+  uint32_t hi = (uint32_t)(value / 100000000);
+  uint32_t lo = (uint32_t)(value % 100000000);
+  bcd_result hi_bcd = to_bcd8_full(hi);
+  if (lo == 0) {
+    digits_double_type d = {hi_bcd.bcd + zeros, zeros};
+    dec_digits_double result = {d, hi_bcd.len};
+    return result;
+  }
+  bcd_result lo_bcd = to_bcd8_full(lo);
+  digits_double_type d = {hi_bcd.bcd + zeros, lo_bcd.bcd + zeros};
+  dec_digits_double result = {d, 8 + lo_bcd.len};
+  return result;
+#elif ZMIJ_USE_NEON
+  uint8x16_t unshuffled_digits = to_unshuffled_digits(value);
+  uint8x16_t digits = vrev64q_u8(unshuffled_digits);
+  uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
+                             vreinterpretq_u16_s8(vdupq_n_s8('0')));
+  uint16x8_t is_not_zero =
+      vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
+  uint64_t nonzero_mask =
+      vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
+  dec_digits_double result = {
+      str, 16 - (nonzero_mask == 0 ? 64 : clz(nonzero_mask)) / 4};
+  // Match C++: 16 - clz/4 (treating 0 specially to avoid UB).
+  result.num_digits =
+      nonzero_mask == 0 ? 0 : 16 - (int)(clz(nonzero_mask) >> 2);
+  return result;
+#else  // ZMIJ_USE_SSE
+  uint32_t hi = (uint32_t)(value / 100000000);
+  uint32_t lo = (uint32_t)(value % 100000000);
+
+  const __m128i div10k = _mm_load_si128((const __m128i*)&static_data.div10k);
+  const __m128i neg10k_v = _mm_load_si128((const __m128i*)&static_data.neg10k);
+  __m128i x = _mm_set_epi64x(hi, lo);
+  __m128i y = _mm_add_epi64(
+      x, _mm_mul_epu32(neg10k_v,
+                       _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
+
+  // Shuffle to ensure correctly ordered result from SSE2 path.
+  if (!ZMIJ_USE_SSE4_1) y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
+
+  __m128i bcd = to_bcd_4x4(y);
+  const __m128i zeros_v = _mm_load_si128((const __m128i*)&static_data.zeros_v);
+
+  // Computed against current bcd (rather than the post-bswap bcd) so the mask
+  // is derived in parallel with the shuffle on the SSE4.1 path.
+  uint64_t mask =
+      (uint64_t)_mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
+  // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
+  int len = ZMIJ_USE_SSE4_1 ? (mask == 0 ? 0 : 16 - ctz(mask))
+                            : (mask == 0 ? 0 : 64 - clz(mask));
+#  if ZMIJ_USE_SSE4_1
+  bcd = _mm_shuffle_epi8(
+      bcd, _mm_load_si128((const __m128i*)&static_data.bswap));  // SSSE3
+#  endif
+  dec_digits_double result = {_mm_or_si128(bcd, zeros_v), len};
+  return result;
+#endif
+}
+
+// Writes 16 BCD characters to `buffer`. When drop_leading_zero is set, shifts
+// the digits left by 1 (used to drop the leading '0' of a 16-digit
+// significand). On SIMD, the shift is folded into the digit shuffle.
+static ZMIJ_INLINE void write_digits_double(char* buffer,
+                                            digits_double_type digits,
+                                            bool drop_leading_zero) {
+  if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
+    memcpy(buffer, &digits, sizeof(digits));
+    memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
+    return;
+  }
+#if ZMIJ_USE_NEON
+  uint8x16_t shuffle = vld1q_u8(static_data.shift_shuffle + drop_leading_zero);
+  uint8x16_t shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
+  vst1q_u8((uint8_t*)buffer, shifted);
+#elif ZMIJ_USE_SSE4_1
+  __m128i shuffle = _mm_loadu_si128(
+      (const __m128i*)(static_data.shift_shuffle + drop_leading_zero));
+  _mm_storeu_si128((__m128i*)buffer, _mm_shuffle_epi8(digits, shuffle));
+#endif
+}
+
+static ZMIJ_INLINE void write_digits_float(char* buffer, uint64_t digits,
+                                           bool drop_leading_zero) {
+  memcpy(buffer, &digits, sizeof(digits));
+  memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
 }
 
 typedef struct {
   long long sig;
   int exp;
-#if ZMIJ_USE_SSE
-  long long sig_div10;
-#endif
+  int last_digit;
+  bool has_last_digit;
 } to_decimal_result;
 
-void set_div10(to_decimal_result* r, long long value) {
-#if ZMIJ_USE_SSE
-  r->sig_div10 = value;
-#endif
-}
-
-static to_decimal_result normalize32(to_decimal_result dec, bool subnormal) {
-  if (!subnormal) return dec;
-  while (dec.sig < (uint64_t)1e8) {
-    dec.sig *= 10;
-    --dec.exp;
-  }
-  set_div10(&dec, dec.sig / 10);
-  return dec;
-}
-
-static to_decimal_result normalize64(to_decimal_result dec, bool subnormal) {
-  if (!subnormal) return dec;
-  while (dec.sig < (uint64_t)1e16) {
-    dec.sig *= 10;
-    --dec.exp;
-  }
-  set_div10(&dec, dec.sig / 10);
-  return dec;
-}
-
-static to_decimal_result to_decimal_schubfach32(uint32_t bin_sig,
-                                                int64_t bin_exp, bool regular,
-                                                bool subnormal) {
-  int dec_exp = compute_dec_exp(bin_exp, regular);
-  unsigned char exp_shift = compute_exp_shift(bin_exp, dec_exp);
-  uint128 pow10 = get_pow10_significand(-dec_exp);
-
-  // Fallback to Schubfach to guarantee correctness in boundary cases.
-  // This requires switching to strict overestimates of powers of 10.
-  ++pow10.hi;
-
-  // Shift the significand so that boundaries are integer.
-  const int bound_shift = 2;
-  uint32_t bin_sig_shifted = bin_sig << bound_shift;
-
-  // Compute the estimates of lower and upper bounds of the rounding interval
-  // by multiplying them by the power of 10 and applying modified rounding.
-  uint32_t lsb = bin_sig & 1;
-  uint32_t lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
-  lower = umulhi_inexact_to_odd32(pow10.hi, pow10.lo, lower) + lsb;
-  uint32_t upper = (bin_sig_shifted + 2) << exp_shift;
-  upper = umulhi_inexact_to_odd32(pow10.hi, pow10.lo, upper) - lsb;
-
-  // The idea of using a single shorter candidate is by Cassio Neri.
-  // It is less or equal to the upper bound by construction.
-  long long div10 = (upper >> bound_shift) / 10;
-  uint32_t shorter = div10 * 10;
-  if ((shorter << bound_shift) >= lower) {
-    to_decimal_result result = {(int64_t)shorter, dec_exp};
-    set_div10(&result, div10);
-    return normalize32(result, subnormal);
-  }
-
-  uint32_t scaled_sig =
-      umulhi_inexact_to_odd32(pow10.hi, pow10.lo, bin_sig_shifted << exp_shift);
-  uint32_t longer_below = scaled_sig >> bound_shift;
-  uint32_t longer_above = longer_below + 1;
-
-  // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
-  // the rounding interval.
-  int32_t cmp = (int32_t)(scaled_sig - ((longer_below + longer_above) << 1));
-  bool below_closer = cmp < 0 || (cmp == 0 && (longer_below & 1) == 0);
-  bool below_in = (longer_below << bound_shift) >= lower;
-  uint32_t dec_sig = (below_closer & below_in) ? longer_below : longer_above;
-  to_decimal_result result = {(int64_t)dec_sig, dec_exp};
-  set_div10(&result, dec_sig / 10);
-  return normalize32(result, subnormal);
-}
-
-static to_decimal_result to_decimal_schubfach64(uint64_t bin_sig,
-                                                int64_t bin_exp, bool regular,
-                                                bool subnormal) {
-  int dec_exp = compute_dec_exp(bin_exp, regular);
-  unsigned char exp_shift = compute_exp_shift(bin_exp, dec_exp);
-  uint128 pow10 = get_pow10_significand(-dec_exp);
-
-  // Fallback to Schubfach to guarantee correctness in boundary cases.
-  // This requires switching to strict overestimates of powers of 10.
-  ++pow10.lo;
-
-  // Shift the significand so that boundaries are integer.
-  const int bound_shift = 2;
-  uint64_t bin_sig_shifted = bin_sig << bound_shift;
-
-  // Compute the estimates of lower and upper bounds of the rounding interval
-  // by multiplying them by the power of 10 and applying modified rounding.
-  uint64_t lsb = bin_sig & 1;
-  uint64_t lower = (bin_sig_shifted - (regular + 1)) << exp_shift;
-  lower = umulhi_inexact_to_odd64(pow10.hi, pow10.lo, lower) + lsb;
-  uint64_t upper = (bin_sig_shifted + 2) << exp_shift;
-  upper = umulhi_inexact_to_odd64(pow10.hi, pow10.lo, upper) - lsb;
-
-  // The idea of using a single shorter candidate is by Cassio Neri.
-  // It is less or equal to the upper bound by construction.
-  long long div10 = (upper >> bound_shift) / 10;
-  uint64_t shorter = div10 * 10;
-  if ((shorter << bound_shift) >= lower) {
-    to_decimal_result result = {(int64_t)shorter, dec_exp};
-    set_div10(&result, div10);
-    return normalize64(result, subnormal);
-  }
-
-  uint64_t scaled_sig =
-      umulhi_inexact_to_odd64(pow10.hi, pow10.lo, bin_sig_shifted << exp_shift);
-  uint64_t longer_below = scaled_sig >> bound_shift;
-  uint64_t longer_above = longer_below + 1;
-
-  // Pick the closest of dec_sig_below and dec_sig_above and check if it's in
-  // the rounding interval.
-  int64_t cmp = (int64_t)(scaled_sig - ((longer_below + longer_above) << 1));
-  bool below_closer = cmp < 0 || (cmp == 0 && (longer_below & 1) == 0);
-  bool below_in = (longer_below << bound_shift) >= lower;
-  uint64_t dec_sig = (below_closer & below_in) ? longer_below : longer_above;
-  to_decimal_result result = {(int64_t)(dec_sig), dec_exp};
-  set_div10(&result, dec_sig / 10);
-  return normalize64(result, subnormal);
-}
-
+// Here be 🐉s.
 // Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
 // representation, where bin_exp = raw_exp - exp_offset.
-static ZMIJ_INLINE to_decimal_result to_decimal_normal32(uint32_t bin_sig,
-                                                         int64_t raw_exp,
-                                                         bool regular) {
-  int64_t bin_exp = raw_exp - float_exp_offset;
-  const int num_bits = 32;
-  // An optimization from yy by Yaoyuan Guo:
-  while (regular) {
-    int dec_exp = use_umul128_hi64 ? umul128_hi64(bin_exp, 0x4d10500000000000)
-                                   : compute_dec_exp(bin_exp, true);
-    unsigned char exp_shift = compute_exp_shift(bin_exp, dec_exp);
-    uint128 pow10 = get_pow10_significand(-dec_exp);
-
-    uint32_t integral = 0;    // integral part of bin_sig * pow10
-    uint64_t fractional = 0;  // fractional part of bin_sig * pow10
-    uint128_t p = umul128(pow10.hi, bin_sig << exp_shift);
-    integral = hi64(p);
-    fractional = lo64(p);
-    const uint64_t half_ulp = (uint64_t)1 << 63;
-
-    // Exact half-ulp tie when rounding to nearest integer.
-    int64_t cmp = (int64_t)(fractional - half_ulp);
-    if (cmp == 0) break;
-
-    // An optimization of integral % 10 by Dougall Johnson.
-    // Relies on range calculation: (max_bin_sig << max_exp_shift) * max_u128.
-    // (1 << 63) / 5 == (1 << 64) / 10 without an intermediate int128.
-    const uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
-    long long div10 =
-        ZMIJ_USE_INT128 ? umul128_hi64(integral, div10_sig64) : integral / 10;
-    uint64_t digit = integral - div10 * 10;
-    // or it narrows to 32-bit and doesn't use madd/msub
-    ZMIJ_ASM(("" : "+r"(digit)));
-
-    // Switch to a fixed-point representation with the least significant
-    // integral digit in the upper bits and fractional digits in the lower bits.
-    const int num_integral_bits = num_bits == 64 ? 4 : 32;
-    const int num_fractional_bits = 64 - num_integral_bits;
-    const uint64_t ten = (uint64_t)10 << num_fractional_bits;
-    // Fixed-point remainder of the scaled significand modulo 10.
-    uint64_t scaled_sig_mod10 =
-        (digit << num_fractional_bits) | (fractional >> num_integral_bits);
-
-    // scaled_half_ulp = 0.5 * pow10 in the fixed-point format.
-    // dec_exp is chosen so that 10**dec_exp <= 2**bin_exp < 10**(dec_exp + 1).
-    // Since 1ulp == 2**bin_exp it will be in the range [1, 10) after scaling
-    // by 10**dec_exp. Add 1 to combine the shift with division by two.
-    uint64_t scaled_half_ulp = pow10.hi >> (num_integral_bits - exp_shift + 1);
-    uint64_t upper = scaled_sig_mod10 + scaled_half_ulp;
-
-    // Check for boundary case when rounding down to nearest 10 and
-    // near-boundary case when rounding up to nearest 10.
-    if (scaled_sig_mod10 == scaled_half_ulp ||
-        // Case where upper == ten is insufficient: 1.342178e+08f.
-        ten - upper <= 1u)  // upper == ten || upper == ten - 1
-    {
-      break;
-    }
-
-    bool round_up = upper >= ten;
-    int64_t shorter = (int64_t)(integral - digit);
-    int64_t longer = (int64_t)(integral + (cmp >= 0));
-    if (ZMIJ_AARCH64) {  // Faster version without ccmp.
-      int64_t dec_sig = scaled_sig_mod10 < scaled_half_ulp ? shorter : longer;
-      to_decimal_result result = {round_up ? shorter + 10 : dec_sig, dec_exp};
-      return result;
-    }
-    shorter += round_up * 10;
-    bool use_shorter = (scaled_sig_mod10 <= scaled_half_ulp) + round_up != 0;
-    to_decimal_result result = {use_shorter ? shorter : longer, dec_exp};
-    set_div10(&result, div10 + use_shorter * round_up);
-    return result;
-  }
-  return to_decimal_schubfach32(bin_sig, bin_exp, regular, false);
-}
-
-// Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
-// representation, where bin_exp = raw_exp - exp_offset.
-static ZMIJ_INLINE to_decimal_result to_decimal_normal64(uint64_t bin_sig,
-                                                         int64_t raw_exp,
-                                                         bool regular) {
+static ZMIJ_INLINE to_decimal_result to_decimal_double(uint64_t bin_sig,
+                                                       int64_t raw_exp,
+                                                       bool regular) {
   int64_t bin_exp = raw_exp - double_exp_offset;
-  // An optimization from yy by Yaoyuan Guo:
-  while (regular) {
-    int dec_exp = use_umul128_hi64 ? umul128_hi64(bin_exp, 0x4d10500000000000)
-                                   : compute_dec_exp(bin_exp, true);
-    unsigned char exp_shift = compute_exp_shift(bin_exp, dec_exp);
-    uint128 pow10 = get_pow10_significand(-dec_exp);
+  const int extra_shift = 6;
 
-    uint64_t integral = 0;    // integral part of bin_sig * pow10
-    uint64_t fractional = 0;  // fractional part of bin_sig * pow10
-    uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << exp_shift);
-    integral = p.hi;
-    fractional = p.lo;
-    const uint64_t half_ulp = (uint64_t)1 << 63;
+  if (ZMIJ_UNLIKELY(!regular)) {
+    int dec_exp = compute_dec_exp((int)bin_exp, false);
+    unsigned char shift =
+        compute_exp_shift((int)bin_exp, dec_exp + 1) + extra_shift;
+    uint128 pow10 = get_pow10_significand(-dec_exp - 1);
+    uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
 
-    // Exact half-ulp tie when rounding to nearest integer.
-    int64_t cmp = (int64_t)(fractional - half_ulp);
-    if (cmp == 0) break;
+    long long integral = (long long)(p.hi >> extra_shift);
+    uint64_t fractional = (p.hi << (64 - extra_shift)) | (p.lo >> extra_shift);
 
-    // An optimization of integral % 10 by Dougall Johnson.
-    // Relies on range calculation: (max_bin_sig << max_exp_shift) * max_u128.
-    // (1 << 63) / 5 == (1 << 64) / 10 without an intermediate int128.
-    const uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
-    long long div10 =
-        ZMIJ_USE_INT128 ? umul128_hi64(integral, div10_sig64) : integral / 10;
-    uint64_t digit = integral - div10 * 10;
-    // or it narrows to 32-bit and doesn't use madd/msub
-    ZMIJ_ASM(("" : "+r"(digit)));
+    uint64_t half_ulp = pow10.hi >> (extra_shift + 1 - shift);
+    bool round_up = half_ulp > ~(uint64_t)0 - fractional;
+    bool round_down = (half_ulp >> 1) > fractional;
+    integral += round_up;
 
-    // Switch to a fixed-point representation with the least significant
-    // integral digit in the upper bits and fractional digits in the lower bits.
-    const int num_integral_bits = 4;
-    const int num_fractional_bits = 64 - num_integral_bits;
-    const uint64_t ten = (uint64_t)10 << num_fractional_bits;
-    // Fixed-point remainder of the scaled significand modulo 10.
-    uint64_t scaled_sig_mod10 =
-        (digit << num_fractional_bits) | (fractional >> num_integral_bits);
-
-    // scaled_half_ulp = 0.5 * pow10 in the fixed-point format.
-    // dec_exp is chosen so that 10**dec_exp <= 2**bin_exp < 10**(dec_exp + 1).
-    // Since 1ulp == 2**bin_exp it will be in the range [1, 10) after scaling
-    // by 10**dec_exp. Add 1 to combine the shift with division by two.
-    uint64_t scaled_half_ulp = pow10.hi >> (num_integral_bits - exp_shift + 1);
-    uint64_t upper = scaled_sig_mod10 + scaled_half_ulp;
-
-    // Check for boundary case when rounding down to nearest 10 and
-    // near-boundary case when rounding up to nearest 10.
-    if (scaled_sig_mod10 == scaled_half_ulp ||
-        // Case where upper == ten is insufficient: 1.342178e+08f.
-        ten - upper <= 1u)  // upper == ten || upper == ten - 1
-    {
-      break;
-    }
-
-    bool round_up = upper >= ten;
-    int64_t shorter = (int64_t)(integral - digit);
-    int64_t longer = (int64_t)(integral + (cmp >= 0));
-    if (ZMIJ_AARCH64) {  // Faster version without ccmp.
-      int64_t dec_sig = scaled_sig_mod10 < scaled_half_ulp ? shorter : longer;
-      to_decimal_result result = {round_up ? shorter + 10 : dec_sig, dec_exp};
-      return result;
-    }
-    shorter += round_up * 10;
-    bool use_shorter = (scaled_sig_mod10 <= scaled_half_ulp) + round_up != 0;
-    to_decimal_result result = {use_shorter ? shorter : longer, dec_exp};
-    set_div10(&result, div10 + use_shorter * round_up);
+    int digit = (int)umul128_add_hi64(fractional, 10, ((uint64_t)1 << 63) - 1);
+    int lo =
+        (int)umul128_add_hi64(fractional - (half_ulp >> 1), 10, ~(uint64_t)0);
+    if (digit < lo) digit = lo;
+    to_decimal_result result = {integral, dec_exp, digit,
+                                (round_up + round_down) == 0};
     return result;
   }
-  return to_decimal_schubfach64(bin_sig, bin_exp, regular, false);
+
+  const uint64_t log10_2_sig = 78913;
+  const int log10_2_exp = 18;
+  int dec_exp =
+      use_umul128_hi64
+          ? (int)umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
+          : compute_dec_exp((int)bin_exp, true);
+  ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
+  unsigned char shift = exp_shift_data[bin_exp + double_exp_offset];
+  uint64_t even = 1 - (bin_sig & 1);
+
+  // An optimization by Xiang JunBo:
+  // Scale by 10**(-dec_exp-1) to directly produce the shorter candidate
+  // (15-16 digits), deriving the extra digit from the fractional part.
+  // This eliminates div10 from the critical path.
+  uint128 pow10 = get_pow10_significand(-dec_exp - 1);
+  uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
+
+  long long integral = (long long)(p.hi >> extra_shift);
+  uint64_t fractional = (p.hi << (64 - extra_shift)) | (p.lo >> extra_shift);
+
+  uint64_t half_ulp = (pow10.hi >> (extra_shift + 1 - shift)) + even;
+  bool round_up = fractional + half_ulp < fractional;
+  bool round_down = half_ulp > fractional;
+  integral += round_up;  // Compute integral before digit.
+
+  // +6 is needed for boundary cases found by verify.py.
+  const uint64_t biased_half = ((uint64_t)1 << 63) + 6;
+  // Derive the extra digit from the fractional part (parallel with rounding).
+  int digit = (int)umul128_add_hi64(fractional, 10, biased_half);
+  if (ZMIJ_UNLIKELY(fractional == (1ull << 62))) digit = 2;  // Round 2.5 to 2.
+  to_decimal_result result = {integral, dec_exp, digit,
+                              (round_up + round_down) == 0};
+  return result;
 }
 
-char* zmij_detail_write_float(float value, char* buffer) {
-  uint32_t bits = float_to_bits(value);
-  // It is beneficial to extract exponent and significand early.
-  int64_t bin_exp = float_get_exp(bits);   // binary exponent
-  uint32_t bin_sig = float_get_sig(bits);  // binary significand
+// Converts a binary FP number bin_sig * 2**bin_exp to the shortest decimal
+// representation, where bin_exp = raw_exp - exp_offset.
+static ZMIJ_INLINE to_decimal_result to_decimal_float(uint32_t bin_sig,
+                                                      int64_t raw_exp,
+                                                      bool regular) {
+  int64_t bin_exp = raw_exp - float_exp_offset;
+  const int irregular_extra_shift = 6;
+
+  if (ZMIJ_UNLIKELY(!regular)) {
+    int dec_exp = compute_dec_exp((int)bin_exp, false);
+    unsigned char shift =
+        compute_exp_shift((int)bin_exp, dec_exp + 1) + irregular_extra_shift;
+    uint128 pow10 = get_pow10_significand(-dec_exp - 1);
+    uint128 p = umul192_hi128(pow10.hi, pow10.lo, (uint64_t)bin_sig << shift);
+
+    long long integral = (long long)(p.hi >> irregular_extra_shift);
+    uint64_t fractional = (p.hi << (64 - irregular_extra_shift)) |
+                          (p.lo >> irregular_extra_shift);
+
+    uint64_t half_ulp = pow10.hi >> (irregular_extra_shift + 1 - shift);
+    bool round_up = half_ulp > ~(uint64_t)0 - fractional;
+    bool round_down = (half_ulp >> 1) > fractional;
+    integral += round_up;
+
+    int digit = (int)umul128_add_hi64(fractional, 10, ((uint64_t)1 << 63) - 1);
+    int lo =
+        (int)umul128_add_hi64(fractional - (half_ulp >> 1), 10, ~(uint64_t)0);
+    if (digit < lo) digit = lo;
+    to_decimal_result result = {integral, dec_exp, digit,
+                                (round_up + round_down) == 0};
+    return result;
+  }
+
+  const uint64_t log10_2_sig = 78913;
+  const int log10_2_exp = 18;
+  int dec_exp =
+      use_umul128_hi64
+          ? (int)umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
+          : compute_dec_exp((int)bin_exp, true);
+  unsigned char shift = exp_shift_data[bin_exp + double_exp_offset];
+  uint64_t even = 1 - (bin_sig & 1);
+
+  const int extra_shift = 34;
+  shift += extra_shift - irregular_extra_shift;
+  uint64_t pow10_hi = get_pow10_significand(-dec_exp - 1).hi;
+  uint64_t p = umul128_hi64(pow10_hi + 1, (uint64_t)bin_sig << shift);
+
+  long long integral = (long long)(p >> extra_shift);
+  uint64_t fractional = p & (((uint64_t)1 << extra_shift) - 1);
+
+  uint64_t half_ulp = (pow10_hi >> (65 - shift)) + even;
+  bool round_up = (fractional + half_ulp) >> extra_shift;
+  bool round_down = half_ulp > fractional;
+  integral += round_up;
+
+  int digit = (int)((fractional * 10 + ((uint64_t)1 << (extra_shift - 1))) >>
+                    extra_shift);
+  if (ZMIJ_UNLIKELY(fractional == ((uint64_t)1 << (extra_shift - 2))))
+    digit = 2;  // Round 2.5 to 2.
+  to_decimal_result result = {integral, dec_exp, digit,
+                              (round_up + round_down) == 0};
+  return result;
+}
+
+// Shared implementation of the public write entry points. `num_bits` is a
+// compile-time constant after ZMIJ_INLINE; the few branches on it fold away.
+static ZMIJ_INLINE char* write_impl(uint64_t bin_sig, int64_t bin_exp,
+                                    bool negative, char* buffer,
+                                    const int num_bits) {
+  const int max_digits10 = num_bits == 64 ? DBL_DECIMAL_DIG : FLT_DECIMAL_DIG;
+  const int min_fixed_dec_exp =
+      num_bits == 64 ? double_min_fixed_dec_exp : float_min_fixed_dec_exp;
+  const int max_fixed_dec_exp =
+      num_bits == 64 ? double_max_fixed_dec_exp : float_max_fixed_dec_exp;
+  const int bcd_size = num_bits == 64 ? 16 : 8;
+  const int exp_mask = num_bits == 64 ? double_exp_mask : float_exp_mask;
+  const uint64_t threshold = num_bits == 64 ? (uint64_t)1e15 : (uint64_t)1e7;
+  const uint64_t implicit_bit =
+      num_bits == 64 ? double_implicit_bit : float_implicit_bit;
 
   *buffer = '-';
-  buffer += float_is_negative(bits);
+  buffer += negative;
 
   to_decimal_result dec;
-  if (bin_exp == 0 || bin_exp == float_exp_mask) {
+  if (ZMIJ_UNLIKELY(bin_exp == 0 || bin_exp == exp_mask)) {
     if (bin_exp != 0) {
       memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
       return buffer + 3;
@@ -1613,33 +2147,99 @@ char* zmij_detail_write_float(float value, char* buffer) {
       memcpy(buffer, "0", 2);
       return buffer + 1;
     }
-    dec = to_decimal_schubfach32(bin_sig, 1 - float_exp_offset, true, true);
+    dec = num_bits == 64 ? to_decimal_double(bin_sig, 1, true)
+                         : to_decimal_float((uint32_t)bin_sig, 1, true);
+    long long dec_sig =
+        dec.sig * 10 + (-(long long)dec.has_last_digit & dec.last_digit);
+    int sub_exp = dec.exp;
+    while ((uint64_t)dec_sig < threshold) {
+      dec_sig *= 10;
+      --sub_exp;
+    }
+    long long q = (long long)div10((uint64_t)dec_sig);
+    int last_digit = (int)(dec_sig - q * 10);
+    dec.sig = q;
+    dec.exp = sub_exp;
+    dec.last_digit = last_digit;
+    dec.has_last_digit = last_digit != 0;
   } else {
-    dec = to_decimal_normal32(bin_sig | float_implicit_bit, bin_exp,
-                              bin_sig != 0);
+    dec = num_bits == 64
+              ? to_decimal_double(bin_sig | implicit_bit, bin_exp, bin_sig != 0)
+              : to_decimal_float((uint32_t)(bin_sig | implicit_bit), bin_exp,
+                                 bin_sig != 0);
   }
-  int dec_exp = dec.exp;
-
-  // Write significand.
-  char* start = buffer;
-  if (dec.sig < (uint32_t)1e7) {
-    dec.sig *= 10;
+  bool has_last_digit = dec.has_last_digit;
+  bool extra_digit = (uint64_t)dec.sig >= threshold;
+  int dec_exp = dec.exp + max_digits10 - 2 + extra_digit;
+  if (num_bits == 32 && ZMIJ_UNLIKELY((uint64_t)dec.sig < (uint64_t)1e6)) {
+    dec.sig = 10 * dec.sig + (-(long long)has_last_digit & dec.last_digit);
+    has_last_digit = false;
     --dec_exp;
   }
-  bool has9digits = dec.sig >= (uint32_t)1e8;
-  dec_exp += FLT_DECIMAL_DIG - 2 + has9digits;
-  buffer = write_significand9(buffer + 1, dec.sig, has9digits);
+
+  // Write significand/fixed.
+  char* start = buffer;
+  if (dec_exp >= min_fixed_dec_exp && dec_exp <= max_fixed_dec_exp) {
+    write8(start, zeros);  // For dec_exp < 0.
+    char last_digit_char = (char)('0' + (-has_last_digit & dec.last_digit));
+
+    // Materialize the base early so the entry address is `base + idx*32`;
+    // otherwise Clang folds the offset in and adds a cycle to the idx chain.
+    const fixed_layout_entry* fixed_layouts = fixed_layout_table;
+    if (ZMIJ_AARCH64) ZMIJ_ASM(("" : "+r"(fixed_layouts)));
+
+    const fixed_layout_entry* layout =
+        &fixed_layouts[dec_exp - double_min_fixed_dec_exp];
+    buffer += layout->start_pos;
+    int num_digits;
+    if (num_bits == 64) {
+      dec_digits_double dig = to_digits_double((uint64_t)dec.sig);
+      write_digits_double(buffer, dig.digits, !extra_digit);
+      num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
+    } else {
+      dec_digits_float dig = to_digits_float((uint64_t)dec.sig);
+      write_digits_float(buffer, dig.digits, !extra_digit);
+      num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
+    }
+    buffer[bcd_size + extra_digit - 1] = last_digit_char;
+    unsigned point_pos = layout->point_pos;
+    memmove(start + layout->shift_pos, start + point_pos, bcd_size);
+    start[point_pos] = '.';
+    return buffer + layout->end_pos[num_digits + extra_digit - 1];
+  }
+
+  buffer += extra_digit;
+  int num_digits;
+  if (num_bits == 64) {
+    dec_digits_double dig = to_digits_double((uint64_t)dec.sig);
+    memcpy(buffer, &dig.digits, bcd_size);
+    num_digits = dig.num_digits;
+  } else {
+    dec_digits_float dig = to_digits_float((uint64_t)dec.sig);
+    memcpy(buffer, &dig.digits, bcd_size);
+    num_digits = dig.num_digits;
+  }
+  buffer[bcd_size] = (char)('0' + dec.last_digit);
+  buffer += has_last_digit ? bcd_size + 1 : num_digits;
   start[0] = start[1];
   start[1] = '.';
+  buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
 
   // Write exponent.
-  uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
-  if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
-  memcpy(buffer, &e_sign, 2);
-  buffer += 2;
-  dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
-  memcpy(buffer, digits2(dec_exp), 2);
-  return buffer + 2;
+  uint64_t exp_data = exp_string_data[dec_exp + exp_string_offset];
+  int len = (int)(exp_data >> 48);
+  if (is_big_endian()) exp_data = bswap64(exp_data);
+  memcpy(buffer, &exp_data, num_bits == 64 ? 8 : 4);
+  return buffer + len;
+}
+
+char* zmij_detail_write_float(float value, char* buffer) {
+  uint32_t bits = float_to_bits(value);
+  // It is beneficial to extract exponent and significand early.
+  int64_t bin_exp = float_get_exp(bits);   // binary exponent
+  uint32_t bin_sig = float_get_sig(bits);  // binary significand
+  return write_impl((uint64_t)bin_sig, bin_exp, float_is_negative(bits), buffer,
+                    32);
 }
 
 // It is slightly faster to return a pointer to the end than the size.
@@ -1648,86 +2248,5 @@ char* zmij_detail_write_double(double value, char* buffer) {
   // It is beneficial to extract exponent and significand early.
   int64_t bin_exp = double_get_exp(bits);   // binary exponent
   uint64_t bin_sig = double_get_sig(bits);  // binary significand
-
-  *buffer = '-';
-  buffer += double_is_negative(bits);
-
-  to_decimal_result dec;
-  if (bin_exp == 0 || bin_exp == double_exp_mask) {
-    if (bin_exp != 0) {
-      memcpy(buffer, bin_sig == 0 ? "inf" : "nan", 4);
-      return buffer + 3;
-    }
-    if (bin_sig == 0) {
-      memcpy(buffer, "0", 2);
-      return buffer + 1;
-    }
-    dec = to_decimal_schubfach64(bin_sig, 1 - double_exp_offset, true, true);
-  } else {
-    dec = to_decimal_normal64(bin_sig | double_implicit_bit, bin_exp,
-                              bin_sig != 0);
-  }
-  int dec_exp = dec.exp;
-
-  // Write significand.
-  char* start = buffer;
-  bool has17digits = dec.sig >= (uint64_t)1e16;
-  dec_exp += DBL_DECIMAL_DIG - 2 + has17digits;
-  long long sig_div10 = 0;
-#if ZMIJ_USE_SSE
-  sig_div10 = dec.sig_div10;
-#endif
-
-  if (dec_exp >= -4 && dec_exp < 0) {
-    char* point = buffer + 1;
-    memcpy(buffer, "0.0000000", 8);
-    buffer = write_significand17(buffer + 1 - dec_exp, dec.sig, has17digits,
-                                 sig_div10);
-    if (ZMIJ_USE_SSE) *point = '.';
-    return buffer;
-  }
-
-  // Could merge this path with the scientific path, or increase the upper
-  // bound if this branch is bad on real world data.
-  if (dec_exp >= 0 && dec_exp < 16) {
-    // Avoid reading uninitialized memory (would be unnecessary in asm).
-    write8(buffer + 16, 0);
-
-    buffer = write_significand17_no_simd(buffer, dec.sig, has17digits);
-
-    // Branchless move to make space for the '.' without OOB accesses.
-    char* part1 = start + dec_exp + (dec_exp < 2);
-    char* part2 = part1 + (dec_exp < 2) + (dec_exp < 9 ? 7 : 0);
-    uint64_t value1 = read8(part1);
-    uint64_t value2 = read8(part2);
-    write8(part1 + 1, value1);
-    write8(part2 + 1, value2);
-
-    char* dot = start + dec_exp + 1;
-    *dot = '.';
-    return buffer > dot ? buffer + 1 : dot;
-  }
-
-  buffer = write_significand17(buffer + 1, dec.sig, has17digits, sig_div10);
-  start[0] = start[1];
-  start[1] = '.';
-  buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
-
-  // Write exponent.
-  uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
-  if (is_big_endian()) e_sign = e_sign << 8 | e_sign >> 8;
-  memcpy(buffer, &e_sign, 2);
-  buffer += 2;
-  dec_exp = dec_exp >= 0 ? dec_exp : -dec_exp;
-
-  // digit = dec_exp / 100
-  uint32_t digit = use_umul128_hi64
-                       ? umul128_hi64(dec_exp, 0x290000000000000)
-                       : ((uint32_t)dec_exp * div100_sig) >> div100_exp;
-  uint32_t digit_with_nuls = '0' + digit;
-  if (is_big_endian()) digit_with_nuls <<= 24;
-  memcpy(buffer, &digit_with_nuls, 4);
-  buffer += dec_exp >= 100;
-  memcpy(buffer, digits2(dec_exp - digit * 100), 2);
-  return buffer + 2;
+  return write_impl(bin_sig, bin_exp, double_is_negative(bits), buffer, 64);
 }
