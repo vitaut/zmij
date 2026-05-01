@@ -2002,7 +2002,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_double(uint64_t bin_sig,
     uint128 pow10 = get_pow10_significand(-dec_exp - 1);
     uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
 
-    long long integral = (long long)(p.hi >> extra_shift);
+    long long integral = p.hi >> extra_shift;
     uint64_t fractional = (p.hi << (64 - extra_shift)) | (p.lo >> extra_shift);
 
     uint64_t half_ulp = pow10.hi >> (extra_shift + 1 - shift);
@@ -2036,7 +2036,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_double(uint64_t bin_sig,
   uint128 pow10 = get_pow10_significand(-dec_exp - 1);
   uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
 
-  long long integral = (long long)(p.hi >> extra_shift);
+  long long integral = p.hi >> extra_shift;
   uint64_t fractional = (p.hi << (64 - extra_shift)) | (p.lo >> extra_shift);
 
   uint64_t half_ulp = (pow10.hi >> (extra_shift + 1 - shift)) + even;
@@ -2069,7 +2069,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_float(uint32_t bin_sig,
     uint128 pow10 = get_pow10_significand(-dec_exp - 1);
     uint128 p = umul192_hi128(pow10.hi, pow10.lo, (uint64_t)bin_sig << shift);
 
-    long long integral = (long long)(p.hi >> irregular_extra_shift);
+    long long integral = p.hi >> irregular_extra_shift;
     uint64_t fractional = (p.hi << (64 - irregular_extra_shift)) |
                           (p.lo >> irregular_extra_shift);
 
@@ -2101,7 +2101,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_float(uint32_t bin_sig,
   uint64_t pow10_hi = get_pow10_significand(-dec_exp - 1).hi;
   uint64_t p = umul128_hi64(pow10_hi + 1, (uint64_t)bin_sig << shift);
 
-  long long integral = (long long)(p >> extra_shift);
+  long long integral = p >> extra_shift;
   uint64_t fractional = p & (((uint64_t)1 << extra_shift) - 1);
 
   uint64_t half_ulp = (pow10_hi >> (65 - shift)) + even;
@@ -2120,7 +2120,7 @@ static ZMIJ_INLINE to_decimal_result to_decimal_float(uint32_t bin_sig,
 
 // Shared implementation of the public write entry points. `num_bits` is a
 // compile-time constant after ZMIJ_INLINE; the few branches on it fold away.
-static ZMIJ_INLINE char* write_impl(uint64_t bin_sig, int64_t bin_exp,
+static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
                                     bool negative, char* buffer,
                                     const int num_bits) {
   const int max_digits10 = num_bits == 64 ? DBL_DECIMAL_DIG : FLT_DECIMAL_DIG;
@@ -2149,14 +2149,13 @@ static ZMIJ_INLINE char* write_impl(uint64_t bin_sig, int64_t bin_exp,
     }
     dec = num_bits == 64 ? to_decimal_double(bin_sig, 1, true)
                          : to_decimal_float((uint32_t)bin_sig, 1, true);
-    long long dec_sig =
-        dec.sig * 10 + (-(long long)dec.has_last_digit & dec.last_digit);
+    long long dec_sig = dec.sig * 10 + (-dec.has_last_digit & dec.last_digit);
     int sub_exp = dec.exp;
     while ((uint64_t)dec_sig < threshold) {
       dec_sig *= 10;
       --sub_exp;
     }
-    long long q = (long long)div10((uint64_t)dec_sig);
+    long long q = div10(dec_sig);
     int last_digit = (int)(dec_sig - q * 10);
     dec.sig = q;
     dec.exp = sub_exp;
@@ -2171,8 +2170,8 @@ static ZMIJ_INLINE char* write_impl(uint64_t bin_sig, int64_t bin_exp,
   bool has_last_digit = dec.has_last_digit;
   bool extra_digit = (uint64_t)dec.sig >= threshold;
   int dec_exp = dec.exp + max_digits10 - 2 + extra_digit;
-  if (num_bits == 32 && ZMIJ_UNLIKELY((uint64_t)dec.sig < (uint64_t)1e6)) {
-    dec.sig = 10 * dec.sig + (-(long long)has_last_digit & dec.last_digit);
+  if (num_bits == 32 && ZMIJ_UNLIKELY(dec.sig < (uint32_t)1e6)) {
+    dec.sig = 10 * dec.sig + (-has_last_digit & dec.last_digit);
     has_last_digit = false;
     --dec_exp;
   }
@@ -2193,11 +2192,11 @@ static ZMIJ_INLINE char* write_impl(uint64_t bin_sig, int64_t bin_exp,
     buffer += layout->start_pos;
     int num_digits;
     if (num_bits == 64) {
-      dec_digits_double dig = to_digits_double((uint64_t)dec.sig);
+      dec_digits_double dig = to_digits_double(dec.sig);
       write_digits_double(buffer, dig.digits, !extra_digit);
       num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
     } else {
-      dec_digits_float dig = to_digits_float((uint64_t)dec.sig);
+      dec_digits_float dig = to_digits_float(dec.sig);
       write_digits_float(buffer, dig.digits, !extra_digit);
       num_digits = has_last_digit ? bcd_size : dig.num_digits - 1;
     }
@@ -2211,11 +2210,11 @@ static ZMIJ_INLINE char* write_impl(uint64_t bin_sig, int64_t bin_exp,
   buffer += extra_digit;
   int num_digits;
   if (num_bits == 64) {
-    dec_digits_double dig = to_digits_double((uint64_t)dec.sig);
+    dec_digits_double dig = to_digits_double(dec.sig);
     memcpy(buffer, &dig.digits, bcd_size);
     num_digits = dig.num_digits;
   } else {
-    dec_digits_float dig = to_digits_float((uint64_t)dec.sig);
+    dec_digits_float dig = to_digits_float(dec.sig);
     memcpy(buffer, &dig.digits, bcd_size);
     num_digits = dig.num_digits;
   }
@@ -2238,8 +2237,7 @@ char* zmij_detail_write_float(float value, char* buffer) {
   // It is beneficial to extract exponent and significand early.
   int64_t bin_exp = float_get_exp(bits);   // binary exponent
   uint32_t bin_sig = float_get_sig(bits);  // binary significand
-  return write_impl((uint64_t)bin_sig, bin_exp, float_is_negative(bits), buffer,
-                    32);
+  return do_write(bin_sig, bin_exp, float_is_negative(bits), buffer, 32);
 }
 
 // It is slightly faster to return a pointer to the end than the size.
@@ -2248,5 +2246,5 @@ char* zmij_detail_write_double(double value, char* buffer) {
   // It is beneficial to extract exponent and significand early.
   int64_t bin_exp = double_get_exp(bits);   // binary exponent
   uint64_t bin_sig = double_get_sig(bits);  // binary significand
-  return write_impl(bin_sig, bin_exp, double_is_negative(bits), buffer, 64);
+  return do_write(bin_sig, bin_exp, double_is_negative(bits), buffer, 64);
 }

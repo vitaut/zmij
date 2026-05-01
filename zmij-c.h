@@ -15,7 +15,7 @@ char* zmij_detail_write_double(double value, char* buffer);
 
 enum {
   zmij_float_buffer_size = 16,
-  zmij_double_buffer_size = 25,
+  zmij_double_buffer_size = 34,
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
