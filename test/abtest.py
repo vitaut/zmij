@@ -5,7 +5,7 @@
 """Compare working-tree zmij.{cc,h} against a base git ref using paired,
 ABBA-interleaved trials with macOS sleep prevention.
 
-    Usage: python3 test/abtest.py [<base-ref>]   # default: HEAD
+    Usage: python3 test/abtest.py [--float] [<base-ref>]   # default: HEAD
 
 Exits non-zero if any benchmark regresses with p < 0.01.
 """
@@ -21,7 +21,6 @@ from statistics import mean
 
 REPO = Path(__file__).resolve().parent.parent
 
-TARGET = "dtoa-benchmark"  # also try "ftoa-benchmark"
 TRIALS = 8        # per variant; total runs = 2*TRIALS in ABBA order
 REPS = 5          # --benchmark_repetitions per run
 MIN_TIME = 0.5    # --benchmark_min_time seconds per repetition
@@ -37,7 +36,7 @@ def run(cmd, cwd=None):
     return r.stdout
 
 
-def build(label, src, build_dir, deps, zcc, zh):
+def build(label, src, build_dir, deps, zcc, zh, target):
     (src / "zmij.cc").write_text(zcc)
     (src / "zmij.h").write_text(zh)
     args = ["cmake", "-S", src, "-B", build_dir,
@@ -47,8 +46,8 @@ def build(label, src, build_dir, deps, zcc, zh):
         args.append("-DFETCHCONTENT_FULLY_DISCONNECTED=TRUE")
     print(f"[build:{label}]", file=sys.stderr)
     run(args)
-    run(["cmake", "--build", build_dir, "-j", "--target", TARGET])
-    return build_dir / "test" / TARGET
+    run(["cmake", "--build", build_dir, "-j", "--target", target])
+    return build_dir / "test" / target
 
 
 def bench_run(exe, json_path):
@@ -98,9 +97,15 @@ def welch(base, cand):
 
 
 def main():
-    if len(sys.argv) > 2 or (len(sys.argv) == 2 and sys.argv[1] in ("-h", "--help")):
-        sys.exit(f"Usage: {sys.argv[0]} [<base-ref>]   # default: HEAD")
-    ref = sys.argv[1] if len(sys.argv) == 2 else "HEAD"
+    usage = f"Usage: {sys.argv[0]} [--float] [<base-ref>]   # default: HEAD"
+    args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        sys.exit(usage)
+    target = "ftoa-benchmark" if "--float" in args else "dtoa-benchmark"
+    args = [a for a in args if a != "--float"]
+    if len(args) > 1:
+        sys.exit(usage)
+    ref = args[0] if args else "HEAD"
 
     sha = run(["git", "rev-parse", "--verify", ref], cwd=REPO).strip()
     base_cc = run(["git", "show", f"{sha}:zmij.cc"], cwd=REPO)
@@ -121,8 +126,8 @@ def main():
             (src / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO / rel, src / rel)
 
-        base_exe = build("base", src, tmp / "build/base", deps, base_cc, base_h)
-        cand_exe = build("cand", src, tmp / "build/cand", deps, cand_cc, cand_h)
+        base_exe = build("base", src, tmp / "build/base", deps, base_cc, base_h, target)
+        cand_exe = build("cand", src, tmp / "build/cand", deps, cand_cc, cand_h, target)
 
         # ABBA-interleaved trials: any monotonic drift (thermal, battery,
         # background work) is split symmetrically between the two variants.
