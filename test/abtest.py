@@ -29,14 +29,22 @@ FILTER = ""       # regex like "^zmij$" to narrow benchmarks; "" = all
 
 def nosleep_prefix():
     """Command prefix that keeps the host awake for the duration of a
-    wrapped command. Returns [] on platforms without a known inhibitor or
-    when the tool isn't installed; the bench still runs, it just isn't
-    protected from idle sleep."""
+    wrapped command. Returns [] on platforms without a known inhibitor,
+    when the tool isn't installed, or when policy denies it; the bench
+    still runs, it just isn't protected from idle sleep."""
     if sys.platform == "darwin" and shutil.which("caffeinate"):
         return ["caffeinate", "-dimsu"]
     if sys.platform.startswith("linux") and shutil.which("systemd-inhibit"):
-        return ["systemd-inhibit", "--what=idle:sleep",
-                "--who=abtest", "--why=benchmark"]
+        prefix = ["systemd-inhibit", "--what=idle:sleep",
+                  "--who=abtest", "--why=benchmark"]
+        # polkit denies the inhibit-block-{idle,sleep} actions from
+        # non-active sessions (e.g. SSH) without interactive auth, so probe
+        # once with a no-op command and fall back silently if it fails.
+        ok = subprocess.run([*prefix, "true"],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL).returncode == 0
+        if ok:
+            return prefix
     return []
 
 
