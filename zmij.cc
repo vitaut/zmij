@@ -467,7 +467,10 @@ struct pow10_significand_table {
     constexpr int dec_exp_min = -293;
     int i = dec_exp - dec_exp_min;
     if (compress) return compute(i);
-    if (!split_tables) return {data[i * 2], data[i * 2 + 1]};
+    if (!split_tables) {
+      const uint64_t* p = data + i * 2;
+      return {p[0], p[1]};
+    }
 
     // The caller passes `-e - 1` for its own dec_exp `e`, so `~dec_exp`
     // (i.e. `-dec_exp - 1`) recovers `e` directly. Picking the base so that
