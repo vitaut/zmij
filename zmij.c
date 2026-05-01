@@ -1154,11 +1154,11 @@ static const struct {
 #  else
   m128i hundred;
   m128i moddiv10;
-#  endif
+#  endif  // ZMIJ_USE_SSE4_1
   m128i div10k;
   m128i neg10k;
   m128i zeros_v;
-#endif
+#endif    // ZMIJ_USE_SSE
   // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
   // shift left by 1 (drops the leading '0' of a 16-digit significand).
   unsigned char shift_shuffle[17];
@@ -1179,11 +1179,11 @@ static const struct {
 #  else
     ZMIJ_SPLAT32(100),
     ZMIJ_SPLAT16(10 * (1 << 8) - 1),
-#  endif
+#  endif  // ZMIJ_USE_SSE4_1
     ZMIJ_SPLAT64(div10k_sig),
     ZMIJ_SPLAT64(neg10k),
     ZMIJ_SPLAT64(zeros),
-#endif
+#endif    // ZMIJ_USE_SSE
     {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0},
 };
 
@@ -1873,7 +1873,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh) {
 #  endif
   bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
   return result;
-#endif
+#endif  // ZMIJ_USE_SSE
 }
 
 // Converts a value (up to 8 decimal digits) to BCD representation.
@@ -1943,7 +1943,7 @@ static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value) {
 #  endif
   dec_digits_double result = {_mm_or_si128(bcd, zeros_v), len};
   return result;
-#endif
+#endif  // ZMIJ_USE_SSE
 }
 
 // Writes 16 BCD characters to `buffer`. When drop_leading_zero is set, shifts
