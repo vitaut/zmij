@@ -127,7 +127,7 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
 #ifdef __GNUC__
 #  define ZMIJ_ASM(x) asm x
 #else
-#  define ZMIJ_ASM(x)
+#  define ZMIJ_ASM(x) ((void)0)
 #endif
 
 #if defined(ZMIJ_ALIGNAS)
@@ -2144,7 +2144,8 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
     }
     dec = num_bits == 64 ? to_decimal_double(bin_sig, 1, true)
                          : to_decimal_float((uint32_t)bin_sig, 1, true);
-    long long dec_sig = dec.sig * 10 + (-dec.has_last_digit & dec.last_digit);
+    long long dec_sig =
+        dec.sig * 10 + (-(int)dec.has_last_digit & dec.last_digit);
     int dec_exp = dec.exp;
     while ((uint64_t)dec_sig < threshold) {
       dec_sig *= 10;
@@ -2166,7 +2167,7 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
   bool extra_digit = (uint64_t)dec.sig >= threshold;
   int dec_exp = dec.exp + max_digits10 - 2 + extra_digit;
   if (num_bits == 32 && ZMIJ_UNLIKELY(dec.sig < (uint32_t)1e6)) {
-    dec.sig = 10 * dec.sig + (-has_last_digit & dec.last_digit);
+    dec.sig = 10 * dec.sig + (-(int)has_last_digit & dec.last_digit);
     has_last_digit = false;
     --dec_exp;
   }
@@ -2175,7 +2176,8 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
   char* start = buffer;
   if (dec_exp >= min_fixed_dec_exp && dec_exp <= max_fixed_dec_exp) {
     write8(start, zeros);  // For dec_exp < 0.
-    char last_digit_char = (char)('0' + (-has_last_digit & dec.last_digit));
+    char last_digit_char =
+        (char)('0' + (-(int)has_last_digit & dec.last_digit));
 
     // Materialize the base early so the entry address is `base + idx*32`;
     // otherwise Clang folds the offset in and adds a cycle to the idx chain.
