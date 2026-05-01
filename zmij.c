@@ -2121,8 +2121,8 @@ static ZMIJ_INLINE to_decimal_result to_decimal_float(uint32_t bin_sig,
 // Shared implementation of the public write entry points. `num_bits` is a
 // compile-time constant after ZMIJ_INLINE; the few branches on it fold away.
 static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
-                                    bool negative, char* buffer,
-                                    const int num_bits) {
+                                  bool negative, char* buffer,
+                                  const int num_bits) {
   const int max_digits10 = num_bits == 64 ? DBL_DECIMAL_DIG : FLT_DECIMAL_DIG;
   const int min_fixed_dec_exp =
       num_bits == 64 ? double_min_fixed_dec_exp : float_min_fixed_dec_exp;
