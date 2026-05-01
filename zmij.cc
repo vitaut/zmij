@@ -277,18 +277,6 @@ constexpr bool use_umul128_hi64 = true;  // Use umul128_hi64 for division.
 constexpr bool use_umul128_hi64 = false;
 #endif
 
-#if ZMIJ_USE_SSE
-inline auto extract_u64(__m128i v) noexcept -> uint64_t {
-#  if defined(__x86_64__) || defined(_M_X64)
-  return (uint64_t)_mm_cvtsi128_si64(v);
-#  else
-  uint32_t lo = _mm_cvtsi128_si32(v);
-  uint32_t hi = _mm_cvtsi128_si32(_mm_srli_si128(v, 4));
-  return ((uint64_t)hi << 32) | lo;
-#  endif
-}
-#endif
-
 // Computes 128-bit result of multiplication of two 64-bit unsigned integers.
 constexpr auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 #if ZMIJ_USE_INT128
@@ -669,7 +657,7 @@ struct data {
   ZMIJ_CONST_DECL uint64_t biased_half = (uint64_t(1) << 63) + 6;
 
 #if ZMIJ_USE_NEON
-  static constexpr int32_t neg10k = -10000 + 0x10000;
+  static constexpr int32_t neg10k = 0x10000 - 10000;
 
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
@@ -837,7 +825,12 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
       (abcdefgh << 32) -
       uint64_t((10000ull << 32) - 1) * ((abcdefgh * div10k_sig) >> div10k_exp);
   __m128i v = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d);
-  uint64_t bcd = extract_u64(v);
+#  if defined(__x86_64__) || defined(_M_X64)
+  uint64_t bcd = _mm_cvtsi128_si64(v);
+#  else
+  uint64_t bcd = uint64_t(_mm_cvtsi128_si32(_mm_srli_si128(v, 4))) << 32 |
+                 uint32_t(_mm_cvtsi128_si32(v));
+#  endif
   return {bcd, count_trailing_nonzeros(bcd)};
 #endif  // ZMIJ_USE_SSE
 }
