@@ -14,7 +14,7 @@
 
 namespace zmij {
 enum {
-  double_buffer_size = 25,
+  double_buffer_size = 34,
   float_buffer_size = 16,
 };
 
