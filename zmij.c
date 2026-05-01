@@ -1817,24 +1817,22 @@ static ZMIJ_INLINE __m128i to_bcd_4x4(__m128i y) {
 }
 #endif    // ZMIJ_USE_SSE
 
-#if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
-static ZMIJ_INLINE int ctz(uint64_t x) { return __builtin_ctzll(x); }
-#elif ZMIJ_MSC_VER
 static ZMIJ_INLINE int ctz(uint64_t x) {
+#if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
+  return __builtin_ctzll(x);
+#elif ZMIJ_MSC_VER
   unsigned long index;
   _BitScanForward64(&index, x);
   return (int)index;
-}
 #else
-static ZMIJ_INLINE int ctz(uint64_t x) {
   int n = 0;
   while ((x & 1) == 0) {
     x >>= 1;
     ++n;
   }
   return n;
-}
 #endif
+}
 
 // Converts an 8-decimal-digit value to its BCD representation along with the
 // number of trailing-zero-trimmed bytes.
