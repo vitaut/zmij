@@ -323,7 +323,7 @@ static ZMIJ_INLINE uint64_t div10(uint64_t x) {
 }
 
 // Returns true_value if condition != 0, else false_value, without branching.
-static ZMIJ_INLINE int64_t select(uint64_t condition, int64_t true_value,
+static ZMIJ_INLINE int64_t zmij_select(uint64_t condition, int64_t true_value,
                                   int64_t false_value) {
   // Clang can figure it out on its own.
   if (!ZMIJ_X86_64 || ZMIJ_CLANG) return condition ? true_value : false_value;
