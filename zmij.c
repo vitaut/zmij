@@ -324,7 +324,7 @@ static ZMIJ_INLINE uint64_t div10(uint64_t x) {
 
 // Returns true_value if condition != 0, else false_value, without branching.
 static ZMIJ_INLINE int64_t zmij_select(uint64_t condition, int64_t true_value,
-                                  int64_t false_value) {
+                                       int64_t false_value) {
   // Clang can figure it out on its own.
   if (!ZMIJ_X86_64 || ZMIJ_CLANG) return condition ? true_value : false_value;
   ZMIJ_ASM(
@@ -1204,7 +1204,7 @@ typedef struct {
 ZMIJ_ALIGNAS(32)
 #endif
 static const fixed_layout_entry fixed_layout_table[20] = {
-// clang-format off
+    // clang-format off
     {5, 1, 1,  // -4
      {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}},
     {4, 1, 1,  // -3
@@ -1245,7 +1245,7 @@ static const fixed_layout_entry fixed_layout_table[20] = {
      {15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 17, 18}},
     {0, 16, 17,  // 15
      {16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 16, 18}},
-// clang-format on
+    // clang-format on
 };
 
 enum {
