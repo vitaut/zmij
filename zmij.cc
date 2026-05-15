@@ -1083,7 +1083,7 @@ ZMIJ_INLINE auto write_scientific_float_simd(
 ZMIJ_INLINE auto write_scientific_float_simd(
     char* buffer, const dec_digits<32>& dig, int last_digit_value,
     bool has_last_digit, bool extra_digit, uint64_t exp_data,
-    const data&) noexcept -> char* {
+    const data& d) noexcept -> char* {
   uint8x16_t ascii = vorrq_u8(dig.unshuffled, vdupq_n_u8('0'));
   uint32_t prefix = (uint32_t('.') << 8) + uint32_t('0') + last_digit_value;
   uint64_t hi_qword = (exp_data & 0xFFFFFFFFu) | (uint64_t(prefix) << 32);
