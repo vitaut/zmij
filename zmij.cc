@@ -1091,7 +1091,6 @@ ZMIJ_INLINE auto write_scientific_float_simd(
       vsetq_lane_u64(hi_qword, vreinterpretq_u64_u8(ascii), 1));
 
   auto m = d.scientific_float_masks.get_entry(dig.num_digits, has_last_digit, extra_digit);
-  int idx = (dig.num_digits - 1) * 4 + int(has_last_digit + 2 * extra_digit);
   uint8x16_t mask = vld1q_u8(m.mask);
   uint8x16_t out = vqtbl1q_u8(src, mask);
   vst1q_u8(reinterpret_cast<uint8_t*>(buffer), out);
