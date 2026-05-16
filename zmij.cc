@@ -555,7 +555,7 @@ struct exp_string_table {
 // After benchmnarking, the fastest way of indexing appears to be a flat
 // array with index = (num_digits - 1) * 4 + has_last_digit * 2 + extra_digit.
 struct scientific_float_mask_table {
-  static constexpr bool enable = ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON;
+  static constexpr bool enable = (ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON) && exp_string_table::enable;
 
   alignas(16) unsigned char masks[enable ? 32 * 16 : 1] = {};
   unsigned char lengths[enable ? 32 : 1] = {};
@@ -1304,7 +1304,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     return buffer + layout.end_pos[num_digits + extra_digit - 1];
   }
 #if ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON
-  if (traits::num_bits == 32 && exp_string_table::enable) {
+  if (traits::num_bits == 32 && scientific_float_mask_table::enable) {
     uint64_t exp_data = d->exp_strings.data[dec_exp + exp_string_table::offset];
     return write_scientific_float_simd(buffer, dig, dec.last_digit,
                                        has_last_digit, extra_digit, exp_data,
