@@ -1055,48 +1055,36 @@ ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
   memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
 }
 
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON
 ZMIJ_INLINE auto write_scientific_float_simd(
     char* buffer, const dec_digits<32>& dig, int last_digit_value,
     bool has_last_digit, bool extra_digit, uint64_t exp_data,
     const data& d) noexcept -> char* {
-  __m128i ascii = _mm_or_si128(dig.unshuffled,
-                               _mm_load_si128(m128ptr(&d.zeros)));
   uint32_t prefix = (uint32_t('.') << 8) + uint32_t('0') + last_digit_value;
   uint64_t hi_qword = (exp_data & 0xFFFFFFFFu) | (uint64_t(prefix) << 32);
-  __m128i src = _mm_insert_epi64(ascii, int64_t(hi_qword), 1);
   auto m = d.scientific_float_masks.get_entry(dig.num_digits, has_last_digit, extra_digit);
+
+#  if ZMIJ_USE_SSE4_1
+  __m128i ascii = _mm_or_si128(dig.unshuffled,
+                               _mm_load_si128(m128ptr(&d.zeros)));
+  __m128i src = _mm_insert_epi64(ascii, int64_t(hi_qword), 1);
   __m128i mask = _mm_load_si128(m128ptr(m.mask));
   __m128i out = _mm_shuffle_epi8(src, mask);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), out);
+#  else // ZMIJ_USE_NEON
+  uint8x16_t ascii = vorrq_u8(dig.unshuffled, vdupq_n_u8('0'));
+  uint8x16_t src = vreinterpretq_u8_u64(
+      vsetq_lane_u64(hi_qword, vreinterpretq_u64_u8(ascii), 1));
+
+  uint8x16_t mask = vld1q_u8(m.mask);
+  uint8x16_t out = vqtbl1q_u8(src, mask);
+  vst1q_u8(reinterpret_cast<uint8_t*>(buffer), out);
+#  endif
   return buffer + m.length;
 }
 
 // Dummy overload so write<double> instantiates cleanly. The runtime
 // guard `traits::num_bits == 32` in `write` folds this call away.
-ZMIJ_INLINE auto write_scientific_float_simd(
-    char*, const dec_digits<64>&, int, bool, bool, uint64_t,
-    const data&) noexcept -> char* {
-  return nullptr;
-}
-#elif ZMIJ_USE_NEON
-ZMIJ_INLINE auto write_scientific_float_simd(
-    char* buffer, const dec_digits<32>& dig, int last_digit_value,
-    bool has_last_digit, bool extra_digit, uint64_t exp_data,
-    const data& d) noexcept -> char* {
-  uint8x16_t ascii = vorrq_u8(dig.unshuffled, vdupq_n_u8('0'));
-  uint32_t prefix = (uint32_t('.') << 8) + uint32_t('0') + last_digit_value;
-  uint64_t hi_qword = (exp_data & 0xFFFFFFFFu) | (uint64_t(prefix) << 32);
-  uint8x16_t src = vreinterpretq_u8_u64(
-      vsetq_lane_u64(hi_qword, vreinterpretq_u64_u8(ascii), 1));
-
-  auto m = d.scientific_float_masks.get_entry(dig.num_digits, has_last_digit, extra_digit);
-  uint8x16_t mask = vld1q_u8(m.mask);
-  uint8x16_t out = vqtbl1q_u8(src, mask);
-  vst1q_u8(reinterpret_cast<uint8_t*>(buffer), out);
-  return buffer + m.length;
-}
-
 ZMIJ_INLINE auto write_scientific_float_simd(
     char*, const dec_digits<64>&, int, bool, bool, uint64_t,
     const data&) noexcept -> char* {
