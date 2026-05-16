@@ -909,27 +909,24 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
 #endif  // ZMIJ_USE_SSE
 }
 
-template <int num_bits> struct dec_digits {
-  uint64_t digits;
-  int num_digits;
-};
+template <int num_bits> struct dec_digits;
 
-// For float on SSE4.1/NEON we keep the unshuffled (LSD-first) numeric BCD
-// around so the scientific path can avoid the SIMD→gpr→bswap→SIMD roundtrip
-// needed to materialize `digits`.
+// For the SIMD paths with shuffle operations (SSE4.1, NEON) we
+// keep the byte-reversed ("unshuffled") SIMD result, as we use
+// it to put together the full string in the SIMD register for
+// output with exponents (scientific style).
+template <> struct dec_digits<32> {
 #if ZMIJ_USE_SSE4_1
-template <> struct dec_digits<32> {
-  uint64_t digits;
-  __m128i unshuffled;
-  int num_digits;
-};
+  using wide_type = __m128i;
 #elif ZMIJ_USE_NEON
-template <> struct dec_digits<32> {
+  using wide_type = uint8x16_t;
+#else
+  using wide_type = uint128; // unused
+#endif
   uint64_t digits;
-  uint8x16_t unshuffled;
+  wide_type unshuffled;
   int num_digits;
 };
-#endif
 
 template <> struct dec_digits<64> {
 #if ZMIJ_USE_NEON
@@ -1023,7 +1020,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   return {bswap64(unshuffled_bcd) + zeros, unshuffled, len};
 #else
   auto result = to_bcd8(value);
-  return {result.bcd + zeros, result.len};
+  return {result.bcd + zeros, {}, result.len};
 #endif
 }
 
