@@ -575,7 +575,7 @@ struct scientific_float_mask_table {
           unsigned char* out = &masks[idx * 16];
           for (int i = 0; i < 16; ++i) out[i] = 0x80;  // zero by default
 
-          // Position of the MSD in the LSD-first unshuffled byte order.
+          // Position of the most significant digit in the reversed input.
           unsigned char msd_byte = extra_digit ? 7 : 6;
           unsigned char length = 0;
           if (has_last) {
@@ -583,16 +583,16 @@ struct scientific_float_mask_table {
             // for !extra_digit the leading '0' of the 8-digit padded BCD is shown.
             out[length++] = msd_byte;
             out[length++] = 13;  // '.'
-            for (int i = 0; i < (extra_digit ? 7 : 6); ++i)
-              out[length++] = msd_byte - 1 - i;
+            for (int i = msd_byte - 1; i >= 0; --i)
+              out[length++] = i;
             out[length++] = 12;  // last_digit
           } else {
             length = (extra_digit + ndigits == 2) ? 1 : extra_digit + ndigits;
             out[0] = msd_byte;
             if (length > 1) {
               out[1] = 13;  // '.'
-              for (int i = 0; i < length - 2; ++i)
-                out[2 + i] = msd_byte - 1 - i;
+              for (int i = 2; i < length; ++i)
+                out[i] = msd_byte + 1 - i;
             }
           }
           // Exp string follows the significand.
