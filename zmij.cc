@@ -540,25 +540,17 @@ struct exp_string_table {
   }
 };
 
-// Shuffle masks for branchless float scientific-notation output. A single
-// pshufb assembles "<d>.<rest><e±xx>" from a source register holding the
-// unshuffled (LSD-first) ASCII digits in bytes 0..7, the exp string
-// in bytes 8..11, the decimal point (byte 12 = '.'), and the last_digit
-// (ASCII, byte 13). The shuffle indices reverse the byte order while
-// inserting the decimal point and placing the exponent after the last
-// non-zero digit.
+// Shuffle masks to build strings in scientific form.
 //
-// In unshuffled form: for extra_digit, MSD lives at byte 7 (LSD at 0);
-// for the leading-zero-padded case (no extra_digit), MSD is at byte 6
-// and byte 7 holds the padding '0'.
+// We store the length in the last byte of the shuffle mask as it is always
+// past the end of the string.
 //
 // After benchmnarking, the fastest way of indexing appears to be a flat
-// array with index = (num_digits - 1) * 4 + has_last_digit * 2 + extra_digit.
+// array with the index calculation done explicitly in get_index.
 struct scientific_float_mask_table {
   static constexpr bool enable = (ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON) && exp_string_table::enable;
 
   alignas(16) unsigned char masks[enable ? 32 * 16 : 1] = {};
-  unsigned char lengths[enable ? 32 : 1] = {};
 
   constexpr auto get_index(int ndigits, int has_last, int has_extra_digit) const noexcept {
     return (ndigits - 1) * 4 + has_last * 2 + has_extra_digit;
@@ -571,7 +563,7 @@ struct scientific_float_mask_table {
 
   constexpr auto get_entry(int ndigits, bool has_last, bool has_extra_digit) const noexcept {
     auto idx = get_index(ndigits, has_last, has_extra_digit);
-    return entry{ &masks[idx * 16], lengths[idx] };
+    return entry{ &masks[idx * 16], masks[idx * 16 + 15] };
   }
 
   constexpr scientific_float_mask_table() {
@@ -606,7 +598,7 @@ struct scientific_float_mask_table {
           // Exp string follows the significand.
           for (unsigned char i = 0; i < 4; ++i)
             out[length++] = 8 + i;
-          lengths[idx] = length;
+          out[15] = length;
         }
       }
     }
