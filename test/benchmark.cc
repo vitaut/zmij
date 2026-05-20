@@ -161,6 +161,49 @@ static void run_to_chars_canada(benchmark::State& state,
           benchmark::Counter::kInvert);
 }
 
+// Doubles drawn uniformly from zmij's fixed-notation decimal-exponent range,
+// dec_exp in [-4, 15]: each decade is equally weighted, so the negative-
+// exponent side (which canada.json doesn't cover) gets ~25% of samples. Sized
+// to roughly match canada_numbers for comparable per-iteration cost.
+static const std::vector<double>& get_fixed_range_numbers() {
+  static const std::vector<double> v = [] {
+    constexpr size_t count =
+        sizeof(canada_numbers) / sizeof(canada_numbers[0]);
+    std::mt19937_64 rng(0);
+    std::uniform_int_distribution<int> exp_dist(-4, 15);
+    std::uniform_real_distribution<double> sig_dist(1.0, 10.0);
+    std::vector<double> out;
+    out.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+      double sig = sig_dist(rng);
+      int e = exp_dist(rng);
+      out.push_back(sig * std::pow(10.0, e));
+    }
+    return out;
+  }();
+  return v;
+}
+
+static void run_to_chars_fixed_range(
+    benchmark::State& state, auto (*to_chars)(double, char*)->char*) {
+  const auto& nums = get_fixed_range_numbers();
+  char buffer[256];
+  for (auto _ : state) {
+    for (double x : nums) {
+      char* end = to_chars(x, buffer);
+      benchmark::DoNotOptimize(end);
+      benchmark::ClobberMemory();
+    }
+  }
+  state.counters["Throughput"] = benchmark::Counter(
+      static_cast<double>(nums.size()),
+      benchmark::Counter::kIsIterationInvariantRate);
+  state.counters["Time/double"] = benchmark::Counter(
+      static_cast<double>(nums.size()),
+      benchmark::Counter::kIsIterationInvariantRate |
+          benchmark::Counter::kInvert);
+}
+
 // Formats a counter value with 2 fractional digits, applying SI auto-scaling
 // so the mantissa always sits in [1, 1000) (or in [0.01, 1) for tiny values).
 static auto format_counter(double n) -> std::string {
@@ -233,6 +276,9 @@ static void register_all(bool per_digit) {
     if constexpr (std::is_same_v<T, double>) {
       auto canada_name = m.name + "/canada";
       benchmark::RegisterBenchmark(canada_name.c_str(), run_to_chars_canada,
+                                   m.to_chars);
+      auto fr_name = m.name + "/fixed_range";
+      benchmark::RegisterBenchmark(fr_name.c_str(), run_to_chars_fixed_range,
                                    m.to_chars);
     }
   }
