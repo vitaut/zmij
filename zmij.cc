@@ -656,11 +656,11 @@ struct fixed_layout_table {
             full_size + ((0 <= dec_exp) && (dec_exp < full_size));
       }
 
-      // Build the shuffle tables.  to_digits returns natural-order BCD bytes
-      // (BCD[k] at register byte k).  For extra_digit == 1 the integer part
-      // is BCD[0..dec_exp]; for extra_digit == 0 the leading zero is dropped,
-      // so the integer part is BCD[1..dec_exp+1].  In both cases the decimal
-      // point sits at output byte 1 + dec_exp (when in [0, 14]) and is
+      // Build the shuffle tables.  to_digits returns bute-reversed BCD bytes.
+      // For extra_digit == 1 the integer part is BCD[15..15-dec_exp]; for
+      // extra_digit == 0 the leading zero is dropped, so the integer part
+      // is BCD[14..14-dec_exp].  In both cases the decimal point sits at
+      // output byte 1 + dec_exp (when in [0, 14]) and is
       // encoded as a pshufb zero-marker (high bit set).  For dec_exp == 15
       // or dec_exp < 0 no point lives inside the vector and the entry is
       // just identity with the extra_digit offset folded in.
@@ -671,7 +671,7 @@ struct fixed_layout_table {
           if (i == hole) {
             e.shuffle[extra][i] = 0xFF;
           } else {
-            e.shuffle[extra][i] = (unsigned char)bcd_idx++;
+            e.shuffle[extra][i] = 15 - (unsigned char)bcd_idx++;
           }
         }
       }
@@ -962,6 +962,9 @@ template <> struct dec_digits<64> {
   using digits_type = uint128;
 #endif
   digits_type digits;
+#if ZMIJ_USE_SSE4_1
+  digits_type digits_reversed;
+#endif
   int num_digits;
 };
 
@@ -1011,9 +1014,11 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
   int len = ZMIJ_USE_SSE4_1 ? 16 - ctz(mask) : 64 - clz(mask);
 #  if ZMIJ_USE_SSE4_1
-  bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));  // SSSE3
-#  endif
+  bcd = _mm_or_si128(bcd, zeros);
+  return { _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap))), bcd, len };
+#  else
   return {_mm_or_si128(bcd, zeros), len};
+#endif
 #endif  // ZMIJ_USE_SSE
 }
 
@@ -1320,15 +1325,16 @@ auto write(Float value, char* buffer) noexcept -> char* {
       // Assemble the digit string (minus the last_digit and, for has_extra_digit
       // == 1, BCD[15]) in a single SIMD register and store it in one go.
       __m128i tbl = _mm_load_si128(m128ptr(&layout.shuffle[has_extra_digit]));
-      // dig.digits is uint64_t for float, alias as __m128i to avoid a compiler error.
-      auto& digits = reinterpret_cast<const __m128i&>(dig.digits);
+      // Alias dig in order to avoid a compiler error when accessing the digits_reversed
+      // member which only exists for doubles.
+      auto& dig64 = reinterpret_cast<dec_digits<64>&>(dig);
       // For has_extra_digit == 1 with 0 <= dec_exp <= 14 the BCD[15] byte falls
       // outside the vector at buffer[16]; write it unconditionally.  In the
       // other cases (dec_exp == 15, dec_exp < 0, or has_extra_digit == 0) it's
       // either already in the vector or overwritten below by '.' / last_digit.
-      buffer[bcd_size] = (char)_mm_extract_epi8(digits, 15);
-      __m128i out = _mm_shuffle_epi8(digits, tbl);
-      memcpy(buffer, &out, bcd_size);
+      buffer[16] = (char)_mm_extract_epi8(dig64.digits_reversed, 0);
+      __m128i out = _mm_shuffle_epi8(dig64.digits_reversed, tbl);
+      memcpy(buffer, &out, 16);
       start[layout.point_pos] = '.';
       buffer[layout.last_digit_pos[has_extra_digit]] = last_digit;
       return buffer + layout.end_pos[num_digits + has_extra_digit - 1];
