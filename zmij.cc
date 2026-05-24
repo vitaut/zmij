@@ -551,7 +551,8 @@ struct exp_string_table {
 // The shuffle length (max 14) is stored in byte 15; the corresponding output
 // byte is past the string and ignored by the caller.
 struct exp_float_shuffle_table {
-  static constexpr bool enable = (ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON) && exp_string_table::enable;
+  static constexpr bool enable =
+      (ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON) && exp_string_table::enable;
   static constexpr unsigned char exp_pos = 8;
   static constexpr unsigned char last_digit_pos = 12;
   static constexpr unsigned char point_pos = 13;
@@ -562,9 +563,10 @@ struct exp_float_shuffle_table {
     unsigned char length;
   };
 
-  constexpr auto get_entry(int num_digits, bool has_last_digit, bool has_extra_digit) const noexcept {
+  constexpr auto get_entry(int num_digits, bool has_last_digit,
+                           bool has_extra_digit) const noexcept {
     int idx = (num_digits - 1) * 4 + has_last_digit * 2 + has_extra_digit;
-    return entry{ &data[idx * 16], data[idx * 16 + 15] };
+    return entry{&data[idx * 16], data[idx * 16 + 15]};
   }
 
   constexpr exp_float_shuffle_table() {
@@ -579,11 +581,11 @@ struct exp_float_shuffle_table {
       unsigned char length = 0;
       if (has_last_digit) {
         // Always 8 BCD chars in the significand plus a last-digit char;
-        // for !has_extra_digit the leading '0' of the 8-digit padded BCD is shown.
+        // for !has_extra_digit the leading '0' of the 8-digit padded BCD is
+        // shown.
         out[length++] = leading_digit_pos;
         out[length++] = point_pos;
-        for (int i = leading_digit_pos - 1; i >= 0; --i)
-          out[length++] = i;
+        for (int i = leading_digit_pos - 1; i >= 0; --i) out[length++] = i;
         out[length++] = last_digit_pos;
       } else {
         length = num_digits + has_extra_digit;
@@ -593,8 +595,7 @@ struct exp_float_shuffle_table {
         out[1] = point_pos;
         for (int i = 2; i < length; ++i) out[i] = leading_digit_pos + 1 - i;
       }
-      for (unsigned char i = 0; i < 4; ++i)
-        out[length++] = exp_pos + i;
+      for (unsigned char i = 0; i < 4; ++i) out[length++] = exp_pos + i;
       out[15] = length;
     }
   }
@@ -907,7 +908,7 @@ template <> struct dec_digits<32> {
 #elif ZMIJ_USE_NEON
   using wide_type = uint8x16_t;
 #else
-  using wide_type = uint128; // unused
+  using wide_type = uint128;  // unused
 #endif
   uint64_t digits;
   wide_type unshuffled;
@@ -985,8 +986,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
 #if ZMIJ_USE_SSE4_1
   // Inline to_bcd8's SSE4.1 body so we can return the unshuffled xmm too;
   // the exponential-notation path uses it to skip the bswap-via-gpr.
-  uint64_t abcd_efgh =
-      value + neg10k * ((value * div10k_sig) >> div10k_exp);
+  uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
   __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
@@ -995,13 +995,12 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
   // the exponential-notation path uses it to skip the simd->gpr->bswap->simd
   // roundtrip needed to materialize `digits`.
-  uint64_t abcd_efgh =
-      value + neg10k * ((value * div10k_sig) >> div10k_exp);
-  int32x4_t input = vcombine_s32(
-      vreinterpret_s32_u64(vcreate_u64(abcd_efgh)), vdup_n_s32(0));
+  uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
+  int32x4_t input =
+      vcombine_s32(vreinterpret_s32_u64(vcreate_u64(abcd_efgh)), vdup_n_s32(0));
   uint8x16_t unshuffled = to_bcd_4x4(input, d);
-  uint64_t unshuffled_bcd = vget_lane_u64(
-      vreinterpret_u64_u8(vget_low_u8(unshuffled)), 0);
+  uint64_t unshuffled_bcd =
+      vget_lane_u64(vreinterpret_u64_u8(vget_low_u8(unshuffled)), 0);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bswap64(unshuffled_bcd) + zeros, unshuffled, len};
 #else
@@ -1039,26 +1038,27 @@ ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
 }
 
 #if ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON
-ZMIJ_INLINE auto write_exp_float_simd(
-    char* buffer, const dec_digits<32>& dig, int last_digit_value,
-    bool has_last_digit, bool has_extra_digit, uint64_t exp_data,
-    const data& d) noexcept -> char* {
+ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
+                                      int last_digit_value, bool has_last_digit,
+                                      bool has_extra_digit, uint64_t exp_data,
+                                      const data& d) noexcept -> char* {
   // Pack the upper 8 bytes of the source register per the layout documented
   // on exp_float_shuffle_table: exp string at bytes 8..11, last digit at 12,
   // '.' at 13. The shifts here position prefix bytes into hi_qword such that
   // _mm_insert_epi64(..., 1) lands them at register bytes 12 and 13.
   uint32_t prefix = (uint32_t('.') << 8) + uint32_t('0') + last_digit_value;
   uint64_t hi_qword = (exp_data & 0xFFFFFFFFu) | (uint64_t(prefix) << 32);
-  auto m = d.exp_float_shuffles.get_entry(dig.num_digits, has_last_digit, has_extra_digit);
+  auto m = d.exp_float_shuffles.get_entry(dig.num_digits, has_last_digit,
+                                          has_extra_digit);
 
 #  if ZMIJ_USE_SSE4_1
-  __m128i ascii = _mm_or_si128(dig.unshuffled,
-                               _mm_load_si128(m128ptr(&d.zeros)));
+  __m128i ascii =
+      _mm_or_si128(dig.unshuffled, _mm_load_si128(m128ptr(&d.zeros)));
   __m128i src = _mm_insert_epi64(ascii, int64_t(hi_qword), 1);
   __m128i shuffle = _mm_load_si128(m128ptr(m.shuffle));
   __m128i out = _mm_shuffle_epi8(src, shuffle);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), out);
-#  else // ZMIJ_USE_NEON
+#  else  // ZMIJ_USE_NEON
   uint8x16_t ascii = vorrq_u8(dig.unshuffled, vdupq_n_u8('0'));
   uint8x16_t src = vreinterpretq_u8_u64(
       vsetq_lane_u64(hi_qword, vreinterpretq_u64_u8(ascii), 1));
@@ -1072,9 +1072,9 @@ ZMIJ_INLINE auto write_exp_float_simd(
 
 // Dummy overload so write<double> instantiates cleanly. The runtime
 // guard `traits::num_bits == 32` in `write` folds this call away.
-ZMIJ_INLINE auto write_exp_float_simd(
-    char*, const dec_digits<64>&, int, bool, bool, uint64_t,
-    const data&) noexcept -> char* {
+ZMIJ_INLINE auto write_exp_float_simd(char*, const dec_digits<64>&, int, bool,
+                                      bool, uint64_t, const data&) noexcept
+    -> char* {
   return nullptr;
 }
 #endif
@@ -1293,9 +1293,8 @@ auto write(Float value, char* buffer) noexcept -> char* {
 #if ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON
   if (traits::num_bits == 32 && exp_float_shuffle_table::enable) {
     uint64_t exp_data = d->exp_strings.data[dec_exp + exp_string_table::offset];
-    return write_exp_float_simd(buffer, dig, dec.last_digit,
-                                       has_last_digit, has_extra_digit, exp_data,
-                                       *d);
+    return write_exp_float_simd(buffer, dig, dec.last_digit, has_last_digit,
+                                has_extra_digit, exp_data, *d);
   }
 #endif
 
