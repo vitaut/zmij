@@ -896,22 +896,14 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
 #endif  // ZMIJ_USE_SSE
 }
 
-template <int num_bits> struct dec_digits;
-
-// For the SIMD paths with shuffle operations (SSE4.1, NEON) we
-// keep the byte-reversed ("unshuffled") SIMD result, as we use
-// it to put together the full string in the SIMD register for
-// output in exponential notation.
-template <> struct dec_digits<32> {
-#if ZMIJ_USE_SSE4_1
-  using wide_type = __m128i;
-#elif ZMIJ_USE_NEON
-  using wide_type = uint8x16_t;
-#else
-  using wide_type = uint128;  // unused
-#endif
+template <int num_bits> struct dec_digits {
   uint64_t digits;
-  wide_type unshuffled;
+  // `unshuffled` is the byte-reversed BCD vector used by write_exp_float_simd.
+#if ZMIJ_USE_NEON
+  uint8x16_t unshuffled;
+#elif ZMIJ_USE_SSE4_1
+  __m128i unshuffled;
+#endif
   int num_digits;
 };
 
@@ -1005,7 +997,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   return {bswap64(unshuffled_bcd) + zeros, unshuffled, len};
 #else
   auto result = to_bcd8(value);
-  return {result.bcd + zeros, {}, result.len};
+  return {result.bcd + zeros, result.len};
 #endif
 }
 
@@ -1037,47 +1029,41 @@ ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
   memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
 }
 
-#if ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON
 ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
-                                      int last_digit_value, bool has_last_digit,
+                                      int last_digit, bool has_last_digit,
                                       bool has_extra_digit, uint64_t exp_data,
                                       const data& d) noexcept -> char* {
-  // Pack the upper 8 bytes of the source register per the layout documented
-  // on exp_float_shuffle_table: exp string at bytes 8..11, last digit at 12,
-  // '.' at 13. The shifts here position prefix bytes into hi_qword such that
-  // _mm_insert_epi64(..., 1) lands them at register bytes 12 and 13.
-  uint32_t prefix = (uint32_t('.') << 8) + uint32_t('0') + last_digit_value;
-  uint64_t hi_qword = (exp_data & 0xFFFFFFFFu) | (uint64_t(prefix) << 32);
-  auto m = d.exp_float_shuffles.get_entry(dig.num_digits, has_last_digit,
-                                          has_extra_digit);
-
-#  if ZMIJ_USE_SSE4_1
+  // Packed for insertion into lane 1: byte 0 of `tail` lands at register
+  // byte exp_pos (8), so the exp string fills exp_pos..exp_pos+3; the prefix
+  // shifts place '0'+last_digit at last_digit_pos (12) and '.' at point_pos
+  // (13).
+  uint32_t prefix = (uint32_t('.') << 8) + uint32_t('0') + last_digit;
+  uint64_t tail = exp_data | (uint64_t(prefix) << 32);
+  auto entry = d.exp_float_shuffles.get_entry(dig.num_digits, has_last_digit,
+                                              has_extra_digit);
+#if ZMIJ_USE_SSE4_1
   __m128i ascii =
       _mm_or_si128(dig.unshuffled, _mm_load_si128(m128ptr(&d.zeros)));
-  __m128i src = _mm_insert_epi64(ascii, int64_t(hi_qword), 1);
-  __m128i shuffle = _mm_load_si128(m128ptr(m.shuffle));
+  __m128i src = _mm_insert_epi64(ascii, int64_t(tail), 1);
+  __m128i shuffle = _mm_load_si128(m128ptr(entry.shuffle));
   __m128i out = _mm_shuffle_epi8(src, shuffle);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), out);
-#  else  // ZMIJ_USE_NEON
+#elif ZMIJ_USE_NEON
   uint8x16_t ascii = vorrq_u8(dig.unshuffled, vdupq_n_u8('0'));
   uint8x16_t src = vreinterpretq_u8_u64(
-      vsetq_lane_u64(hi_qword, vreinterpretq_u64_u8(ascii), 1));
-
-  uint8x16_t shuffle = vld1q_u8(m.shuffle);
+      vsetq_lane_u64(tail, vreinterpretq_u64_u8(ascii), 1));
+  uint8x16_t shuffle = vld1q_u8(entry.shuffle);
   uint8x16_t out = vqtbl1q_u8(src, shuffle);
   vst1q_u8(reinterpret_cast<uint8_t*>(buffer), out);
-#  endif
-  return buffer + m.length;
+#endif
+  return buffer + entry.length;
 }
 
-// Dummy overload so write<double> instantiates cleanly. The runtime
-// guard `traits::num_bits == 32` in `write` folds this call away.
 ZMIJ_INLINE auto write_exp_float_simd(char*, const dec_digits<64>&, int, bool,
                                       bool, uint64_t, const data&) noexcept
     -> char* {
   return nullptr;
 }
-#endif
 
 struct to_decimal_result {
   long long sig;
@@ -1290,13 +1276,11 @@ auto write(Float value, char* buffer) noexcept -> char* {
     start[point_pos] = '.';
     return buffer + layout.end_pos[num_digits + has_extra_digit - 1];
   }
-#if ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON
   if (traits::num_bits == 32 && exp_float_shuffle_table::enable) {
     uint64_t exp_data = d->exp_strings.data[dec_exp + exp_string_table::offset];
     return write_exp_float_simd(buffer, dig, dec.last_digit, has_last_digit,
                                 has_extra_digit, exp_data, *d);
   }
-#endif
 
   buffer += has_extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
