@@ -282,14 +282,16 @@ constexpr auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 #if ZMIJ_USE_INT128
   return uint128_t(x) * y;
 #else
-#  if defined(_M_AMD64)
+#  ifdef __cpp_lib_is_constant_evaluated
+#    if defined(_M_AMD64)
   if (!__builtin_is_constant_evaluated()) {
     uint64_t hi = 0;
     uint64_t lo = _umul128(x, y, &hi);
     return {hi, lo};
   }
-#  elif defined(_M_ARM64)
+#    elif defined(_M_ARM64)
   if (!__builtin_is_constant_evaluated()) return {__umulh(x, y), x * y};
+#    endif
 #  endif
   uint64_t a = x >> 32;
   uint64_t b = uint32_t(x);
