@@ -161,7 +161,7 @@ namespace {
 using std::is_constant_evaluated;
 #  define ZMIJ_CONSTEXPR constexpr
 #else
-inline auto is_constant_evaluated() -> bool { return false; }
+constexpr auto is_constant_evaluated() -> bool { return false; }
 #  define ZMIJ_CONSTEXPR
 #endif
 
@@ -282,17 +282,15 @@ constexpr auto umul128(uint64_t x, uint64_t y) noexcept -> uint128_t {
 #if ZMIJ_USE_INT128
   return uint128_t(x) * y;
 #else
-#  ifdef __cpp_lib_is_constant_evaluated
-#    if defined(_M_AMD64)
-  if (!__builtin_is_constant_evaluated()) {
+  if (!is_constant_evaluated()) {
+#  if defined(_M_AMD64)
     uint64_t hi = 0;
     uint64_t lo = _umul128(x, y, &hi);
     return {hi, lo};
-  }
-#    elif defined(_M_ARM64)
-  if (!__builtin_is_constant_evaluated()) return {__umulh(x, y), x * y};
-#    endif
+#  elif defined(_M_ARM64)
+    return {__umulh(x, y), x * y};
 #  endif
+  }
   uint64_t a = x >> 32;
   uint64_t b = uint32_t(x);
   uint64_t c = y >> 32;
