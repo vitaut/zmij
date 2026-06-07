@@ -163,8 +163,9 @@ static void run_to_chars_canada(benchmark::State& state,
 
 // Doubles drawn uniformly from zmij's fixed-notation decimal-exponent range,
 // dec_exp in [-4, 15]: each decade is equally weighted, so the negative-
-// exponent side (which canada.json doesn't cover) gets ~25% of samples. Sized
-// to roughly match canada_numbers for comparable per-iteration cost.
+// exponent side (which canada.json doesn't cover) gets ~25% of samples. Signs
+// are randomized so the negative path is exercised too. Sized to roughly match
+// canada_numbers for comparable per-iteration cost.
 static const std::vector<double>& get_fixed_range_numbers() {
   static const std::vector<double> v = [] {
     constexpr size_t count =
@@ -172,12 +173,15 @@ static const std::vector<double>& get_fixed_range_numbers() {
     std::mt19937_64 rng(0);
     std::uniform_int_distribution<int> exp_dist(-4, 15);
     std::uniform_real_distribution<double> sig_dist(1.0, 10.0);
+    std::bernoulli_distribution sign_dist(0.5);
     std::vector<double> out;
     out.reserve(count);
     for (size_t i = 0; i < count; ++i) {
       double sig = sig_dist(rng);
       int e = exp_dist(rng);
-      out.push_back(sig * std::pow(10.0, e));
+      double val = sig * std::pow(10.0, e);
+      if (sign_dist(rng)) val = -val;
+      out.push_back(val);
     }
     return out;
   }();
