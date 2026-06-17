@@ -163,7 +163,7 @@ static void run_to_chars_canada(benchmark::State& state,
 
 // Doubles drawn uniformly from zmij's fixed-notation decimal-exponent range,
 // dec_exp in [-4, 15]: each decade is equally weighted, so the negative-
-// exponent side (which canada.json doesn't cover) gets ~25% of samples. Signs
+// exponent side (which canada.json doesn't cover) gets ~20% of samples. Signs
 // are randomized so the negative path is exercised too. Sized to roughly match
 // canada_numbers for comparable per-iteration cost.
 static const std::vector<double>& get_fixed_range_numbers() {
