@@ -304,14 +304,13 @@ def check_value(sig: int, raw_exp: int):
 # lands within a couple of units of a decision boundary. We enumerate exactly
 # those significands with floor_sum.
 #
-# For small e10 = -dec_exp - 1 the power-of-ten cache is exact and has many
-# trailing zero bits, so `fractional` takes only a few widely-spaced values.
-# Each lands *exactly* on a boundary for astronomically many significands at
-# once. These are exact ties (the cache carries no truncation error), so the
-# decision depends only on (fractional, sig parity) and is handled correctly by
-# design (biased_half's +6, the 2^62 -> digit 2 special case). We therefore
-# check one representative per (fractional, parity) for those clustered ties
-# instead of every significand.
+# A single boundary can be hit by astronomically many significands at once
+# (when the cache is exact, but also for the reciprocal caches near dec_exp
+# 16-17). For such large clusters every member is an exact tie - proven per
+# cluster in check_boundary via a danger-band count - so the rounding outcome
+# depends only on (fractional, sig parity) and is handled correctly by design
+# (biased_half's +6, the 2^62 -> digit 2 special case). We therefore check one
+# representative per (fractional, parity) instead of every significand.
 
 BOUNDARY_WINDOW = 4  # conservative; 2 suffices (errors are <= 1 each)
 
@@ -357,7 +356,7 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
     """
     Check every significand whose `fractional` is within BOUNDARY_WINDOW of
     `target` against the correctly-rounded reference. Returns the number of
-    matching significands (the whole cluster for exact-cache ties).
+    matching significands (the whole cluster in the large-cluster case).
     """
     v_lo = max(target - BOUNDARY_WINDOW, 0)
     v_hi = min(target + BOUNDARY_WINDOW, (1 << 64) - 1)
@@ -370,7 +369,7 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
 
     candidates = enumerate_mod_mul_solutions(
         cache, mod, sig_min, sig_max, y_lo, y_hi)
-    cluster_limit = 512  # above this, a tie is an exact-cache cluster
+    cluster_limit = 512  # perf dispatch: above this, sample + prove ties
     if count <= cluster_limit:
         for sig, _ in candidates:
             ok, _got, _want = check_value(sig, raw_exp)
@@ -378,11 +377,24 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
                 exceptions.append((raw_exp, sig))
         return count
 
-    # Exact-cache cluster: `fractional` equals `target` exactly for every
-    # member (see the assert below), so the only varying part of the key is
-    # sig parity -- at most 2 distinct (fractional, parity) keys, both seen
-    # within the first few candidates. pull_cap bounds the work; the coverage
-    # check below then confirms we actually sampled every key that occurs.
+    # Large cluster: check one representative per (fractional, parity) key
+    # instead of every member. Sound only if all members sharing a key round
+    # identically, i.e. each member's exact fractional equals its finite
+    # `fractional`. Since `cache` is rounded down, exact = finite or finite + 1,
+    # and the +1 carry occurs only when the low s bits of cache*sig fall in the
+    # danger band [2^s - sig_max, 2^s - 1]. Prove no windowed member lands there
+    # (a firing assert means this cluster needs full enumeration instead).
+    danger_lo = (1 << s) - sig_max
+    for f in range(v_lo, v_hi + 1):
+        band_lo = (f << s) + danger_lo
+        band_hi = ((f + 1) << s) - 1
+        n = count_mod_mul_solutions(cache, mod, sig_min, sig_max,
+                                    band_lo, band_hi)
+        assert n == 0, (raw_exp, target, f)
+
+    # Every member is now an exact tie, so the key is (fractional, parity): at
+    # most 2 distinct keys, both seen within the first few candidates. pull_cap
+    # bounds the work; the coverage check below confirms every key was seen.
     seen = set()
     pull_cap = 8
     for i, (sig, residue) in enumerate(candidates):
@@ -392,8 +404,8 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
         if key in seen:
             continue
         seen.add(key)
-        # Sampling is sound only for exact ties, where `fractional` (hence the
-        # rounding outcome) is a function of (fractional, parity) alone.
+        # Subsumed by the danger-band proof above; a cheap direct confirmation
+        # that this representative really is an exact tie.
         assert (residue >> s) == exact_fractional(sig, bin_exp, dec_exp), \
             (raw_exp, sig, count)
         ok, _got, _want = check_value(sig, raw_exp)
