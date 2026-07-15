@@ -3,12 +3,15 @@
 Sanity tests for verify.py.
 
 These validate count_mod_mul_solutions / enumerate_mod_mul_solutions against a
-naive brute-force reference over small inputs, confirm the finite `fractional`
-stays within BOUNDARY_WINDOW of the exact value, and spot-check the zmij port
-against Python's repr on random doubles.
+naive brute-force reference over small inputs, exercise count_mod_mul_solutions
+in the large-integer regime it is actually used in (via oracle-free invariants
+and a full-period closed form), confirm the finite `fractional` stays within
+BOUNDARY_WINDOW of the exact value, and spot-check the zmij port against
+Python's repr on random doubles.
 """
 
 import importlib.util
+import math
 import pathlib
 import random
 import struct
@@ -57,6 +60,68 @@ def test_count_mod_mul_solutions() -> None:
                             naive = count_mod_mul_solutions_naive(*args)
                             assert fast == naive, (*args, fast, naive)
     print("ok")
+
+
+def test_count_full_period(trials: int = 10000) -> None:
+    """
+    Full-period closed form, an exact oracle at arbitrary scale.
+
+    Over x in [0, mod-1] the value num*x % mod hits each multiple of
+    g = gcd(num, mod) exactly g times, so the count equals
+    g * (#multiples of g in [y_min, y_max]). Exercises inputs far beyond the
+    reach of the brute-force reference.
+    """
+    print("count full period ... ", end="", flush=True)
+    rng = random.Random(3)
+    for _ in range(trials):
+        mod = rng.randint(1, 1 << 60)
+        num = rng.randint(1, 1 << 60)
+        if rng.random() < 0.5:  # force a nontrivial common factor sometimes
+            g = rng.randint(2, 1000)
+            num, mod = num * g, mod * g
+        y_min = rng.randint(0, mod - 1)
+        y_max = rng.randint(y_min, mod - 1 + (1 << 20))
+        got = count_mod_mul_solutions(num, mod, 0, mod - 1, y_min, y_max)
+        g = math.gcd(num, mod)
+        hi = min(y_max, mod - 1)
+        want = g * (hi // g - (y_min - 1) // g) if y_min <= hi else 0
+        assert got == want, (num, mod, y_min, y_max, got, want)
+    print(f"ok ({trials:,} trials)")
+
+
+def test_count_metamorphic(trials: int = 10000) -> None:
+    """
+    Oracle-free invariants at large scale: additivity over the x-range and the
+    y-interval, plus full coverage of the residues [0, mod-1].
+    """
+    print("count metamorphic ... ", end="", flush=True)
+    rng = random.Random(4)
+    for _ in range(trials):
+        mod = rng.randint(1, 1 << 60)
+        num = rng.randint(1, 1 << 60)
+        x_min = rng.randint(0, 1 << 50)
+        x_max = x_min + rng.randint(0, 1 << 40)
+        y_min = rng.randint(0, mod - 1)
+        y_max = rng.randint(y_min, mod - 1)
+        whole = count_mod_mul_solutions(num, mod, x_min, x_max, y_min, y_max)
+
+        if x_max > x_min:  # additivity over the x-range
+            k = rng.randint(x_min, x_max - 1)
+            left = count_mod_mul_solutions(num, mod, x_min, k, y_min, y_max)
+            right = count_mod_mul_solutions(num, mod, k + 1, x_max,
+                                            y_min, y_max)
+            assert whole == left + right, ("x", num, mod, x_min, x_max, k)
+
+        if y_max > y_min:  # additivity over the y-interval
+            t = rng.randint(y_min, y_max - 1)
+            lo = count_mod_mul_solutions(num, mod, x_min, x_max, y_min, t)
+            hi = count_mod_mul_solutions(num, mod, x_min, x_max, t + 1, y_max)
+            assert whole == lo + hi, ("y", num, mod, y_min, y_max, t)
+
+        # every x lands in exactly one residue of [0, mod-1]
+        cover = count_mod_mul_solutions(num, mod, x_min, x_max, 0, mod - 1)
+        assert cover == x_max - x_min + 1, ("cover", num, mod, x_min, x_max)
+    print(f"ok ({trials:,} trials)")
 
 
 def test_enumerate_mod_mul_solutions() -> None:
@@ -124,6 +189,8 @@ def test_sample(samples: int = 100000) -> None:
 
 if __name__ == "__main__":
     test_count_mod_mul_solutions()
+    test_count_full_period()
+    test_count_metamorphic()
     test_enumerate_mod_mul_solutions()
     test_fractional_error_bound()
     test_sample()
