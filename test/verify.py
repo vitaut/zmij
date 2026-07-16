@@ -20,7 +20,7 @@ Overview
 --------
 
 zmij converts a binary float sig2 * 2^bin_exp to the shortest decimal, using a
-Schubfach-style single multiply by a power-of-ten cache, with a Xiang JunBo
+Schubfach-style single multiply by a power-of-ten significand, with a Xiang JunBo
 (xjb) twist: it scales by 10^(-dec_exp-1) to directly produce the shortened
 15-16 digit significand and derives the extra (17th) digit from the fractional
 part.
@@ -29,11 +29,11 @@ For each input (regular double path):
 
     dec_exp = floor(bin_exp * log10(2))          # 315653 >> 20
     shift   = compute_exp_shift(...) + 6         # 217707 >> 16; extra_shift 6
-    cache   = pow10_hi128(-dec_exp - 1)          # rounded-down 128-bit sig
-    p       = umul192_hi128(cache, sig << shift)  # top 128 bits of the product
+    pow10   = pow10_hi128(-dec_exp - 1)          # rounded-down 128-bit sig
+    p       = umul192_hi128(pow10, sig << shift)  # top 128 bits of the product
     integral   = p >> 70
     fractional = (p >> 6) mod 2^64
-    half_ulp   = (cache_hi >> (7 - shift)) + even,   even = 1 - (sig & 1)
+    half_ulp   = (pow10_hi >> (7 - shift)) + even,   even = 1 - (sig & 1)
 
 The rounding decision uses carry/overflow tests:
 
@@ -48,20 +48,20 @@ Exact powers of two (fraction field 0) take an asymmetric-boundary branch:
 the lower gap is half as wide.
 
 The truncated `fractional` equals floor(2^64 * true_fraction) up to a slack of 2
-units (each of `fractional` and `half_ulp` is off by at most 1: the cache is
-rounded down and the product and >>6 truncate). A misround can therefore only
-happen when the exact value lands within that slack of a decision boundary. We
-use floor_sum to enumerate, across all 2^52 significands of every binary
-exponent, exactly the significands whose truncated `fractional` lands within a
-window of each boundary (round_up carry, round_down, each last-digit tie, and
-the 2^62 special case). Each enumerated candidate is then checked against the
-correctly-rounded shortest decimal (Python's repr).
+units (each of `fractional` and `half_ulp` is off by at most 1: the pow10
+significand is rounded down and the product and >>6 truncate). A misround can
+therefore only happen when the exact value lands within that slack of a decision
+boundary. We use floor_sum to enumerate, across all 2^52 significands of every
+binary exponent, exactly the significands whose truncated `fractional` lands
+within a window of each boundary (round_up carry, round_down, each last-digit
+tie, and the 2^62 special case). Each enumerated candidate is then checked
+against the correctly-rounded shortest decimal (Python's repr).
 
-    fractional = floor(cache * sig / 2^(70 - shift)) mod 2^64
+    fractional = floor(pow10 * sig / 2^(70 - shift)) mod 2^64
 
 so "fractional == V" is the modular window condition
 
-    (cache * sig) mod 2^(134 - shift) in [V << (70 - shift), ...]
+    (pow10 * sig) mod 2^(134 - shift) in [V << (70 - shift), ...]
 
 which count_mod_mul_solutions / enumerate_mod_mul_solutions answer directly.
 """
@@ -172,7 +172,6 @@ def enumerate_mod_mul_solutions(num: int, mod: int,
 
 # --- zmij port -------------------------------------------------------------
 
-MASK64 = (1 << 64) - 1
 EXTRA_SHIFT = 6
 BIASED_HALF = (1 << 63) + 6
 
@@ -196,9 +195,9 @@ def compute_exp_shift(bin_exp: int, dec_exp: int) -> int:
     return bin_exp + pow10_bin_exp + 1
 
 
-def umul192_hi128(cache: int, y: int) -> int:
-    """Top 128 bits of the 192-bit product cache128 * y (drops low 64 bits)."""
-    return (cache * y) >> 64
+def umul192_hi128(x: int, y: int) -> int:
+    """Top 128 bits of the 192-bit product x (128-bit) * y (drops low 64 bits)."""
+    return (x * y) >> 64
 
 
 def umul128_add_hi64(x: int, y: int, c: int) -> int:
@@ -218,12 +217,12 @@ def pow10_hi128(p: int) -> int:
 
 
 def exp_params(raw_exp: int) -> Tuple[int, int, int, int]:
-    """Per-exponent (bin_exp, dec_exp, shift, cache) for the regular path."""
+    """Per-exponent (bin_exp, dec_exp, shift, pow10) for the regular path."""
     bin_exp = raw_exp - EXP_OFFSET
     dec_exp = compute_dec_exp(bin_exp)
     shift = compute_exp_shift(bin_exp, dec_exp + 1) + EXTRA_SHIFT
-    cache = pow10_hi128(-dec_exp - 1)
-    return bin_exp, dec_exp, shift, cache
+    pow10 = pow10_hi128(-dec_exp - 1)
+    return bin_exp, dec_exp, shift, pow10
 
 
 def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
@@ -231,32 +230,33 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
     Port of zmij's to_decimal<double>.
     Returns (integral, dec_exp, digit, has_last_digit).
     """
+    mask64 = (1 << 64) - 1
     bin_exp = raw_exp - EXP_OFFSET
     # Irregular (asymmetric boundaries) iff sig is a power of two.
     regular = sig != (1 << SIG_BITS)
 
     dec_exp = compute_dec_exp(bin_exp, regular)
     shift = compute_exp_shift(bin_exp, dec_exp + 1) + EXTRA_SHIFT
-    cache = pow10_hi128(-dec_exp - 1)
-    cache_hi = cache >> 64
-    p = umul192_hi128(cache, sig << shift)
+    pow10 = pow10_hi128(-dec_exp - 1)
+    pow10_hi = pow10 >> 64
+    p = umul192_hi128(pow10, sig << shift)
     integral = p >> (64 + EXTRA_SHIFT)
-    fractional = (p >> EXTRA_SHIFT) & MASK64
-    half_ulp = cache_hi >> (EXTRA_SHIFT + 1 - shift)
+    fractional = (p >> EXTRA_SHIFT) & mask64
+    half_ulp = pow10_hi >> (EXTRA_SHIFT + 1 - shift)
 
     if not regular:
-        round_up = half_ulp > MASK64 - fractional
+        round_up = half_ulp > mask64 - fractional
         round_down = (half_ulp >> 1) > fractional
         integral += round_up
         digit = umul128_add_hi64(fractional, 10, (1 << 63) - 1)
         lo = umul128_add_hi64(
-            (fractional - (half_ulp >> 1)) & MASK64, 10, MASK64)
+            (fractional - (half_ulp >> 1)) & mask64, 10, mask64)
         if digit < lo:
             digit = lo
         return integral, dec_exp, digit, (round_up + round_down) == 0
 
     half_ulp += 1 - (sig & 1)
-    round_up = fractional + half_ulp > MASK64
+    round_up = fractional + half_ulp > mask64
     round_down = half_ulp > fractional
     integral += round_up
     digit = umul128_add_hi64(fractional, 10, BIASED_HALF)
@@ -278,12 +278,12 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
 # covers it.
 #
 # A single boundary can be hit by astronomically many significands at once
-# (when the cache is exact, but also for the reciprocal caches near dec_exp
-# 16-17). For such large clusters every member is an exact tie - proven per
-# cluster in check_boundary via a danger-band count - so the rounding outcome
-# depends only on (fractional, sig parity) and is handled correctly by design
-# (biased_half's +6, the 2^62 -> digit 2 special case). We therefore check one
-# representative per (fractional, parity) instead of every significand.
+# (when the pow10 significand is exact, but also for the reciprocal significands
+# near dec_exp 16-17). For such large clusters every member is an exact tie -
+# proven per cluster in check_boundary via a danger-band count - so the rounding
+# outcome depends only on (fractional, sig parity) and is handled correctly by
+# design (biased_half's +6, the 2^62 -> digit 2 special case). We therefore
+# check one representative per (fractional, parity) instead of every significand.
 
 
 def double_from_fields(sig: int, raw_exp: int) -> float:
@@ -317,7 +317,7 @@ def exact_fractional(sig: int, bin_exp: int, dec_exp: int) -> int:
     return int((scaled - int(scaled)) * (1 << 64))
 
 
-def count_boundary_keys(cache: int, mod: int, s: int, sig_min: int,
+def count_boundary_keys(pow10: int, mod: int, s: int, sig_min: int,
                         sig_max: int, v_lo: int, v_hi: int) -> int:
     """
     Exact number of distinct (fractional, parity) keys among the significands
@@ -332,20 +332,20 @@ def count_boundary_keys(cache: int, mod: int, s: int, sig_min: int,
             t_max = (sig_max - p) // 2
             if t_min > t_max:
                 continue
-            c = (cache * p) % mod
+            c = (pow10 * p) % mod
             a, b = (lo - c) % mod, (hi - c) % mod
             if a <= b:
-                n = count_mod_mul_solutions(2 * cache, mod, t_min, t_max, a, b)
+                n = count_mod_mul_solutions(2 * pow10, mod, t_min, t_max, a, b)
             else:  # window wraps past 0 after the parity shift
-                n = (count_mod_mul_solutions(2 * cache, mod, t_min, t_max,
+                n = (count_mod_mul_solutions(2 * pow10, mod, t_min, t_max,
                                              a, mod - 1)
-                     + count_mod_mul_solutions(2 * cache, mod, t_min, t_max,
+                     + count_mod_mul_solutions(2 * pow10, mod, t_min, t_max,
                                                0, b))
             keys += n > 0
     return keys
 
 
-def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
+def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, pow10: int,
                    mod: int, s: int, sig_min: int, sig_max: int, target: int,
                    exceptions: Set[Tuple[int, int]]) -> Tuple[int, int]:
     """
@@ -360,12 +360,12 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
     y_lo = v_lo << s
     y_hi = (v_hi << s) | ((1 << s) - 1)
 
-    count = count_mod_mul_solutions(cache, mod, sig_min, sig_max, y_lo, y_hi)
+    count = count_mod_mul_solutions(pow10, mod, sig_min, sig_max, y_lo, y_hi)
     if count == 0:
         return 0, 0
 
     candidates = enumerate_mod_mul_solutions(
-        cache, mod, sig_min, sig_max, y_lo, y_hi)
+        pow10, mod, sig_min, sig_max, y_lo, y_hi)
     cluster_limit = 512  # perf dispatch: above this, sample + prove ties
     if count <= cluster_limit:
         for sig, _ in candidates:
@@ -376,15 +376,15 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
     # Large cluster: check one representative per (fractional, parity) key
     # instead of every member. Sound only if all members sharing a key round
     # identically, i.e. each member's exact fractional equals its truncated
-    # `fractional`. Since `cache` is rounded down, exact = truncated or
+    # `fractional`. Since `pow10` is rounded down, exact = truncated or
     # truncated + 1, and the +1 carry occurs only when the low s bits of
-    # cache*sig fall in the danger band [2^s - sig_max, 2^s - 1]. The assert
+    # pow10*sig fall in the danger band [2^s - sig_max, 2^s - 1]. The assert
     # enforces that no windowed member lands there, so sampling by key is sound.
     danger_lo = (1 << s) - sig_max
     for f in range(v_lo, v_hi + 1):
         band_lo = (f << s) + danger_lo
         band_hi = ((f + 1) << s) - 1
-        n = count_mod_mul_solutions(cache, mod, sig_min, sig_max,
+        n = count_mod_mul_solutions(pow10, mod, sig_min, sig_max,
                                     band_lo, band_hi)
         assert n == 0, (raw_exp, target, f)
 
@@ -411,7 +411,7 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
 
     # We must have seen every (fractional, parity) class present, not just the
     # first pull_cap candidates' worth.
-    assert len(seen) == count_boundary_keys(cache, mod, s, sig_min, sig_max,
+    assert len(seen) == count_boundary_keys(pow10, mod, s, sig_min, sig_max,
                                             v_lo, v_hi), (raw_exp, target)
     return count, len(seen)
 
@@ -421,10 +421,10 @@ def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
                             ) -> Tuple[int, int]:
     """Check boundary significands in [sig_min, sig_max] for one exponent."""
     assert sig_min <= sig_max, (raw_exp, sig_min, sig_max)
-    bin_exp, dec_exp, shift, cache = exp_params(raw_exp)
-    cache_hi = cache >> 64
+    bin_exp, dec_exp, shift, pow10 = exp_params(raw_exp)
+    pow10_hi = pow10 >> 64
 
-    # fractional = floor(cache * sig / 2^s) mod 2^64, matching to_decimal's
+    # fractional = floor(pow10 * sig / 2^s) mod 2^64, matching to_decimal's
     # (p >> EXTRA_SHIFT) over the 128-bit product.
     s = 64 + EXTRA_SHIFT - shift
     assert s >= 0
@@ -434,14 +434,14 @@ def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
     # (fractional == half_ulp), round_up (fractional == 2^64 - half_ulp), the
     # 2^62 "round 2.5 to 2" special case, and the nine last-digit boundaries
     # where digit = (fractional*10 + biased_half) >> 64 crosses k * 2^64.
-    half_ulp = cache_hi >> (EXTRA_SHIFT + 1 - shift)
+    half_ulp = pow10_hi >> (EXTRA_SHIFT + 1 - shift)
     targets = [half_ulp, (1 << 64) - half_ulp, 1 << 62]
     for k in range(1, 10):
         targets.append((k * (1 << 64) - BIASED_HALF) // 10)
 
     hits = tested = 0
     for target in targets:
-        h, t = check_boundary(raw_exp, bin_exp, dec_exp, cache, mod, s,
+        h, t = check_boundary(raw_exp, bin_exp, dec_exp, pow10, mod, s,
                               sig_min, sig_max, target, exceptions)
         hits += h
         tested += t
