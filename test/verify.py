@@ -10,14 +10,14 @@ https://github.com/vitaut/zmij/
 It ports zmij's `to_decimal<double>`, re-derives its edge cases, and checks
 them across all significands of every binary exponent, counted with floor_sum.
 
-Inspired by YaoYuan's (yy) verify.py. zmij's rounding differs, so the
+Inspired by YaoYuan's (yy) verify.py. Zmij's rounding differs, so the
 boundaries are re-derived here and counted with floor_sum instead of continued
 fractions and the three-gap theorem.
 
 Overview
 --------
 
-zmij converts a binary float bin_sig * 2^bin_exp to the shortest decimal, using
+Zmij converts a binary float bin_sig * 2^bin_exp to the shortest decimal, using
 a Schubfach-style single multiply by a power-of-ten significand (introduced by
 yy), with a Xiang JunBo (xjb) twist: it scales by 10^(-dec_exp - 1) to directly
 produce the shortened 15-16 digit significand and derives the extra (17th) digit
@@ -25,9 +25,9 @@ from the fractional part.
 
 For each input (regular double path):
 
-    dec_exp = floor(bin_exp * log10(2))          # 315653 >> 20
-    shift   = compute_exp_shift(...) + 6         # 217707 >> 16; extra_shift 6
-    pow10   = pow10_hi128(-dec_exp - 1)          # rounded-down 128-bit sig
+    dec_exp = floor(bin_exp * log10(2))
+    shift   = compute_exp_shift(...) + 6          # extra_shift 6
+    pow10   = pow10_hi128(-dec_exp - 1)           # rounded-down 128-bit sig
     p       = umul192_hi128(pow10, sig << shift)  # top 128 bits of the product
     integral   = p >> 70
     fractional = (p >> 6) mod 2^64
@@ -38,7 +38,7 @@ The rounding decision uses carry/overflow tests:
     round_up   = fractional + half_ulp >= 2^64   (carry past 2^64)
     round_down = half_ulp > fractional
     digit      = (fractional * 10 + biased_half) >> 64,  biased_half = 2^63 + 6
-    (special: fractional == 2^62 -> digit = 2)   # round 2.5 to 2
+    (special: fractional == 2^62 -> digit = 2)    # round 2.5 to 2
     integral  += round_up
     has_last_digit = (round_up + round_down) == 0
 
