@@ -47,12 +47,12 @@ The rounding decision uses carry/overflow tests:
 Exact powers of two (fraction field 0) take an asymmetric-boundary branch:
 the lower gap is half as wide.
 
-The finite `fractional` equals floor(2^64 * true_fraction) up to a slack of 2
+The truncated `fractional` equals floor(2^64 * true_fraction) up to a slack of 2
 units (each of `fractional` and `half_ulp` is off by at most 1: the cache is
 rounded down and the product and >>6 truncate). A misround can therefore only
 happen when the exact value lands within that slack of a decision boundary. We
 use floor_sum to enumerate, across all 2^52 significands of every binary
-exponent, exactly the significands whose finite `fractional` lands within a
+exponent, exactly the significands whose truncated `fractional` lands within a
 window of each boundary (round_up carry, round_down, each last-digit tie, and
 the 2^62 special case). Each enumerated candidate is then checked against the
 correctly-rounded shortest decimal (Python's repr).
@@ -297,7 +297,7 @@ def check_value(sig: int, raw_exp: int) -> bool:
 # round_down boundaries (fractional == 2^64 - half_ulp and fractional ==
 # half_ulp) enumerated below.
 #
-# The finite `fractional` and `half_ulp` each differ from the exact scaled
+# The truncated `fractional` and `half_ulp` each differ from the exact scaled
 # values by at most 1 unit, so a misround can only occur when the exact value
 # lands within a couple of units of a decision boundary. We enumerate exactly
 # those significands with floor_sum.
@@ -378,11 +378,11 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
 
     # Large cluster: check one representative per (fractional, parity) key
     # instead of every member. Sound only if all members sharing a key round
-    # identically, i.e. each member's exact fractional equals its finite
-    # `fractional`. Since `cache` is rounded down, exact = finite or finite + 1,
-    # and the +1 carry occurs only when the low s bits of cache*sig fall in the
-    # danger band [2^s - sig_max, 2^s - 1]. The assert enforces that no windowed
-    # member lands there, so sampling by key is sound.
+    # identically, i.e. each member's exact fractional equals its truncated
+    # `fractional`. Since `cache` is rounded down, exact = truncated or
+    # truncated + 1, and the +1 carry occurs only when the low s bits of
+    # cache*sig fall in the danger band [2^s - sig_max, 2^s - 1]. The assert
+    # enforces that no windowed member lands there, so sampling by key is sound.
     danger_lo = (1 << s) - sig_max
     for f in range(v_lo, v_hi + 1):
         band_lo = (f << s) + danger_lo
@@ -391,7 +391,7 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
                                     band_lo, band_hi)
         assert n == 0, (raw_exp, target, f)
 
-    # Every member now has an exact fractional value equal to the finite
+    # Every member now has an exact fractional value equal to the truncated
     # fractional value, so correctness depends only on (fractional, parity):
     # at most 2 distinct keys, both seen within the first few candidates.
     # pull_cap bounds the work; the coverage check below confirms every key
