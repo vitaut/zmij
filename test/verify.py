@@ -8,13 +8,11 @@ the Boost Software License, Version 1.0.
 https://github.com/vitaut/zmij/
 
 It ports zmij's `to_decimal<double>`, re-derives its edge cases, and checks
-them across all significands of every binary exponent, counted with O(log)
-floor_sum.
+them across all significands of every binary exponent, counted with floor_sum.
 
-Inspired by verify.py by YaoYuan. zmij rounds with carry tests on a 64-bit
-`fractional` (not modular comparisons split across three edge-case searches),
-so the boundaries are re-derived here, and solutions are counted with an O(log)
-floor_sum rather than continued fractions and the three-gap theorem.
+Inspired by YaoYuan's (yy) verify.py. zmij's rounding differs, so the
+boundaries are re-derived here and counted with floor_sum instead of continued
+fractions and the three-gap theorem.
 
 Overview
 --------
