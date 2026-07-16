@@ -394,9 +394,11 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
                                     band_lo, band_hi)
         assert n == 0, (raw_exp, target, f)
 
-    # Every member is now an exact tie, so the key is (fractional, parity): at
-    # most 2 distinct keys, both seen within the first few candidates. pull_cap
-    # bounds the work; the coverage check below confirms every key was seen.
+    # Every member now has an exact fractional value equal to the finite
+    # fractional value, so correctness depends only on (fractional, parity):
+    # at most 2 distinct keys, both seen within the first few candidates.
+    # pull_cap bounds the work; the coverage check below confirms every key
+    # was seen.
     seen = set()
     pull_cap = 8
     for i, (sig, residue) in enumerate(candidates):
@@ -455,6 +457,9 @@ def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
 
 def find_edge_cases() -> None:
     """Sweep every binary exponent for potential misrounds."""
+    if not __debug__:
+        raise RuntimeError("run this verifier without -O; the large-cluster "
+                           "reduction relies on proof-critical assertions")
     print("double edge-case sweep ... ", end="", flush=True)
     implicit = 1 << SIG_BITS
     normal_max = (1 << (SIG_BITS + 1)) - 1
@@ -489,11 +494,12 @@ def find_edge_cases() -> None:
             want = reference_value(value)
             print(f"  raw_exp={raw_exp} sig={sig} value={value!r} "
                   f"got={got} want={want}")
-    else:
-        print("ok")
-        print(f"  {boundary_hits:,} boundary-window hits, "
-              f"{representatives_tested:,} tested directly, "
-              f"{powers_of_two:,} powers of two; no misrounds")
+        raise SystemExit(1)
+
+    print("ok")
+    print(f"  {boundary_hits:,} boundary-window hits, "
+          f"{representatives_tested:,} tested directly, "
+          f"{powers_of_two:,} powers of two; no misrounds")
 
 
 if __name__ == "__main__":
