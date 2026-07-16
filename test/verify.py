@@ -186,7 +186,7 @@ def compute_dec_exp(bin_exp: int, regular: bool = True) -> int:
     log10_3_over_4_sig = 131072
     log10_2_sig, log10_2_exp = 315653, 20
     return (bin_exp * log10_2_sig
-            - (0 if regular else 1) * log10_3_over_4_sig) >> log10_2_exp
+            - (0 if regular else log10_3_over_4_sig)) >> log10_2_exp
 
 
 def compute_exp_shift(bin_exp: int, dec_exp: int) -> int:
@@ -277,19 +277,15 @@ def double_from_fields(sig: int, raw_exp: int) -> float:
     return struct.unpack("<d", struct.pack("<Q", bits))[0]
 
 
-def check_value(sig: int, raw_exp: int):
-    """
-    Return (ok, got, want). Correct iff zmij produces the right value AND the
-    shortest decimal.
-    """
+def check_value(sig: int, raw_exp: int) -> bool:
+    """True iff zmij produces the right value AND the shortest decimal."""
     value = double_from_fields(sig, raw_exp)
     integral, dec_exp, digit, has_last_digit = to_decimal(sig, raw_exp)
     final_sig = integral * 10 + (digit if has_last_digit else 0)
     got = Fraction(final_sig) * Fraction(10) ** dec_exp
     want = Fraction(repr(value))
     # reject the one value-preserving non-shortest case: an emitted trailing 0
-    ok = got == want and not (has_last_digit and digit == 0)
-    return ok, got, want
+    return got == want and not (has_last_digit and digit == 0)
 
 
 # --- verification ----------------------------------------------------------
@@ -376,8 +372,7 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
     cluster_limit = 512  # perf dispatch: above this, sample + prove ties
     if count <= cluster_limit:
         for sig, _ in candidates:
-            ok, _got, _want = check_value(sig, raw_exp)
-            if not ok:
+            if not check_value(sig, raw_exp):
                 exceptions.add((raw_exp, sig))
         return count, count
 
@@ -414,8 +409,7 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
         # that this representative really is an exact tie.
         assert (residue >> s) == exact_fractional(sig, bin_exp, dec_exp), \
             (raw_exp, sig, count)
-        ok, _got, _want = check_value(sig, raw_exp)
-        if not ok:
+        if not check_value(sig, raw_exp):
             exceptions.add((raw_exp, sig))
 
     # We must have seen every (fractional, parity) class present, not just the
@@ -472,9 +466,8 @@ def find_edge_cases() -> None:
 
     for raw_exp in range(1, 2047):
         # Exact powers of two: exactly one significand, checked directly.
-        ok, _got, _want = check_value(implicit, raw_exp)
         powers_of_two += 1
-        if not ok:
+        if not check_value(implicit, raw_exp):
             exceptions.add((raw_exp, implicit))
 
         # Regular significands (exclude the power of two at `implicit`).
@@ -492,10 +485,8 @@ def find_edge_cases() -> None:
         print(f"  {len(exceptions)} misrounds:")
         for raw_exp, sig in sorted(exceptions):
             value = double_from_fields(sig, raw_exp)
-            _ok, got, want = check_value(sig, raw_exp)
             print(f"  raw_exp={raw_exp} sig={sig} value={value!r} "
-                  f"to_decimal={to_decimal(sig, raw_exp)} "
-                  f"got={got} want={want}")
+                  f"to_decimal={to_decimal(sig, raw_exp)}")
         raise SystemExit(1)
 
     print("ok")

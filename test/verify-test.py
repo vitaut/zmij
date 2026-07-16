@@ -27,6 +27,7 @@ SIG_BITS = verify_zmij.SIG_BITS
 MASK64 = verify_zmij.MASK64
 BOUNDARY_WINDOW = verify_zmij.BOUNDARY_WINDOW
 check_value = verify_zmij.check_value
+to_decimal = verify_zmij.to_decimal
 exp_params = verify_zmij.exp_params
 exact_fractional = verify_zmij.exact_fractional
 
@@ -182,8 +183,8 @@ def test_sample(samples: int = 100000) -> None:
             sig, raw_exp = frac, 1
         else:
             sig = frac | (1 << SIG_BITS)
-        ok, got, want = check_value(sig, raw_exp)
-        assert ok, (raw_exp, sig, value, got, want)
+        assert check_value(sig, raw_exp), \
+            (raw_exp, sig, value, to_decimal(sig, raw_exp))
     print(f"ok ({samples:,} samples)")
 
 
