@@ -23,7 +23,7 @@ _spec.loader.exec_module(verify_zmij)
 
 count_mod_mul_solutions = verify_zmij.count_mod_mul_solutions
 enumerate_mod_mul_solutions = verify_zmij.enumerate_mod_mul_solutions
-SIG_BITS = verify_zmij.SIG_BITS
+NUM_SIG_BITS = verify_zmij.NUM_SIG_BITS
 ERROR_MARGIN = verify_zmij.ERROR_MARGIN
 check_value = verify_zmij.check_value
 to_decimal = verify_zmij.to_decimal
@@ -151,12 +151,12 @@ def test_fractional_error_bound(samples: int = 100000) -> None:
     """
     print("fractional error bound ... ", end="", flush=True)
     rng = random.Random(1)
-    implicit = 1 << SIG_BITS
+    implicit = 1 << NUM_SIG_BITS
     mask64 = (1 << 64) - 1
     max_slack = 0
     for _ in range(samples):
         raw_exp = rng.randint(1, 2046)
-        sig = rng.randint(implicit, (1 << (SIG_BITS + 1)) - 1)
+        sig = rng.randint(implicit, (1 << (NUM_SIG_BITS + 1)) - 1)
         bin_exp, dec_exp, shift, pow10 = exp_params(raw_exp)
         s = 70 - shift
         fast = (pow10 * sig // (1 << s)) & mask64
@@ -177,12 +177,12 @@ def test_sample(samples: int = 100000) -> None:
         value = struct.unpack("<d", struct.pack("<Q", bits))[0]
         if value != value or value in (float("inf"),) or value == 0.0:
             continue
-        raw_exp = (bits >> SIG_BITS) & 0x7FF
-        frac = bits & ((1 << SIG_BITS) - 1)
+        raw_exp = (bits >> NUM_SIG_BITS) & 0x7FF
+        frac = bits & ((1 << NUM_SIG_BITS) - 1)
         if raw_exp == 0:
             sig, raw_exp = frac, 1
         else:
-            sig = frac | (1 << SIG_BITS)
+            sig = frac | (1 << NUM_SIG_BITS)
         assert check_value(sig, raw_exp), \
             (raw_exp, sig, value, to_decimal(sig, raw_exp))
     print(f"ok ({samples:,} samples)")

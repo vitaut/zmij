@@ -17,11 +17,11 @@ fractions and the three-gap theorem.
 Overview
 --------
 
-zmij converts a binary float bin_sig * 2^bin_exp to the shortest decimal,
-using a Schubfach-style single multiply by a power-of-ten significand, with a
-Xiang JunBo (xjb) twist: it scales by 10^(-dec_exp - 1) to directly produce
-the shortened 15-16 digit significand and derives the extra (17th) digit from
-the fractional part.
+zmij converts a binary float bin_sig * 2^bin_exp to the shortest decimal, using
+a Schubfach-style single multiply by a power-of-ten significand (introduced by
+yy), with a Xiang JunBo (xjb) twist: it scales by 10^(-dec_exp - 1) to directly
+produce the shortened 15-16 digit significand and derives the extra (17th) digit
+from the fractional part.
 
 For each input (regular double path):
 
@@ -170,12 +170,10 @@ def enumerate_mod_mul_solutions(num: int, mod: int,
 
 # --- zmij port -------------------------------------------------------------
 
+NUM_SIG_BITS = 52
+EXP_OFFSET = 1023 + NUM_SIG_BITS  # exp_bias(1023) + significand bits
 EXTRA_SHIFT = 6
 BIASED_HALF = (1 << 63) + 6
-
-# double fields
-EXP_OFFSET = 1075  # exp_bias(1023) + num_sig_bits(52)
-SIG_BITS = 52
 
 
 def compute_dec_exp(bin_exp: int, regular: bool = True) -> int:
@@ -231,7 +229,7 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
     mask64 = (1 << 64) - 1
     bin_exp = raw_exp - EXP_OFFSET
     # Irregular (asymmetric boundaries) iff sig is a power of two.
-    regular = sig != (1 << SIG_BITS)
+    regular = sig != (1 << NUM_SIG_BITS)
 
     dec_exp = compute_dec_exp(bin_exp, regular)
     shift = compute_exp_shift(bin_exp, dec_exp + 1) + EXTRA_SHIFT
@@ -286,9 +284,9 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
 
 def double_from_fields(sig: int, raw_exp: int) -> float:
     """Reconstruct the double from the (significand, raw exponent) fields."""
-    implicit = 1 << SIG_BITS
+    implicit = 1 << NUM_SIG_BITS
     if sig >= implicit:  # normal: sig carries the implicit bit
-        bits = (raw_exp << SIG_BITS) | (sig - implicit)
+        bits = (raw_exp << NUM_SIG_BITS) | (sig - implicit)
     else:  # subnormal: biased exponent is 0, so raw_exp is unused
         bits = sig
     return struct.unpack("<d", struct.pack("<Q", bits))[0]
@@ -452,8 +450,8 @@ def find_edge_cases() -> None:
         raise RuntimeError("run this verifier without -O; the large-cluster "
                            "reduction relies on proof-critical assertions")
     print("double edge-case sweep ... ", end="", flush=True)
-    implicit = 1 << SIG_BITS
-    normal_max = (1 << (SIG_BITS + 1)) - 1
+    implicit = 1 << NUM_SIG_BITS
+    normal_max = (1 << (NUM_SIG_BITS + 1)) - 1
     exceptions: Set[Tuple[int, int]] = set()
     boundary_hits = 0  # significands landing in a boundary window
     representatives_tested = 0  # significands actually run through check_value
