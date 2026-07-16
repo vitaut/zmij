@@ -426,7 +426,9 @@ def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
     bin_exp, dec_exp, shift, cache = exp_params(raw_exp)
     cache_hi = cache >> 64
 
-    s = 70 - shift  # fractional = floor(cache * sig / 2^s) mod 2^64
+    # fractional = floor(cache * sig / 2^s) mod 2^64, matching to_decimal's
+    # (p >> EXTRA_SHIFT) over the 128-bit product.
+    s = 64 + EXTRA_SHIFT - shift
     assert s >= 0
     mod = 1 << (s + 64)
 
