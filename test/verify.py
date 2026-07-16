@@ -265,13 +265,6 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
     return integral, dec_exp, digit, (round_up + round_down) == 0
 
 
-def zmij_value(sig: int, raw_exp: int) -> Fraction:
-    """The exact value of the decimal zmij produces for this input."""
-    integral, dec_exp, digit, has_last_digit = to_decimal(sig, raw_exp)
-    final_sig = integral * 10 + (digit if has_last_digit else 0)
-    return Fraction(final_sig) * Fraction(10) ** dec_exp
-
-
 # --- reference: exact value + correctly-rounded shortest decimal ------------
 
 def double_from_fields(sig: int, raw_exp: int) -> float:
@@ -284,20 +277,29 @@ def double_from_fields(sig: int, raw_exp: int) -> float:
     return struct.unpack("<d", struct.pack("<Q", bits))[0]
 
 
-def reference_value(value: float) -> Fraction:
-    """Exact value of the correctly-rounded shortest decimal (Python's repr)."""
-    return Fraction(repr(value))
-
-
 def check_value(sig: int, raw_exp: int):
-    """Return (ok, zmij_value, reference_value) for one input."""
+    """
+    Return (ok, got, want). Correct iff zmij produces the right value AND the
+    shortest decimal.
+    """
     value = double_from_fields(sig, raw_exp)
-    got = zmij_value(sig, raw_exp)
-    want = reference_value(value)
-    return got == want, got, want
+    integral, dec_exp, digit, has_last_digit = to_decimal(sig, raw_exp)
+    final_sig = integral * 10 + (digit if has_last_digit else 0)
+    got = Fraction(final_sig) * Fraction(10) ** dec_exp
+    want = Fraction(repr(value))
+    # reject the one value-preserving non-shortest case: an emitted trailing 0
+    ok = got == want and not (has_last_digit and digit == 0)
+    return ok, got, want
 
 
 # --- verification ----------------------------------------------------------
+#
+# check_value checks the shortest representation, not just the numeric value:
+# has_last_digit with a zero last digit emits a redundant trailing 0, and it is
+# rejected. This is sound to check only near boundaries because has_last_digit
+# is piecewise-constant in `fractional`, flipping exactly at the round_up /
+# round_down boundaries (fractional == 2^64 - half_ulp and fractional ==
+# half_ulp) enumerated below.
 #
 # The finite `fractional` and `half_ulp` each differ from the exact scaled
 # values by at most 1 unit, so a misround can only occur when the exact value
@@ -490,9 +492,9 @@ def find_edge_cases() -> None:
         print(f"  {len(exceptions)} misrounds:")
         for raw_exp, sig in sorted(exceptions):
             value = double_from_fields(sig, raw_exp)
-            got = zmij_value(sig, raw_exp)
-            want = reference_value(value)
+            _ok, got, want = check_value(sig, raw_exp)
             print(f"  raw_exp={raw_exp} sig={sig} value={value!r} "
+                  f"to_decimal={to_decimal(sig, raw_exp)} "
                   f"got={got} want={want}")
         raise SystemExit(1)
 
