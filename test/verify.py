@@ -265,7 +265,26 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
     return integral, dec_exp, digit, (round_up + round_down) == 0
 
 
-# --- reference: exact value + correctly-rounded shortest decimal ------------
+# --- verification ----------------------------------------------------------
+#
+# The truncated `fractional` and `half_ulp` each differ from the exact scaled
+# values by at most 1 unit, so a misround can only occur when the exact value
+# lands within a couple of units of a decision boundary. We enumerate exactly
+# those significands with floor_sum.
+#
+# check_value also rejects non-shortest output (a redundant trailing zero from
+# has_last_digit with digit 0). Like the rounded value, this is decided by
+# `fractional` and changes only at the enumerated boundaries, so the same sweep
+# covers it.
+#
+# A single boundary can be hit by astronomically many significands at once
+# (when the cache is exact, but also for the reciprocal caches near dec_exp
+# 16-17). For such large clusters every member is an exact tie - proven per
+# cluster in check_boundary via a danger-band count - so the rounding outcome
+# depends only on (fractional, sig parity) and is handled correctly by design
+# (biased_half's +6, the 2^62 -> digit 2 special case). We therefore check one
+# representative per (fractional, parity) instead of every significand.
+
 
 def double_from_fields(sig: int, raw_exp: int) -> float:
     """Reconstruct the double from the (significand, raw exponent) fields."""
@@ -288,27 +307,7 @@ def check_value(sig: int, raw_exp: int) -> bool:
     return got == want and not (has_last_digit and digit == 0)
 
 
-# --- verification ----------------------------------------------------------
-#
-# The truncated `fractional` and `half_ulp` each differ from the exact scaled
-# values by at most 1 unit, so a misround can only occur when the exact value
-# lands within a couple of units of a decision boundary. We enumerate exactly
-# those significands with floor_sum.
-#
-# check_value also rejects non-shortest output (a redundant trailing zero from
-# has_last_digit with digit 0). Like the rounded value, this is decided by
-# `fractional` and changes only at the enumerated boundaries, so the same sweep
-# covers it.
-#
-# A single boundary can be hit by astronomically many significands at once
-# (when the cache is exact, but also for the reciprocal caches near dec_exp
-# 16-17). For such large clusters every member is an exact tie - proven per
-# cluster in check_boundary via a danger-band count - so the rounding outcome
-# depends only on (fractional, sig parity) and is handled correctly by design
-# (biased_half's +6, the 2^62 -> digit 2 special case). We therefore check one
-# representative per (fractional, parity) instead of every significand.
-
-BOUNDARY_WINDOW = 4  # conservative; 2 suffices (errors are <= 1 each)
+ERROR_MARGIN = 4  # conservative; 2 suffices (errors are <= 1 each)
 
 
 def exact_fractional(sig: int, bin_exp: int, dec_exp: int) -> int:
@@ -350,14 +349,14 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
                    mod: int, s: int, sig_min: int, sig_max: int, target: int,
                    exceptions: Set[Tuple[int, int]]) -> Tuple[int, int]:
     """
-    Check every significand whose `fractional` is within BOUNDARY_WINDOW of
+    Check every significand whose `fractional` is within ERROR_MARGIN of
     `target` against the correctly-rounded reference. Returns (hits, tested):
     the number of significands landing in the window (the whole cluster in the
     large-cluster case) and the number checked directly (all of them for small
     clusters, one representative per key for large ones).
     """
-    v_lo = max(target - BOUNDARY_WINDOW, 0)
-    v_hi = min(target + BOUNDARY_WINDOW, (1 << 64) - 1)
+    v_lo = max(target - ERROR_MARGIN, 0)
+    v_hi = min(target + ERROR_MARGIN, (1 << 64) - 1)
     y_lo = v_lo << s
     y_hi = (v_hi << s) | ((1 << s) - 1)
 

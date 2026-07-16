@@ -5,8 +5,8 @@ Sanity tests for verify.py.
 These validate count_mod_mul_solutions / enumerate_mod_mul_solutions against a
 naive brute-force reference over small inputs, exercise count_mod_mul_solutions
 in the large-integer regime it is actually used in (via oracle-free invariants
-and a full-period closed form), confirm the finite `fractional` stays within
-BOUNDARY_WINDOW of the exact value, and spot-check the zmij port against
+and a full-period closed form), confirm the truncated `fractional` stays within
+ERROR_MARGIN of the exact value, and spot-check the zmij port against
 Python's repr on random doubles.
 """
 
@@ -25,7 +25,7 @@ count_mod_mul_solutions = verify_zmij.count_mod_mul_solutions
 enumerate_mod_mul_solutions = verify_zmij.enumerate_mod_mul_solutions
 SIG_BITS = verify_zmij.SIG_BITS
 MASK64 = verify_zmij.MASK64
-BOUNDARY_WINDOW = verify_zmij.BOUNDARY_WINDOW
+ERROR_MARGIN = verify_zmij.ERROR_MARGIN
 check_value = verify_zmij.check_value
 to_decimal = verify_zmij.to_decimal
 exp_params = verify_zmij.exp_params
@@ -147,8 +147,8 @@ def test_enumerate_mod_mul_solutions() -> None:
 
 def test_fractional_error_bound(samples: int = 100000) -> None:
     """
-    Confirm the finite `fractional` equals floor(2^64 * true_fraction) up to a
-    small slack, justifying BOUNDARY_WINDOW. Uses exact rational arithmetic.
+    Confirm the truncated `fractional` equals floor(2^64 * true_fraction) up to
+    a small slack, justifying ERROR_MARGIN. Uses exact rational arithmetic.
     """
     print("fractional error bound ... ", end="", flush=True)
     rng = random.Random(1)
@@ -164,7 +164,7 @@ def test_fractional_error_bound(samples: int = 100000) -> None:
         slack = (fast - exact) & MASK64
         slack = min(slack, (1 << 64) - slack)  # distance on the ring
         max_slack = max(max_slack, slack)
-    assert max_slack < BOUNDARY_WINDOW, max_slack
+    assert max_slack < ERROR_MARGIN, max_slack
     print(f"ok (max slack {max_slack} over {samples:,} samples)")
 
 
