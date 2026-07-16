@@ -14,16 +14,16 @@ floor_sum.
 Inspired by verify.py by YaoYuan. zmij rounds with carry tests on a 64-bit
 `fractional` (not modular comparisons split across three edge-case searches),
 so the boundaries are re-derived here, and solutions are counted with an O(log)
-floor_sum solver rather than continued fractions and the three-gap theorem.
+floor_sum rather than continued fractions and the three-gap theorem.
 
 Overview
 --------
 
-zmij converts a binary float sig2 * 2^bin_exp to the shortest decimal, using a
-Schubfach-style single multiply by a power-of-ten significand, with a Xiang JunBo
-(xjb) twist: it scales by 10^(-dec_exp-1) to directly produce the shortened
-15-16 digit significand and derives the extra (17th) digit from the fractional
-part.
+zmij converts a binary float bin_sig * 2^bin_exp to the shortest decimal,
+using a Schubfach-style single multiply by a power-of-ten significand, with a
+Xiang JunBo (xjb) twist: it scales by 10^(-dec_exp - 1) to directly produce
+the shortened 15-16 digit significand and derives the extra (17th) digit from
+the fractional part.
 
 For each input (regular double path):
 
@@ -196,7 +196,7 @@ def compute_exp_shift(bin_exp: int, dec_exp: int) -> int:
 
 
 def umul192_hi128(x: int, y: int) -> int:
-    """Top 128 bits of the 192-bit product x (128-bit) * y (drops low 64 bits)."""
+    """Top 128 bits of the 192-bit product of x (128-bit) and y (64-bit)."""
     return (x * y) >> 64
 
 
@@ -283,7 +283,7 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
 # proven per cluster in check_boundary via a danger-band count - so the rounding
 # outcome depends only on (fractional, sig parity) and is handled correctly by
 # design (biased_half's +6, the 2^62 -> digit 2 special case). We therefore
-# check one representative per (fractional, parity) instead of every significand.
+# check one representative per (fractional, parity), not every significand.
 
 
 def double_from_fields(sig: int, raw_exp: int) -> float:
