@@ -290,17 +290,15 @@ def check_value(sig: int, raw_exp: int) -> bool:
 
 # --- verification ----------------------------------------------------------
 #
-# check_value checks the shortest representation, not just the numeric value:
-# has_last_digit with a zero last digit emits a redundant trailing 0, and it is
-# rejected. This is sound to check only near boundaries because has_last_digit
-# is piecewise-constant in `fractional`, flipping exactly at the round_up /
-# round_down boundaries (fractional == 2^64 - half_ulp and fractional ==
-# half_ulp) enumerated below.
-#
 # The truncated `fractional` and `half_ulp` each differ from the exact scaled
 # values by at most 1 unit, so a misround can only occur when the exact value
 # lands within a couple of units of a decision boundary. We enumerate exactly
 # those significands with floor_sum.
+#
+# check_value also rejects non-shortest output (a redundant trailing zero from
+# has_last_digit with digit 0). Like the rounded value, this is decided by
+# `fractional` and changes only at the enumerated boundaries, so the same sweep
+# covers it.
 #
 # A single boundary can be hit by astronomically many significands at once
 # (when the cache is exact, but also for the reciprocal caches near dec_exp
