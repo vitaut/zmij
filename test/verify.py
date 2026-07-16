@@ -381,8 +381,8 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
     # identically, i.e. each member's exact fractional equals its finite
     # `fractional`. Since `cache` is rounded down, exact = finite or finite + 1,
     # and the +1 carry occurs only when the low s bits of cache*sig fall in the
-    # danger band [2^s - sig_max, 2^s - 1]. Prove no windowed member lands there
-    # (a firing assert means this cluster needs full enumeration instead).
+    # danger band [2^s - sig_max, 2^s - 1]. The assert enforces that no windowed
+    # member lands there, so sampling by key is sound.
     danger_lo = (1 << s) - sig_max
     for f in range(v_lo, v_hi + 1):
         band_lo = (f << s) + danger_lo
