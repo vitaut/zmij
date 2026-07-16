@@ -68,7 +68,7 @@ which count_mod_mul_solutions / enumerate_mod_mul_solutions answer directly.
 
 import struct
 from fractions import Fraction
-from typing import Iterator, List, Tuple
+from typing import Iterator, Set, Tuple
 
 
 def floor_sum(n: int, m: int, a: int, b: int) -> int:
@@ -352,11 +352,13 @@ def count_boundary_keys(cache: int, mod: int, s: int, sig_min: int,
 
 def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
                    mod: int, s: int, sig_min: int, sig_max: int, target: int,
-                   exceptions: List[Tuple[int, int]]) -> int:
+                   exceptions: Set[Tuple[int, int]]) -> Tuple[int, int]:
     """
     Check every significand whose `fractional` is within BOUNDARY_WINDOW of
-    `target` against the correctly-rounded reference. Returns the number of
-    matching significands (the whole cluster in the large-cluster case).
+    `target` against the correctly-rounded reference. Returns (hits, tested):
+    the number of significands landing in the window (the whole cluster in the
+    large-cluster case) and the number checked directly (all of them for small
+    clusters, one representative per key for large ones).
     """
     v_lo = max(target - BOUNDARY_WINDOW, 0)
     v_hi = min(target + BOUNDARY_WINDOW, (1 << 64) - 1)
@@ -365,7 +367,7 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
 
     count = count_mod_mul_solutions(cache, mod, sig_min, sig_max, y_lo, y_hi)
     if count == 0:
-        return 0
+        return 0, 0
 
     candidates = enumerate_mod_mul_solutions(
         cache, mod, sig_min, sig_max, y_lo, y_hi)
@@ -374,8 +376,8 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
         for sig, _ in candidates:
             ok, _got, _want = check_value(sig, raw_exp)
             if not ok:
-                exceptions.append((raw_exp, sig))
-        return count
+                exceptions.add((raw_exp, sig))
+        return count, count
 
     # Large cluster: check one representative per (fractional, parity) key
     # instead of every member. Sound only if all members sharing a key round
@@ -410,17 +412,18 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, cache: int,
             (raw_exp, sig, count)
         ok, _got, _want = check_value(sig, raw_exp)
         if not ok:
-            exceptions.append((raw_exp, sig))
+            exceptions.add((raw_exp, sig))
 
     # We must have seen every (fractional, parity) class present, not just the
     # first pull_cap candidates' worth.
     assert len(seen) == count_boundary_keys(cache, mod, s, sig_min, sig_max,
                                             v_lo, v_hi), (raw_exp, target)
-    return count
+    return count, len(seen)
 
 
 def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
-                            exceptions: List[Tuple[int, int]]) -> int:
+                            exceptions: Set[Tuple[int, int]]
+                            ) -> Tuple[int, int]:
     """Check boundary significands in [sig_min, sig_max] for one exponent."""
     assert sig_min <= sig_max, (raw_exp, sig_min, sig_max)
     bin_exp, dec_exp, shift, cache = exp_params(raw_exp)
@@ -441,11 +444,13 @@ def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
     for k in range(1, 10):
         targets.append((k * (1 << 64) - BIASED_HALF) // 10)
 
-    total = 0
+    hits = tested = 0
     for target in targets:
-        total += check_boundary(raw_exp, bin_exp, dec_exp, cache, mod, s,
-                                sig_min, sig_max, target, exceptions)
-    return total
+        h, t = check_boundary(raw_exp, bin_exp, dec_exp, cache, mod, s,
+                              sig_min, sig_max, target, exceptions)
+        hits += h
+        tested += t
+    return hits, tested
 
 
 def find_edge_cases() -> None:
@@ -453,26 +458,32 @@ def find_edge_cases() -> None:
     print("double edge-case sweep ... ", end="", flush=True)
     implicit = 1 << SIG_BITS
     normal_max = (1 << (SIG_BITS + 1)) - 1
-    exceptions: List[Tuple[int, int]] = []
-    checked = 0
+    exceptions: Set[Tuple[int, int]] = set()
+    boundary_hits = 0  # significands landing in a boundary window
+    representatives_tested = 0  # significands actually run through check_value
+    powers_of_two = 0
 
     for raw_exp in range(1, 2047):
         # Exact powers of two: exactly one significand, checked directly.
         ok, _got, _want = check_value(implicit, raw_exp)
+        powers_of_two += 1
         if not ok:
-            exceptions.append((raw_exp, implicit))
+            exceptions.add((raw_exp, implicit))
 
         # Regular significands (exclude the power of two at `implicit`).
-        checked += find_regular_edge_cases(
-            raw_exp, implicit + 1, normal_max, exceptions)
+        h, t = find_regular_edge_cases(raw_exp, implicit + 1, normal_max,
+                                       exceptions)
+        boundary_hits += h
+        representatives_tested += t
         if raw_exp == 1:  # subnormals share raw_exp 1 and use the regular path
-            checked += find_regular_edge_cases(raw_exp, 1, implicit - 1,
-                                               exceptions)
+            h, t = find_regular_edge_cases(raw_exp, 1, implicit - 1, exceptions)
+            boundary_hits += h
+            representatives_tested += t
 
     if exceptions:
         print("FAILED")
         print(f"  {len(exceptions)} misrounds:")
-        for raw_exp, sig in exceptions:
+        for raw_exp, sig in sorted(exceptions):
             value = double_from_fields(sig, raw_exp)
             got = zmij_value(sig, raw_exp)
             want = reference_value(value)
@@ -480,7 +491,9 @@ def find_edge_cases() -> None:
                   f"got={got} want={want}")
     else:
         print("ok")
-        print(f"  {checked:,} significands + 2046 powers of two, no misrounds")
+        print(f"  {boundary_hits:,} boundary-window hits, "
+              f"{representatives_tested:,} tested directly, "
+              f"{powers_of_two:,} powers of two; no misrounds")
 
 
 if __name__ == "__main__":
