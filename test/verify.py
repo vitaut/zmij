@@ -7,17 +7,17 @@ Distributed under the MIT license (see LICENSE) or alternatively
 the Boost Software License, Version 1.0.
 https://github.com/vitaut/zmij/
 
-It ports zmij's `to_decimal<double>`, re-derives its edge cases, and checks
-them across all significands of every binary exponent, counted with floor_sum.
+It ports zmij's `to_decimal<double>`, derives its edge cases, and checks
+them across all significands of every binary exponent.
 
-Inspired by YaoYuan's (yy) verify.py. Zmij's rounding differs, so the
-boundaries are re-derived here and counted with floor_sum instead of continued
-fractions and the three-gap theorem.
+Inspired by YaoYuan's (yy) verify.py. Zmij's rounding differs, so we re-derive
+the boundaries here and use floor_sum instead of continued fractions and the
+three-gap theorem.
 
 Overview
 --------
 
-Zmij converts a binary float bin_sig * 2^bin_exp to the shortest decimal, using
+Zmij converts a double bin_sig * 2^bin_exp to the shortest decimal, using
 a Schubfach-style single multiply by a power-of-ten significand (introduced by
 yy), with a Xiang JunBo (xjb) twist: it scales by 10^(-dec_exp - 1) to directly
 produce the shortened 15-16 digit significand and derives the extra (17th) digit
@@ -25,13 +25,15 @@ from the fractional part.
 
 For each input (regular double path):
 
+    xs      = 6                                   # extra shift
     dec_exp = floor(bin_exp * log10(2))
-    shift   = compute_exp_shift(...) + 6          # extra_shift 6
-    pow10   = pow10_hi128(-dec_exp - 1)           # rounded-down 128-bit sig
-    p       = umul192_hi128(pow10, sig << shift)  # top 128 bits of the product
-    integral   = p >> 70
-    fractional = (p >> 6) mod 2^64
-    half_ulp   = (pow10_hi >> (7 - shift)) + even,   even = 1 - (sig & 1)
+    shift   = compute_exp_shift(...) + xs
+    pow10   = pow10_hi128(-dec_exp - 1)           # top 128 bits
+    p       = umul192_hi128(pow10, bin_sig << shift)  # top 128 bits of product
+    integral   = p >> (64 + xs)
+    fractional = (p >> xs) mod 2^64
+    even       = 1 - (bin_sig & 1)
+    half_ulp   = (pow10_hi >> (xs + 1 - shift)) + even
 
 The rounding decision uses carry/overflow tests:
 
@@ -42,24 +44,24 @@ The rounding decision uses carry/overflow tests:
     integral  += round_up
     has_last_digit = (round_up + round_down) == 0
 
-Exact powers of two (fraction field 0) take an asymmetric-boundary branch:
-the lower gap is half as wide.
+Exact powers of two (bin_sig == 2^52) are irregular: the lower side of the
+rounding interval is half as wide.
 
-The truncated `fractional` equals floor(2^64 * true_fraction) up to a slack of 2
-units (each of `fractional` and `half_ulp` is off by at most 1: the pow10
-significand is rounded down and the product and >>6 truncate). A misround can
-therefore only happen when the exact value lands within that slack of a decision
-boundary. We use floor_sum to enumerate, across all 2^52 significands of every
-binary exponent, exactly the significands whose truncated `fractional` lands
-within a window of each boundary (round_up carry, round_down, each last-digit
-tie, and the 2^62 special case). Each enumerated candidate is then checked
-against the correctly-rounded shortest decimal (Python's repr).
+`fractional` differs from floor(2^64 * true_fraction) by at most 1, and
+`half_ulp` likewise (the pow10 significand is rounded down, and the product and
+>> xs truncate). A rounding decision compares the two, so its outcome can change
+only when the exact value lands within 2 of a decision boundary. We use
+floor_sum to enumerate, across all 2^52 significands of every binary exponent,
+exactly the significands whose truncated `fractional` lands within a window of
+each boundary (round_up carry, round_down, each last-digit tie, and the 2^62
+special case). Each enumerated candidate is then checked against the
+correctly-rounded shortest decimal (Python's repr).
 
-    fractional = floor(pow10 * sig / 2^(70 - shift)) mod 2^64
+    fractional = floor(pow10 * bin_sig / 2^(64 + xs - shift)) mod 2^64
 
 so "fractional == V" is the modular window condition
 
-    (pow10 * sig) mod 2^(134 - shift) in [V << (70 - shift), ...]
+    (pow10 * bin_sig) mod 2^(128 + xs - shift) in [V << (64 + xs - shift), ...]
 
 which count_mod_mul_solutions / enumerate_mod_mul_solutions answer directly.
 """
@@ -221,21 +223,21 @@ def exp_params(raw_exp: int) -> Tuple[int, int, int, int]:
     return bin_exp, dec_exp, shift, pow10
 
 
-def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
+def to_decimal(bin_sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
     """
     Port of zmij's to_decimal<double>.
     Returns (integral, dec_exp, digit, has_last_digit).
     """
     mask64 = (1 << 64) - 1
     bin_exp = raw_exp - EXP_OFFSET
-    # Irregular (asymmetric boundaries) iff sig is a power of two.
-    regular = sig != (1 << NUM_SIG_BITS)
+    # Irregular (asymmetric boundaries) iff bin_sig is a power of two.
+    regular = bin_sig != (1 << NUM_SIG_BITS)
 
     dec_exp = compute_dec_exp(bin_exp, regular)
     shift = compute_exp_shift(bin_exp, dec_exp + 1) + EXTRA_SHIFT
     pow10 = pow10_hi128(-dec_exp - 1)
     pow10_hi = pow10 >> 64
-    p = umul192_hi128(pow10, sig << shift)
+    p = umul192_hi128(pow10, bin_sig << shift)
     integral = p >> (64 + EXTRA_SHIFT)
     fractional = (p >> EXTRA_SHIFT) & mask64
     half_ulp = pow10_hi >> (EXTRA_SHIFT + 1 - shift)
@@ -251,7 +253,7 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
             digit = lo
         return integral, dec_exp, digit, (round_up + round_down) == 0
 
-    half_ulp += 1 - (sig & 1)
+    half_ulp += 1 - (bin_sig & 1)
     round_up = fractional + half_ulp > mask64
     round_down = half_ulp > fractional
     integral += round_up
@@ -277,25 +279,25 @@ def to_decimal(sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
 # (when the pow10 significand is exact, but also for the reciprocal significands
 # near dec_exp 16-17). For such large clusters every member is an exact tie -
 # proven per cluster in check_boundary via a danger-band count - so the rounding
-# outcome depends only on (fractional, sig parity) and is handled correctly by
-# design (biased_half's +6, the 2^62 -> digit 2 special case). We therefore
+# outcome depends only on (fractional, bin_sig parity) and is handled correctly
+# by design (biased_half's +6, the 2^62 -> digit 2 special case). We therefore
 # check one representative per (fractional, parity), not every significand.
 
 
-def double_from_fields(sig: int, raw_exp: int) -> float:
+def double_from_fields(bin_sig: int, raw_exp: int) -> float:
     """Reconstruct the double from the (significand, raw exponent) fields."""
     implicit = 1 << NUM_SIG_BITS
-    if sig >= implicit:  # normal: sig carries the implicit bit
-        bits = (raw_exp << NUM_SIG_BITS) | (sig - implicit)
+    if bin_sig >= implicit:  # normal: bin_sig carries the implicit bit
+        bits = (raw_exp << NUM_SIG_BITS) | (bin_sig - implicit)
     else:  # subnormal: biased exponent is 0, so raw_exp is unused
-        bits = sig
+        bits = bin_sig
     return struct.unpack("<d", struct.pack("<Q", bits))[0]
 
 
-def check_value(sig: int, raw_exp: int) -> bool:
+def check_value(bin_sig: int, raw_exp: int) -> bool:
     """True iff zmij produces the right value AND the shortest decimal."""
-    value = double_from_fields(sig, raw_exp)
-    integral, dec_exp, digit, has_last_digit = to_decimal(sig, raw_exp)
+    value = double_from_fields(bin_sig, raw_exp)
+    integral, dec_exp, digit, has_last_digit = to_decimal(bin_sig, raw_exp)
     final_sig = integral * 10 + (digit if has_last_digit else 0)
     got = Fraction(final_sig) * Fraction(10) ** dec_exp
     want = Fraction(repr(value))
@@ -306,9 +308,9 @@ def check_value(sig: int, raw_exp: int) -> bool:
 ERROR_MARGIN = 4  # conservative; 2 suffices (errors are <= 1 each)
 
 
-def exact_fractional(sig: int, bin_exp: int, dec_exp: int) -> int:
-    """Exact floor(2^64 * fractional part of sig*2^bin_exp / 10^(dec_exp+1))."""
-    scaled = (Fraction(sig) * Fraction(2) ** bin_exp
+def exact_fractional(bin_sig: int, bin_exp: int, dec_exp: int) -> int:
+    """Exact floor(2^64 * frac(bin_sig*2^bin_exp / 10^(dec_exp+1)))."""
+    scaled = (Fraction(bin_sig) * Fraction(2) ** bin_exp
               / Fraction(10) ** (dec_exp + 1))
     return int((scaled - int(scaled)) * (1 << 64))
 
@@ -318,7 +320,8 @@ def count_boundary_keys(pow10: int, mod: int, s: int, sig_min: int,
     """
     Exact number of distinct (fractional, parity) keys among the significands
     in [sig_min, sig_max] whose fractional lies in [v_lo, v_hi]. Counts each
-    parity class by reparametrizing sig = 2t + p (so residue is linear in t).
+    parity class by reparametrizing bin_sig = 2t + p (so residue is linear
+    in t).
     """
     keys = 0
     for f in range(v_lo, v_hi + 1):
@@ -364,9 +367,9 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, pow10: int,
         pow10, mod, sig_min, sig_max, y_lo, y_hi)
     cluster_limit = 512  # perf dispatch: above this, sample + prove ties
     if count <= cluster_limit:
-        for sig, _ in candidates:
-            if not check_value(sig, raw_exp):
-                exceptions.add((raw_exp, sig))
+        for bin_sig, _ in candidates:
+            if not check_value(bin_sig, raw_exp):
+                exceptions.add((raw_exp, bin_sig))
         return count, count
 
     # Large cluster: check one representative per (fractional, parity) key
@@ -374,8 +377,9 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, pow10: int,
     # identically, i.e. each member's exact fractional equals its truncated
     # `fractional`. Since `pow10` is rounded down, exact = truncated or
     # truncated + 1, and the +1 carry occurs only when the low s bits of
-    # pow10*sig fall in the danger band [2^s - sig_max, 2^s - 1]. The assert
-    # enforces that no windowed member lands there, so sampling by key is sound.
+    # pow10*bin_sig fall in the danger band [2^s - sig_max, 2^s - 1]. The
+    # assert enforces that no windowed member lands there, so sampling by key
+    # is sound.
     danger_lo = (1 << s) - sig_max
     for f in range(v_lo, v_hi + 1):
         band_lo = (f << s) + danger_lo
@@ -391,19 +395,19 @@ def check_boundary(raw_exp: int, bin_exp: int, dec_exp: int, pow10: int,
     # was seen.
     seen = set()
     pull_cap = 8
-    for i, (sig, residue) in enumerate(candidates):
+    for i, (bin_sig, residue) in enumerate(candidates):
         if i >= pull_cap:
             break
-        key = (residue >> s, sig & 1)
+        key = (residue >> s, bin_sig & 1)
         if key in seen:
             continue
         seen.add(key)
         # Subsumed by the danger-band proof above; a cheap direct confirmation
         # that this representative really is an exact tie.
-        assert (residue >> s) == exact_fractional(sig, bin_exp, dec_exp), \
-            (raw_exp, sig, count)
-        if not check_value(sig, raw_exp):
-            exceptions.add((raw_exp, sig))
+        assert (residue >> s) == exact_fractional(bin_sig, bin_exp, dec_exp), \
+            (raw_exp, bin_sig, count)
+        if not check_value(bin_sig, raw_exp):
+            exceptions.add((raw_exp, bin_sig))
 
     # We must have seen every (fractional, parity) class present, not just the
     # first pull_cap candidates' worth.
@@ -420,7 +424,7 @@ def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
     bin_exp, dec_exp, shift, pow10 = exp_params(raw_exp)
     pow10_hi = pow10 >> 64
 
-    # fractional = floor(pow10 * sig / 2^s) mod 2^64, matching to_decimal's
+    # fractional = floor(pow10 * bin_sig / 2^s) mod 2^64, matching to_decimal's
     # (p >> EXTRA_SHIFT) over the 128-bit product.
     s = 64 + EXTRA_SHIFT - shift
     assert s >= 0
@@ -476,10 +480,10 @@ def find_edge_cases() -> None:
     if exceptions:
         print("FAILED")
         print(f"  {len(exceptions)} misrounds:")
-        for raw_exp, sig in sorted(exceptions):
-            value = double_from_fields(sig, raw_exp)
-            print(f"  raw_exp={raw_exp} sig={sig} value={value!r} "
-                  f"to_decimal={to_decimal(sig, raw_exp)}")
+        for raw_exp, bin_sig in sorted(exceptions):
+            value = double_from_fields(bin_sig, raw_exp)
+            print(f"  raw_exp={raw_exp} bin_sig={bin_sig} value={value!r} "
+                  f"to_decimal={to_decimal(bin_sig, raw_exp)}")
         raise SystemExit(1)
 
     print("ok")

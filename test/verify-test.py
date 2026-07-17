@@ -156,11 +156,11 @@ def test_fractional_error_bound(samples: int = 100000) -> None:
     max_slack = 0
     for _ in range(samples):
         raw_exp = rng.randint(1, 2046)
-        sig = rng.randint(implicit, (1 << (NUM_SIG_BITS + 1)) - 1)
+        bin_sig = rng.randint(implicit, (1 << (NUM_SIG_BITS + 1)) - 1)
         bin_exp, dec_exp, shift, pow10 = exp_params(raw_exp)
         s = 70 - shift
-        fast = (pow10 * sig // (1 << s)) & mask64
-        exact = exact_fractional(sig, bin_exp, dec_exp)
+        fast = (pow10 * bin_sig // (1 << s)) & mask64
+        exact = exact_fractional(bin_sig, bin_exp, dec_exp)
         slack = (fast - exact) & mask64
         slack = min(slack, (1 << 64) - slack)  # distance on the ring
         max_slack = max(max_slack, slack)
@@ -180,11 +180,11 @@ def test_sample(samples: int = 100000) -> None:
         raw_exp = (bits >> NUM_SIG_BITS) & 0x7FF
         frac = bits & ((1 << NUM_SIG_BITS) - 1)
         if raw_exp == 0:
-            sig, raw_exp = frac, 1
+            bin_sig, raw_exp = frac, 1
         else:
-            sig = frac | (1 << NUM_SIG_BITS)
-        assert check_value(sig, raw_exp), \
-            (raw_exp, sig, value, to_decimal(sig, raw_exp))
+            bin_sig = frac | (1 << NUM_SIG_BITS)
+        assert check_value(bin_sig, raw_exp), \
+            (raw_exp, bin_sig, value, to_decimal(bin_sig, raw_exp))
     print(f"ok ({samples:,} samples)")
 
 
