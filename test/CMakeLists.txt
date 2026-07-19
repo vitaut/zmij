@@ -3,10 +3,16 @@ add_subdirectory(gtest)
 add_library(dragonbox dragonbox/dragonbox_to_chars.cpp)
 target_include_directories(dragonbox PUBLIC .)
 
+add_library(fmt fmt/format.cc)
+target_compile_options(fmt PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
+target_include_directories(fmt PUBLIC .)
+find_package(Threads)
+target_link_libraries(fmt Threads::Threads)
+
 function (add_zmij_test name)
   add_executable(${name} zmij-test.cc)
   target_compile_features(${name} PRIVATE ${ZMIJ_STANDARD})
-  target_link_libraries(${name} dragonbox gtest)
+  target_link_libraries(${name} dragonbox gtest fmt)
   add_test(NAME ${name} COMMAND ${name})
 endfunction ()
 
@@ -40,12 +46,6 @@ target_compile_definitions(zmij-optimize-size-test PRIVATE ZMIJ_OPTIMIZE_SIZE=1)
 target_sources(zmij-optimize-size-test PRIVATE pow10-test.cc)
 
 set(ZMIJ_CHECK_STANDARD cxx_std_20)
-
-add_library(fmt fmt/format.cc)
-target_compile_options(fmt PUBLIC $<$<CXX_COMPILER_ID:MSVC>:/utf-8>)
-target_include_directories(fmt PUBLIC .)
-find_package(Threads)
-target_link_libraries(fmt Threads::Threads)
 
 add_executable(float-check float-check.cc)
 target_compile_features(float-check PRIVATE ${ZMIJ_CHECK_STANDARD})

@@ -29,10 +29,12 @@ auto write(char* out, size_t n, float value) noexcept -> char* {
 
 #include <gtest/gtest.h>
 
-#include <limits>  // std::numeric_limits
-#include <string>  // std::string
+#include <cstdint>  // uint64_t
+#include <limits>   // std::numeric_limits
+#include <string>   // std::string
 
 #include "dragonbox/dragonbox_to_chars.h"
+#include "fmt/format.h"
 
 
 auto dtoa(double value) -> std::string {
@@ -178,16 +180,38 @@ TEST(dtoa_test, single_candidate) {
   EXPECT_EQ(dtoa(6.079537928711555e+61), "6.079537928711555e+61");
 }
 
-TEST(dtoa_test, boundary_cases) {
-  EXPECT_EQ(dtoa(1.3588129002659584e-245), "1.3588129002659584e-245");
-  EXPECT_EQ(dtoa(2.9802322387695312e-08), "2.9802322387695312e-08");
-  EXPECT_EQ(dtoa(5.960464477539063e-08), "5.960464477539063e-08");
-  EXPECT_EQ(dtoa(1.3076622631878654e+65), "1.3076622631878654e+65");
-  EXPECT_EQ(dtoa(9.03725590277404e+159), "9.03725590277404e+159");
-  EXPECT_EQ(dtoa(9.03725590277404e+160), "9.03725590277404e+160");
-  EXPECT_EQ(dtoa(9.03725590277404e+161), "9.03725590277404e+161");
-  EXPECT_EQ(dtoa(9.03725590277404e+162), "9.03725590277404e+162");
-  EXPECT_EQ(dtoa(5.960464477539062e-07), "5.960464477539062e-07");
+// Rounding-boundary doubles enumerated by verify.py (see --dump-boundaries).
+// boundary-bits.h is a bare initializer list, one bit pattern per line.
+static const uint64_t boundary_bits[] = {
+#include "boundary-bits.h"
+};
+
+// Check zmij against dragonbox on every rounding-boundary double verify.py
+// enumerates, using dragonbox's to_decimal as an independent oracle.
+TEST(dtoa_test, boundary_sweep) {
+  auto to_string = [](uint64_t sig, int dec_exp) -> std::string {
+    std::string digits = std::to_string(sig);
+    int num_digits = int(digits.size());
+    dec_exp += num_digits - 1;  // exponent of the leading digit
+    if (dec_exp < -4 || dec_exp > 15) {  // scientific
+      std::string sig_str = num_digits == 1
+                                ? digits
+                                : digits.substr(0, 1) + "." + digits.substr(1);
+      return sig_str + fmt::format("e{:+03d}", dec_exp);
+    }
+    int point = dec_exp + 1;  // digits left of the decimal point
+    if (point <= 0) return "0." + std::string(-point, '0') + digits;
+    if (point >= num_digits) return digits + std::string(point - num_digits, '0');
+    return digits.substr(0, point) + "." + digits.substr(point);
+  };
+
+  for (uint64_t bits : boundary_bits) {
+    double value = 0;
+    memcpy(&value, &bits, sizeof(value));
+    auto ref = jkj::dragonbox::to_decimal(value);
+    EXPECT_EQ(dtoa(value), to_string(ref.significand, ref.exponent))
+        << "bits=" << bits;
+  }
 }
 
 TEST(dtoa_test, fixed_with_zeros) {
