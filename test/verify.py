@@ -437,7 +437,13 @@ def find_regular_edge_cases(raw_exp: int, sig_min: int, sig_max: int,
     half_ulp = pow10_hi >> (EXTRA_SHIFT + 1 - shift)
     targets = [half_ulp, (1 << 64) - half_ulp, 1 << 62]
     for k in range(1, 10):
-        targets.append((k * (1 << 64) - BIASED_HALF) // 10)
+        # The true half-tie is at (k*2^64 - 2^63)/10. biased_half's +6 is a
+        # 2^64-scale nudge divided by 10, so it moves the boundary <1 fractional
+        # unit - the margin covers truncation slack, not this shift. Assert it.
+        target = (k * (1 << 64) - BIASED_HALF) // 10
+        true_half = (k * (1 << 64) - (1 << 63)) // 10
+        assert abs(target - true_half) <= ERROR_MARGIN
+        targets.append(target)
 
     hits = tested = 0
     for target in targets:
