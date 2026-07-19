@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
 """
-A script to verify the correctness of the zmij double-to-string algorithm.
+A script to verify the correctness of the Żmij double-to-string algorithm.
 
 Copyright (c) 2025 - present, Victor Zverovich
 Distributed under the MIT license (see LICENSE) or alternatively
 the Boost Software License, Version 1.0.
 https://github.com/vitaut/zmij/
 
-It ports zmij's `to_decimal<double>`, derives its edge cases, and checks
+It ports Żmij's `to_decimal<double>`, derives its edge cases, and checks
 them across all significands of every binary exponent.
 
-Inspired by YaoYuan's (yy) verify.py. Zmij's rounding differs, so we re-derive
+Inspired by YaoYuan's (yy) verify.py. Żmij's rounding differs, so we re-derive
 the boundaries here and use floor_sum instead of continued fractions and the
 three-gap theorem.
 
 Overview
 --------
 
-Zmij converts a double bin_sig * 2^bin_exp to the shortest decimal, using
+Żmij converts a double bin_sig * 2^bin_exp to the shortest decimal, using
 a Schubfach-style single multiply by a power-of-ten significand (introduced by
 yy), with a Xiang JunBo (xjb) twist: it scales by 10^(-dec_exp - 1) to directly
 produce the shortened 15-16 digit significand and derives the extra (17th) digit
@@ -59,7 +59,7 @@ correctly-rounded shortest decimal (Python's repr).
 
     fractional = floor(pow10 * bin_sig / 2^(64 + xs - shift)) mod 2^64
 
-so "fractional == V" is the modular window condition
+so "fractional == V" holds exactly when
 
     (pow10 * bin_sig) mod 2^(128 + xs - shift) in [V << (64 + xs - shift), ...]
 
@@ -109,8 +109,8 @@ def count_mod_mul_solutions(num: int, mod: int,
                             x_min: int, x_max: int,
                             y_min: int, y_max: int) -> int:
     """
-    Count the x in [x_min, x_max] for which (num * x) % mod lies in the closed
-    interval [y_min, y_max].
+    Count the x in [x_min, x_max] for which (num * x) % mod lies in
+    [y_min, y_max].
 
     Handles every case (non-coprime num/mod, degenerate intervals,
     x_max >= mod, ...) without special-casing, and always returns a valid
@@ -170,7 +170,7 @@ def enumerate_mod_mul_solutions(num: int, mod: int,
         yield x, num * x % mod
 
 
-# --- zmij port -------------------------------------------------------------
+# --- Żmij port -------------------------------------------------------------
 
 NUM_SIG_BITS = 52
 EXP_OFFSET = 1023 + NUM_SIG_BITS  # exp_bias(1023) + significand bits
@@ -225,7 +225,7 @@ def exp_params(raw_exp: int) -> Tuple[int, int, int, int]:
 
 def to_decimal(bin_sig: int, raw_exp: int) -> Tuple[int, int, int, bool]:
     """
-    Port of zmij's to_decimal<double>.
+    Port of Żmij's to_decimal<double>.
     Returns (integral, dec_exp, digit, has_last_digit).
     """
     mask64 = (1 << 64) - 1
@@ -295,7 +295,7 @@ def double_from_fields(bin_sig: int, raw_exp: int) -> float:
 
 
 def check_value(bin_sig: int, raw_exp: int) -> bool:
-    """True iff zmij produces the right value AND the shortest decimal."""
+    """True iff Żmij produces the right value AND the shortest decimal."""
     value = double_from_fields(bin_sig, raw_exp)
     integral, dec_exp, digit, has_last_digit = to_decimal(bin_sig, raw_exp)
     final_sig = integral * 10 + (digit if has_last_digit else 0)

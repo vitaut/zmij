@@ -6,7 +6,7 @@ These validate count_mod_mul_solutions / enumerate_mod_mul_solutions against a
 naive brute-force reference over small inputs, exercise count_mod_mul_solutions
 in the large-integer regime it is actually used in (via oracle-free invariants
 and a full-period closed form), confirm the truncated `fractional` stays within
-ERROR_MARGIN of the exact value, and spot-check the zmij port against
+ERROR_MARGIN of the exact value, and spot-check the Żmij port against
 Python's repr on random doubles.
 """
 
@@ -169,7 +169,7 @@ def test_fractional_error_bound(samples: int = 100000) -> None:
 
 
 def test_sample(samples: int = 100000) -> None:
-    """Spot-check the zmij port against Python's repr on random doubles."""
+    """Spot-check the Żmij port against Python's repr on random doubles."""
     print("sample ... ", end="", flush=True)
     rng = random.Random(2)
     for _ in range(samples):
