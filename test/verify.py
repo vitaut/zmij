@@ -25,7 +25,7 @@ from the fractional part.
 
 For each input (regular double path):
 
-    xs      = 6                                   # extra shift
+    xs      = 9                                   # extra shift
     dec_exp = floor(bin_exp * log10(2))
     shift   = compute_exp_shift(...) + xs
     pow10   = pow10_hi128(-dec_exp - 1)           # top 128 bits
@@ -174,7 +174,7 @@ def enumerate_mod_mul_solutions(num: int, mod: int,
 
 NUM_SIG_BITS = 52
 EXP_OFFSET = 1023 + NUM_SIG_BITS  # exp_bias(1023) + significand bits
-EXTRA_SHIFT = 6
+EXTRA_SHIFT = 9
 BIASED_HALF = (1 << 63) + 6
 
 

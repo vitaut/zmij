@@ -502,9 +502,10 @@ constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
 
 struct exp_shift_table {
   static constexpr bool enable = ZMIJ_OPTIMIZE_SIZE == 0;
-  // extra_shift must be >= 3 to keep shift non-negative and <= 11 to
-  // fit the significand into 64 bits after the shift.
-  static constexpr int extra_shift = 6;
+  // extra_shift in [3, 10]: >= 3 keeps shift non-negative, <= 10 keeps
+  // bin_sig << shift in 64 bits (11 overflows the irregular 2**52 << 12).
+  // 9 is fastest: extra_shift + 1 == 10 reuses the base-10 digit constant.
+  static constexpr int extra_shift = 9;
   unsigned char data[enable ? float_traits<double>::exp_mask + 1 : 1] = {};
 
   constexpr exp_shift_table() {
@@ -1121,7 +1122,8 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     int dec_exp = compute_dec_exp(bin_exp, false);
     unsigned char shift = compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
     uint128 pow10 = d.pow10_significands[-dec_exp - 1];
-    uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
+    // Cast to 64 bits: for float, bin_sig << shift can exceed 32 bits.
+    uint128 p = umul192_hi128(pow10.hi, pow10.lo, uint64_t(bin_sig) << shift);
 
     long long integral = p.hi >> extra_shift;
     uint64_t fractional = p.hi << (64 - extra_shift) | p.lo >> extra_shift;
