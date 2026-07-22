@@ -1,0 +1,367 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 650" class="chart line-chart" role="img" aria-label="Time vs digit count, log scale"><style>
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f6f7f9;
+  --fg: #0f172a;
+  --fg-muted: #64748b;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --grid: #cccccc;
+  --grid-major: #b8bcc4;
+  --grid-minor: #e6e6e6;
+  --selected: #fef3c7;
+  --selected-fg: #78350f;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+            0 4px 12px rgba(15, 23, 42, 0.04);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+  margin: 0;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+header.site {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: saturate(160%) blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+header.site .row {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+header.site a.brand {
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+}
+header.site a.brand:hover { color: var(--accent); }
+header.site nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+header.site nav .nav-link {
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--fg);
+  text-decoration: none;
+  user-select: none;
+  transition: all 120ms ease;
+}
+header.site nav .nav-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+header.site nav .picker {
+  position: relative;
+}
+header.site nav .picker > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  user-select: none;
+}
+header.site nav .picker > summary::-webkit-details-marker { display: none; }
+header.site nav .picker > summary::after {
+  content: " ▾";
+  color: var(--fg-muted);
+}
+header.site nav .picker[open] > summary {
+  border-color: var(--accent);
+}
+header.site nav .picker .menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 320px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+header.site nav .picker .menu a {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: var(--fg);
+  text-decoration: none;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+header.site nav .picker .menu a:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+header.site nav .picker .menu a.current {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+main {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px;
+}
+h1 {
+  font-size: 22px;
+  margin: 8px 0 4px;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+h3 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+.card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.card .hint {
+  color: var(--fg-muted);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+.card .card-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 24px -20px;
+}
+table.results {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+table.results th,
+table.results td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+table.results th {
+  font-weight: 600;
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+table.results td.num,
+table.results th.num { text-align: right; }
+table.results tbody tr {
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+table.results tbody tr:hover { background: var(--bg-soft); }
+table.results tbody tr.selected {
+  background: var(--selected);
+  color: var(--selected-fg);
+}
+table.results tbody tr.selected td.f { font-weight: 600; }
+table.results tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.chart-wrap {
+  position: relative;
+}
+.chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.chart .lbl,
+.chart .val,
+.chart .ax {
+  fill: var(--fg);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.chart .ax,
+.chart .val { fill: var(--fg-muted); }
+.chart .ax-title {
+  fill: var(--fg-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+.line-chart .ax,
+.line-chart .ax-title { fill: var(--fg); }
+.chart .grid { stroke: var(--grid); stroke-width: 1; }
+.chart .grid-major { stroke: var(--grid-major); stroke-width: 1; }
+.chart .grid-minor { stroke: var(--grid-minor); stroke-width: 1; }
+.chart .plot-bg { fill: var(--bg-soft); }
+.line-chart .plot-bg { fill: var(--bg); }
+.chart .plot-border {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.bar-chart .bar .fill { transition: filter 120ms ease; }
+.bar-chart .bar.focused .fill {
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.35));
+}
+
+.line-chart .ln {
+  transition: opacity 120ms ease;
+}
+.line-chart.has-focus .ln { opacity: 0.2; }
+.line-chart .ln.focused { opacity: 1; }
+.line-chart .focus .crosshair {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.line-chart .baseline polyline {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 6 4;
+  opacity: 0.55;
+}
+.line-chart .baseline-lbl {
+  fill: var(--fg-muted);
+  font-size: 11px;
+  font-style: italic;
+  font-family: var(--mono);
+  opacity: 0.85;
+}
+.tt {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+  z-index: 5;
+  transition: opacity 80ms ease;
+}
+.tt[hidden] { display: none; }
+.tt .d {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 2px;
+  color: var(--fg);
+}
+.tt .r {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+}
+.tt .r .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.tt .r .f { color: var(--fg); }
+.tt .r .v { color: var(--fg); font-weight: 600; }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.legend .lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.legend .lg:hover { border-color: var(--border-strong); }
+.legend .lg.dim { opacity: 0.35; }
+.legend .lg.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.legend .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0 0;
+}
+.hint-row .hint { margin: 0; }
+.copy-md {
+  background: var(--bg);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+}
+.copy-md:hover {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.copy-md.copied {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+footer {
+  max-width: 920px;
+  margin: 32px auto 48px;
+  padding: 16px 24px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+footer a { color: inherit; }
+</style><rect width="100%" height="100%" fill="var(--bg)"/><rect x="64" y="16" width="732" height="488" class="plot-bg"/><line x1="64.00" x2="64.00" y1="16" y2="504" class="grid"/><text x="64.00" y="522" text-anchor="middle" class="ax">1</text><line x1="109.75" x2="109.75" y1="16" y2="504" class="grid"/><text x="109.75" y="522" text-anchor="middle" class="ax">2</text><line x1="155.50" x2="155.50" y1="16" y2="504" class="grid"/><text x="155.50" y="522" text-anchor="middle" class="ax">3</text><line x1="201.25" x2="201.25" y1="16" y2="504" class="grid"/><text x="201.25" y="522" text-anchor="middle" class="ax">4</text><line x1="247.00" x2="247.00" y1="16" y2="504" class="grid"/><text x="247.00" y="522" text-anchor="middle" class="ax">5</text><line x1="292.75" x2="292.75" y1="16" y2="504" class="grid"/><text x="292.75" y="522" text-anchor="middle" class="ax">6</text><line x1="338.50" x2="338.50" y1="16" y2="504" class="grid"/><text x="338.50" y="522" text-anchor="middle" class="ax">7</text><line x1="384.25" x2="384.25" y1="16" y2="504" class="grid"/><text x="384.25" y="522" text-anchor="middle" class="ax">8</text><line x1="430.00" x2="430.00" y1="16" y2="504" class="grid"/><text x="430.00" y="522" text-anchor="middle" class="ax">9</text><line x1="475.75" x2="475.75" y1="16" y2="504" class="grid"/><text x="475.75" y="522" text-anchor="middle" class="ax">10</text><line x1="521.50" x2="521.50" y1="16" y2="504" class="grid"/><text x="521.50" y="522" text-anchor="middle" class="ax">11</text><line x1="567.25" x2="567.25" y1="16" y2="504" class="grid"/><text x="567.25" y="522" text-anchor="middle" class="ax">12</text><line x1="613.00" x2="613.00" y1="16" y2="504" class="grid"/><text x="613.00" y="522" text-anchor="middle" class="ax">13</text><line x1="658.75" x2="658.75" y1="16" y2="504" class="grid"/><text x="658.75" y="522" text-anchor="middle" class="ax">14</text><line x1="704.50" x2="704.50" y1="16" y2="504" class="grid"/><text x="704.50" y="522" text-anchor="middle" class="ax">15</text><line x1="750.25" x2="750.25" y1="16" y2="504" class="grid"/><text x="750.25" y="522" text-anchor="middle" class="ax">16</text><line x1="796.00" x2="796.00" y1="16" y2="504" class="grid"/><text x="796.00" y="522" text-anchor="middle" class="ax">17</text><line x1="64" x2="796" y1="438.30" y2="438.30" class="grid-minor"/><line x1="64" x2="796" y1="410.56" y2="410.56" class="grid-minor"/><line x1="64" x2="796" y1="390.87" y2="390.87" class="grid-minor"/><line x1="64" x2="796" y1="363.12" y2="363.12" class="grid-minor"/><line x1="64" x2="796" y1="352.57" y2="352.57" class="grid-minor"/><line x1="64" x2="796" y1="343.44" y2="343.44" class="grid-minor"/><line x1="64" x2="796" y1="335.38" y2="335.38" class="grid-minor"/><line x1="64" x2="796" y1="280.73" y2="280.73" class="grid-minor"/><line x1="64" x2="796" y1="252.99" y2="252.99" class="grid-minor"/><line x1="64" x2="796" y1="233.30" y2="233.30" class="grid-minor"/><line x1="64" x2="796" y1="205.55" y2="205.55" class="grid-minor"/><line x1="64" x2="796" y1="195.00" y2="195.00" class="grid-minor"/><line x1="64" x2="796" y1="185.86" y2="185.86" class="grid-minor"/><line x1="64" x2="796" y1="177.80" y2="177.80" class="grid-minor"/><line x1="64" x2="796" y1="123.16" y2="123.16" class="grid-minor"/><line x1="64" x2="796" y1="95.41" y2="95.41" class="grid-minor"/><line x1="64" x2="796" y1="75.73" y2="75.73" class="grid-minor"/><line x1="64" x2="796" y1="47.98" y2="47.98" class="grid-minor"/><line x1="64" x2="796" y1="37.43" y2="37.43" class="grid-minor"/><line x1="64" x2="796" y1="28.29" y2="28.29" class="grid-minor"/><line x1="64" x2="796" y1="20.23" y2="20.23" class="grid-minor"/><line x1="64" x2="796" y1="375.60" y2="375.60" class="grid-major"/><text x="56" y="375.60" dominant-baseline="middle" text-anchor="end" class="ax">5</text><line x1="64" x2="796" y1="328.17" y2="328.17" class="grid-major"/><text x="56" y="328.17" dominant-baseline="middle" text-anchor="end" class="ax">10</text><line x1="64" x2="796" y1="218.03" y2="218.03" class="grid-major"/><text x="56" y="218.03" dominant-baseline="middle" text-anchor="end" class="ax">50</text><line x1="64" x2="796" y1="170.59" y2="170.59" class="grid-major"/><text x="56" y="170.59" dominant-baseline="middle" text-anchor="end" class="ax">100</text><line x1="64" x2="796" y1="60.46" y2="60.46" class="grid-major"/><text x="56" y="60.46" dominant-baseline="middle" text-anchor="end" class="ax">500</text><line x1="64" x2="796" y1="504.00" y2="504.00" class="grid-major"/><text x="56" y="504.00" dominant-baseline="middle" text-anchor="end" class="ax">0</text><text x="430.00" y="552" text-anchor="middle" class="ax-title">Digits</text><text transform="translate(16 260.00) rotate(-90)" text-anchor="middle" class="ax-title">Time (ns)</text><g class="series"><g class="ln" data-method="double-conversion"><polyline points="64.00,194.39 109.75,184.40 155.50,179.07 201.25,178.51 247.00,179.47 292.75,177.17 338.50,176.45 384.25,175.04 430.00,173.90 475.75,172.08 521.50,167.24 567.25,168.83 613.00,166.58 658.75,163.69 704.50,162.57 750.25,162.21 796.00,155.93" fill="none" stroke="#316395" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="dragonbox"><polyline points="64.00,273.92 109.75,268.79 155.50,272.75 201.25,270.55 247.00,271.91 292.75,269.82 338.50,271.50 384.25,268.86 430.00,270.19 475.75,268.91 521.50,269.12 567.25,265.09 613.00,267.07 658.75,265.30 704.50,267.22 750.25,265.11 796.00,259.81" fill="none" stroke="#109618" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="fmt"><polyline points="64.00,253.50 109.75,249.10 155.50,248.81 201.25,249.59 247.00,249.30 292.75,250.21 338.50,248.46 384.25,249.73 430.00,242.35 475.75,244.63 521.50,242.60 567.25,244.36 613.00,241.65 658.75,241.05 704.50,242.06 750.25,243.90 796.00,234.05" fill="none" stroke="#ff9900" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="ostringstream"><polyline points="64.00,42.49 109.75,42.15 155.50,41.88 201.25,41.35 247.00,40.82 292.75,40.61 338.50,40.35 384.25,39.76 430.00,38.62 475.75,37.33 521.50,36.33 567.25,35.98 613.00,35.70 658.75,33.26 704.50,34.87 750.25,35.40 796.00,35.93" fill="none" stroke="#66aa00" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="ryu"><polyline points="64.00,216.03 109.75,214.73 155.50,215.32 201.25,217.86 247.00,218.86 292.75,219.47 338.50,219.67 384.25,223.57 430.00,225.78 475.75,225.00 521.50,228.27 567.25,230.04 613.00,230.62 658.75,234.39 704.50,236.02 750.25,237.60 796.00,238.48" fill="none" stroke="#990099" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="schubfach"><polyline points="64.00,250.35 109.75,249.36 155.50,250.03 201.25,251.17 247.00,251.81 292.75,250.96 338.50,253.49 384.25,253.86 430.00,255.29 475.75,235.35 521.50,232.94 567.25,233.48 613.00,233.72 658.75,234.11 704.50,233.69 750.25,233.21 796.00,226.74" fill="none" stroke="#22aa99" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="sprintf"><polyline points="64.00,70.29 109.75,69.26 155.50,68.34 201.25,67.45 247.00,66.32 292.75,65.93 338.50,65.85 384.25,65.10 430.00,64.35 475.75,64.67 521.50,63.64 567.25,63.44 613.00,62.73 658.75,60.35 704.50,62.79 750.25,63.31 796.00,63.44" fill="none" stroke="#e67300" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="to_chars"><polyline points="64.00,205.51 109.75,202.98 155.50,204.18 201.25,206.28 247.00,207.96 292.75,209.42 338.50,207.77 384.25,210.60 430.00,213.12 475.75,212.41 521.50,216.12 567.25,217.78 613.00,219.20 658.75,220.77 704.50,223.02 750.25,224.81 796.00,222.50" fill="none" stroke="#0099c6" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="uscale"><polyline points="64.00,249.41 109.75,247.79 155.50,247.51 201.25,246.25 247.00,245.86 292.75,247.22 338.50,246.45 384.25,244.90 430.00,242.06 475.75,243.05 521.50,245.00 567.25,242.66 613.00,243.37 658.75,243.77 704.50,244.75 750.25,248.19 796.00,240.87" fill="none" stroke="#6633cc" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="xjb64"><polyline points="64.00,299.31 109.75,298.97 155.50,298.91 201.25,298.84 247.00,299.16 292.75,299.22 338.50,299.18 384.25,298.88 430.00,299.08 475.75,299.15 521.50,299.14 567.25,299.16 613.00,299.30 658.75,299.20 704.50,299.18 750.25,299.03 796.00,298.98" fill="none" stroke="#dc3912" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="yy"><polyline points="64.00,281.20 109.75,281.34 155.50,281.32 201.25,279.20 247.00,276.38 292.75,273.53 338.50,273.71 384.25,273.83 430.00,271.80 475.75,268.84 521.50,269.81 567.25,269.85 613.00,266.77 658.75,264.05 704.50,265.74 750.25,266.14 796.00,266.72" fill="none" stroke="#dd4477" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g><g class="ln" data-method="zmij"><polyline points="64.00,304.14 109.75,303.65 155.50,304.24 201.25,304.23 247.00,304.02 292.75,304.13 338.50,303.86 384.25,304.45 430.00,304.32 475.75,304.04 521.50,303.82 567.25,304.21 613.00,304.42 658.75,304.12 704.50,304.15 750.25,303.67 796.00,304.22" fill="none" stroke="#3366cc" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></g></g><g class="baseline"><polyline points="64.00,464.62 109.75,464.74 155.50,464.65 201.25,464.16 247.00,464.19 292.75,464.21 338.50,463.66 384.25,463.80 430.00,464.22 475.75,463.96 521.50,464.60 567.25,464.58 613.00,464.23 658.75,464.15 704.50,464.16 750.25,464.68 796.00,464.73" fill="none"/><text x="790" y="458.31" text-anchor="end" class="baseline-lbl">loop overhead (1.37 ns)</text></g><g class="focus" pointer-events="none" style="display:none"><line class="crosshair" y1="16" y2="504"/><circle class="dot" r="4.5" fill="currentColor" stroke="white" stroke-width="2"/></g><rect x="64" y="16" width="732" height="488" class="plot-border"/><g class="legend-svg"><rect x="16.0" y="576.0" width="12" height="12" rx="2" ry="2" fill="#316395"/><text x="34.0" y="582.0" dominant-baseline="middle" class="lbl">double-conversion</text><rect x="221.0" y="576.0" width="12" height="12" rx="2" ry="2" fill="#109618"/><text x="239.0" y="582.0" dominant-baseline="middle" class="lbl">dragonbox</text><rect x="426.0" y="576.0" width="12" height="12" rx="2" ry="2" fill="#ff9900"/><text x="444.0" y="582.0" dominant-baseline="middle" class="lbl">fmt</text><rect x="631.0" y="576.0" width="12" height="12" rx="2" ry="2" fill="#66aa00"/><text x="649.0" y="582.0" dominant-baseline="middle" class="lbl">ostringstream</text><rect x="16.0" y="598.0" width="12" height="12" rx="2" ry="2" fill="#990099"/><text x="34.0" y="604.0" dominant-baseline="middle" class="lbl">ryu</text><rect x="221.0" y="598.0" width="12" height="12" rx="2" ry="2" fill="#22aa99"/><text x="239.0" y="604.0" dominant-baseline="middle" class="lbl">schubfach</text><rect x="426.0" y="598.0" width="12" height="12" rx="2" ry="2" fill="#e67300"/><text x="444.0" y="604.0" dominant-baseline="middle" class="lbl">sprintf</text><rect x="631.0" y="598.0" width="12" height="12" rx="2" ry="2" fill="#0099c6"/><text x="649.0" y="604.0" dominant-baseline="middle" class="lbl">to_chars</text><rect x="16.0" y="620.0" width="12" height="12" rx="2" ry="2" fill="#6633cc"/><text x="34.0" y="626.0" dominant-baseline="middle" class="lbl">uscale</text><rect x="221.0" y="620.0" width="12" height="12" rx="2" ry="2" fill="#dc3912"/><text x="239.0" y="626.0" dominant-baseline="middle" class="lbl">xjb64</text><rect x="426.0" y="620.0" width="12" height="12" rx="2" ry="2" fill="#dd4477"/><text x="444.0" y="626.0" dominant-baseline="middle" class="lbl">yy</text><rect x="631.0" y="620.0" width="12" height="12" rx="2" ry="2" fill="#3366cc"/><text x="649.0" y="626.0" dominant-baseline="middle" class="lbl">zmij</text></g></svg>

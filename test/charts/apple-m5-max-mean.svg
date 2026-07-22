@@ -1,0 +1,367 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 370" class="chart bar-chart" role="img" aria-label="Mean conversion time per method"><style>
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f6f7f9;
+  --fg: #0f172a;
+  --fg-muted: #64748b;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;
+  --grid: #cccccc;
+  --grid-major: #b8bcc4;
+  --grid-minor: #e6e6e6;
+  --selected: #fef3c7;
+  --selected-fg: #78350f;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04),
+            0 4px 12px rgba(15, 23, 42, 0.04);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body {
+  margin: 0;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+header.site {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: saturate(160%) blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+header.site .row {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 12px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+header.site a.brand {
+  font-weight: 600;
+  color: var(--fg);
+  text-decoration: none;
+}
+header.site a.brand:hover { color: var(--accent); }
+header.site nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  flex-wrap: wrap;
+}
+header.site nav .nav-link {
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  color: var(--fg);
+  text-decoration: none;
+  user-select: none;
+  transition: all 120ms ease;
+}
+header.site nav .nav-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+header.site nav .picker {
+  position: relative;
+}
+header.site nav .picker > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 6px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-soft);
+  user-select: none;
+}
+header.site nav .picker > summary::-webkit-details-marker { display: none; }
+header.site nav .picker > summary::after {
+  content: " ▾";
+  color: var(--fg-muted);
+}
+header.site nav .picker[open] > summary {
+  border-color: var(--accent);
+}
+header.site nav .picker .menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  min-width: 320px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+}
+header.site nav .picker .menu a {
+  display: block;
+  padding: 6px 10px;
+  border-radius: 4px;
+  color: var(--fg);
+  text-decoration: none;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+header.site nav .picker .menu a:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+header.site nav .picker .menu a.current {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+main {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px;
+}
+h1 {
+  font-size: 22px;
+  margin: 8px 0 4px;
+  font-family: var(--mono);
+  word-break: break-all;
+}
+h3 {
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+.card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.card .hint {
+  color: var(--fg-muted);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+.card .card-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 24px -20px;
+}
+table.results {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+table.results th,
+table.results td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+table.results th {
+  font-weight: 600;
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+table.results td.num,
+table.results th.num { text-align: right; }
+table.results tbody tr {
+  cursor: pointer;
+  transition: background-color 80ms ease;
+}
+table.results tbody tr:hover { background: var(--bg-soft); }
+table.results tbody tr.selected {
+  background: var(--selected);
+  color: var(--selected-fg);
+}
+table.results tbody tr.selected td.f { font-weight: 600; }
+table.results tbody tr:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.chart-wrap {
+  position: relative;
+}
+.chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.chart .lbl,
+.chart .val,
+.chart .ax {
+  fill: var(--fg);
+  font-size: 12px;
+  font-family: var(--mono);
+}
+.chart .ax,
+.chart .val { fill: var(--fg-muted); }
+.chart .ax-title {
+  fill: var(--fg-muted);
+  font-size: 12px;
+  font-style: italic;
+}
+.line-chart .ax,
+.line-chart .ax-title { fill: var(--fg); }
+.chart .grid { stroke: var(--grid); stroke-width: 1; }
+.chart .grid-major { stroke: var(--grid-major); stroke-width: 1; }
+.chart .grid-minor { stroke: var(--grid-minor); stroke-width: 1; }
+.chart .plot-bg { fill: var(--bg-soft); }
+.line-chart .plot-bg { fill: var(--bg); }
+.chart .plot-border {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1;
+}
+.bar-chart .bar .fill { transition: filter 120ms ease; }
+.bar-chart .bar.focused .fill {
+  filter: drop-shadow(0 2px 4px rgba(15, 23, 42, 0.35));
+}
+
+.line-chart .ln {
+  transition: opacity 120ms ease;
+}
+.line-chart.has-focus .ln { opacity: 0.2; }
+.line-chart .ln.focused { opacity: 1; }
+.line-chart .focus .crosshair {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 2 3;
+}
+.line-chart .baseline polyline {
+  fill: none;
+  stroke: var(--fg-muted);
+  stroke-width: 1.25;
+  stroke-dasharray: 6 4;
+  opacity: 0.55;
+}
+.line-chart .baseline-lbl {
+  fill: var(--fg-muted);
+  font-size: 11px;
+  font-style: italic;
+  font-family: var(--mono);
+  opacity: 0.85;
+}
+.tt {
+  position: absolute;
+  pointer-events: none;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+  box-shadow: var(--shadow);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+  z-index: 5;
+  transition: opacity 80ms ease;
+}
+.tt[hidden] { display: none; }
+.tt .d {
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 2px;
+  color: var(--fg);
+}
+.tt .r {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fg-muted);
+}
+.tt .r .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.tt .r .f { color: var(--fg); }
+.tt .r .v { color: var(--fg); font-weight: 600; }
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.legend .lg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+.legend .lg:hover { border-color: var(--border-strong); }
+.legend .lg.dim { opacity: 0.35; }
+.legend .lg.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.legend .sw {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 8px 0 0;
+}
+.hint-row .hint { margin: 0; }
+.copy-md {
+  background: var(--bg);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 120ms ease;
+  white-space: nowrap;
+}
+.copy-md:hover {
+  border-color: var(--border-strong);
+  color: var(--fg);
+}
+.copy-md.copied {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+footer {
+  max-width: 920px;
+  margin: 32px auto 48px;
+  padding: 16px 24px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  border-top: 1px solid var(--border);
+}
+footer a { color: inherit; }
+</style><rect width="100%" height="100%" fill="var(--bg)"/><g class="bars"><g class="bar" data-method="zmij" data-value="3.9308"><rect class="hit" x="0" y="5.00" width="820" height="36.00" fill="transparent"/><text x="140" y="23.00" dominant-baseline="middle" text-anchor="end" class="lbl">zmij</text><rect class="fill" x="150" y="10" width="44.33" height="26" fill="#3366cc" rx="3" ry="3"/><text x="202.33" y="23.00" dominant-baseline="middle" class="val">3.93 ns</text></g><g class="bar" data-method="xjb64" data-value="4.1677"><rect class="hit" x="0" y="41.00" width="820" height="36.00" fill="transparent"/><text x="140" y="59.00" dominant-baseline="middle" text-anchor="end" class="lbl">xjb64</text><rect class="fill" x="150" y="46" width="47.00" height="26" fill="#dc3912" rx="3" ry="3"/><text x="205.00" y="59.00" dominant-baseline="middle" class="val">4.17 ns</text></g><g class="bar" data-method="yy" data-value="16.6088"><rect class="hit" x="0" y="77.00" width="820" height="36.00" fill="transparent"/><text x="140" y="95.00" dominant-baseline="middle" text-anchor="end" class="lbl">yy</text><rect class="fill" x="150" y="82" width="187.31" height="26" fill="#dd4477" rx="3" ry="3"/><text x="345.31" y="95.00" dominant-baseline="middle" class="val">16.61 ns</text></g><g class="bar" data-method="dragonbox" data-value="20.2621"><rect class="hit" x="0" y="113.00" width="820" height="36.00" fill="transparent"/><text x="140" y="131.00" dominant-baseline="middle" text-anchor="end" class="lbl">dragonbox</text><rect class="fill" x="150" y="118" width="228.51" height="26" fill="#109618" rx="3" ry="3"/><text x="386.51" y="131.00" dominant-baseline="middle" class="val">20.26 ns</text></g><g class="bar" data-method="fmt" data-value="24.3970"><rect class="hit" x="0" y="149.00" width="820" height="36.00" fill="transparent"/><text x="140" y="167.00" dominant-baseline="middle" text-anchor="end" class="lbl">fmt</text><rect class="fill" x="150" y="154" width="275.15" height="26" fill="#ff9900" rx="3" ry="3"/><text x="433.15" y="167.00" dominant-baseline="middle" class="val">24.40 ns</text></g><g class="bar" data-method="uscale" data-value="28.8297"><rect class="hit" x="0" y="185.00" width="820" height="36.00" fill="transparent"/><text x="140" y="203.00" dominant-baseline="middle" text-anchor="end" class="lbl">uscale</text><rect class="fill" x="150" y="190" width="325.14" height="26" fill="#6633cc" rx="3" ry="3"/><text x="483.14" y="203.00" dominant-baseline="middle" class="val">28.83 ns</text></g><g class="bar" data-method="ryu" data-value="30.4492"><rect class="hit" x="0" y="221.00" width="820" height="36.00" fill="transparent"/><text x="140" y="239.00" dominant-baseline="middle" text-anchor="end" class="lbl">ryu</text><rect class="fill" x="150" y="226" width="343.40" height="26" fill="#990099" rx="3" ry="3"/><text x="501.40" y="239.00" dominant-baseline="middle" class="val">30.45 ns</text></g><g class="bar" data-method="to_chars" data-value="34.2252"><rect class="hit" x="0" y="257.00" width="820" height="36.00" fill="transparent"/><text x="140" y="275.00" dominant-baseline="middle" text-anchor="end" class="lbl">to_chars</text><rect class="fill" x="150" y="262" width="385.99" height="26" fill="#0099c6" rx="3" ry="3"/><text x="543.99" y="275.00" dominant-baseline="middle" class="val">34.23 ns</text></g><g class="bar" data-method="schubfach" data-value="34.5760"><rect class="hit" x="0" y="293.00" width="820" height="36.00" fill="transparent"/><text x="140" y="311.00" dominant-baseline="middle" text-anchor="end" class="lbl">schubfach</text><rect class="fill" x="150" y="298" width="389.95" height="26" fill="#22aa99" rx="3" ry="3"/><text x="547.95" y="311.00" dominant-baseline="middle" class="val">34.58 ns</text></g><g class="bar" data-method="double-conversion" data-value="50.8958"><rect class="hit" x="0" y="329.00" width="820" height="36.00" fill="transparent"/><text x="140" y="347.00" dominant-baseline="middle" text-anchor="end" class="lbl">double-conversion</text><rect class="fill" x="150" y="334" width="574.00" height="26" fill="#316395" rx="3" ry="3"/><text x="732.00" y="347.00" dominant-baseline="middle" class="val">50.90 ns</text></g></g></svg>
