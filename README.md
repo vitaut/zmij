@@ -41,12 +41,12 @@ int main() {
 
 ## Performance
 
-Żmij v1 is more than 7x faster than [Ryū](https://github.com/ulfjack/ryu)
-used by multiple C++ standard library implementations, ~13x faster than
-[double-conversion](https://github.com/google/double-conversion) and ~9x
-faster than [Schubfach](https://github.com/vitaut/schubfach)
-on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark) run on Apple M5
-Max.
+On an Apple M5 Max running macOS, compiled with Clang 21.0, Żmij is more than
+7x faster than [Ryū](https://github.com/ulfjack/ryu), used by multiple C++
+standard library implementations, ~13x faster than
+[double-conversion](https://github.com/google/double-conversion) and ~9x faster
+than [Schubfach](https://github.com/vitaut/schubfach) on
+[dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark).
 
 | Function          | Time (ns) | Speedup |
 |-------------------|----------:|--------:|
@@ -70,16 +70,17 @@ Max.
        src="test/charts/apple-m5-max-mean.svg" />
 </a>
 
-`ostringstream` and `sprintf` are excluded due to their significantly slower
-performance.
+`ostringstream` and `sprintf` are left out of the charts to keep the faster
+methods readable.
 
 <a href="https://fmtlib.github.io/dtoa-benchmark/results/apple-m5-max_macos_clang21.0_ab145b9.html">
   <img width="820" height="650" alt="Time vs. digit count on Apple M5 Max"
        src="test/charts/apple-m5-max-by-digits.svg" />
 </a>
 
-On an AMD EPYC 7C13 (Milan) running Linux, Żmij is approximately **3.8× faster
-than Ryū** and **7× faster than double-conversion** when compiled with GCC 13.3.
+On an AMD EPYC 7C13 (Milan) running Linux, compiled with GCC 13.3, Żmij is
+~3.8x faster than Ryū, ~7x faster than double-conversion and ~3.4x faster than
+Schubfach.
 
 | Function            | Time (ns) | Speedup |
 |---------------------|----------:|--------:|
