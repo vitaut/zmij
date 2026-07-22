@@ -41,26 +41,27 @@ int main() {
 
 ## Performance
 
-Żmij v1 is more than 4x faster than [Ryū](https://github.com/ulfjack/ryu)
-used by multiple C++ standard library implementations, 9x faster than
-[double-conversion](https://github.com/google/double-conversion) and ~2.5x
+Żmij v1 is more than 7x faster than [Ryū](https://github.com/ulfjack/ryu)
+used by multiple C++ standard library implementations, ~13x faster than
+[double-conversion](https://github.com/google/double-conversion) and ~9x
 faster than [Schubfach](https://github.com/vitaut/schubfach)
-on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark) run on Apple M1.
+on [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark) run on Apple M5
+Max.
 
 | Function          | Time (ns) | Speedup |
 |-------------------|----------:|--------:|
-| ostringstream     | 871.431   | 1.00x   |
-| sprintf           | 735.292   | 1.19x   |
-| double-conversion | 83.332    | 10.46x  |
-| to_chars          | 42.808    | 20.36x  |
-| ryu               | 36.809    | 23.67x  |
-| schubfach         | 24.721    | 35.25x  |
-| fmt               | 22.224    | 39.21x  |
-| dragonbox         | 20.532    | 42.44x  |
-| yy                | 14.006    | 62.22x  |
-| xjb64             | 10.542    | 82.66x  |
-| zmij              | 8.661     | 100.62x |
-| null              | 0.946     | 921.13x |
+| zmij              | 3.931     | 120.00x |
+| xjb64             | 4.168     | 113.18x |
+| yy                | 16.609    | 28.40x  |
+| dragonbox         | 20.262    | 23.28x  |
+| fmt               | 24.397    | 19.34x  |
+| uscale            | 28.830    | 16.36x  |
+| ryu               | 30.449    | 15.49x  |
+| to_chars          | 34.225    | 13.78x  |
+| schubfach         | 34.576    | 13.64x  |
+| double-conversion | 50.896    | 9.27x   |
+| sprintf           | 399.748   | 1.18x   |
+| ostringstream     | 471.702   | 1.00x   |
 
 **Conversion time (smaller is better):**
 
@@ -73,23 +74,23 @@ performance.
 <img width="739" height="605" alt="image"
      src="https://github.com/user-attachments/assets/e6452189-5a4c-4ba2-9e17-f720e263dd5d" />
 
-On EPYC Milan (AMD64) running Linux, Żmij is approximately **2.8× faster than
-Ryū** and **5× faster than double-conversion** when compiled with GCC 11.5.
+On an AMD EPYC 7C13 (Milan) running Linux, Żmij is approximately **3.8× faster
+than Ryū** and **7× faster than double-conversion** when compiled with GCC 13.3.
 
 | Function            | Time (ns) | Speedup |
 |---------------------|----------:|--------:|
-| ostringstream       | 958.889   | 1.00x   |
-| sprintf             | 563.022   | 1.70x   |
-| double-conversion   | 95.706    | 10.02x  |
-| to_chars            | 67.115    | 14.29x  |
-| ryu                 | 54.144    | 17.71x  |
-| schubfach           | 44.435    | 21.58x  |
-| fmt                 | 40.098    | 23.91x  |
-| dragonbox           | 30.896    | 31.04x  |
-| yy                  | 26.959    | 35.57x  |
-| xjb64               | 19.275    | 49.75x  |
-| zmij                | 19.194    | 49.96x  |
-| null                | 2.766     | 346.72x |
+| zmij                | 14.031    | 50.05x  |
+| xjb64               | 15.212    | 46.16x  |
+| yy                  | 26.949    | 26.06x  |
+| dragonbox           | 30.884    | 22.74x  |
+| uscale              | 44.457    | 15.80x  |
+| fmt                 | 45.289    | 15.51x  |
+| schubfach           | 47.045    | 14.93x  |
+| ryu                 | 53.305    | 13.17x  |
+| to_chars            | 62.819    | 11.18x  |
+| double-conversion   | 101.097   | 6.95x   |
+| sprintf             | 477.333   | 1.47x   |
+| ostringstream       | 702.277   | 1.00x   |
 
 <img width="741" height="327" alt="image"
      src="https://github.com/user-attachments/assets/e7f0ec3f-7317-4c60-b33d-c106215f1ee6" />
