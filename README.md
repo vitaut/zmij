@@ -44,24 +44,9 @@ int main() {
 On an Apple M5 Max running macOS, compiled with Clang 21.0, Żmij is more than
 7x faster than [Ryū](https://github.com/ulfjack/ryu), used by multiple C++
 standard library implementations, ~13x faster than
-[double-conversion](https://github.com/google/double-conversion) and ~9x faster
-than [Schubfach](https://github.com/vitaut/schubfach) on
+[double-conversion](https://github.com/google/double-conversion) and ~100x
+faster than `sprintf` on
 [dtoa-benchmark](https://github.com/fmtlib/dtoa-benchmark).
-
-| Function          | Time (ns) | Speedup |
-|-------------------|----------:|--------:|
-| zmij              | 3.931     | 120.00x |
-| xjb64             | 4.168     | 113.18x |
-| yy                | 16.609    | 28.40x  |
-| dragonbox         | 20.262    | 23.28x  |
-| fmt               | 24.397    | 19.34x  |
-| uscale            | 28.830    | 16.36x  |
-| ryu               | 30.449    | 15.49x  |
-| to_chars          | 34.225    | 13.78x  |
-| schubfach         | 34.576    | 13.64x  |
-| double-conversion | 50.896    | 9.27x   |
-| sprintf           | 399.748   | 1.18x   |
-| ostringstream     | 471.702   | 1.00x   |
 
 **Conversion time (smaller is better):**
 
@@ -79,28 +64,18 @@ methods readable.
 </a>
 
 On an AMD EPYC 7C13 (Milan) running Linux, compiled with GCC 13.3, Żmij is
-~3.8x faster than Ryū, ~7x faster than double-conversion and ~3.4x faster than
-Schubfach.
+~3.8x faster than Ryū, ~7x faster than double-conversion and ~34x faster than
+`sprintf`.
 
-| Function            | Time (ns) | Speedup |
-|---------------------|----------:|--------:|
-| zmij                | 14.031    | 50.05x  |
-| xjb64               | 15.212    | 46.16x  |
-| yy                  | 26.949    | 26.06x  |
-| dragonbox           | 30.884    | 22.74x  |
-| uscale              | 44.457    | 15.80x  |
-| fmt                 | 45.289    | 15.51x  |
-| schubfach           | 47.045    | 14.93x  |
-| ryu                 | 53.305    | 13.17x  |
-| to_chars            | 62.819    | 11.18x  |
-| double-conversion   | 101.097   | 6.95x   |
-| sprintf             | 477.333   | 1.47x   |
-| ostringstream       | 702.277   | 1.00x   |
+**Conversion time (smaller is better):**
 
 <a href="https://fmtlib.github.io/dtoa-benchmark/results/epyc-7c13_linux_gcc13.3_ee50fc8.html">
   <img width="820" height="370" alt="Mean conversion time on AMD EPYC 7C13"
        src="test/charts/epyc-7c13-mean.svg" />
 </a>
+
+`ostringstream` and `sprintf` are left out of the charts to keep the faster
+methods readable.
 
 <a href="https://fmtlib.github.io/dtoa-benchmark/results/epyc-7c13_linux_gcc13.3_ee50fc8.html">
   <img width="820" height="650" alt="Time vs. digit count on AMD EPYC 7C13"
