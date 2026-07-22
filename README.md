@@ -65,14 +65,18 @@ Max.
 
 **Conversion time (smaller is better):**
 
-<img width="820" height="370" alt="Mean conversion time on Apple M5 Max"
-     src="test/charts/apple-m5-max-mean.svg" />
+<a href="https://fmtlib.github.io/dtoa-benchmark/results/apple-m5-max_macos_clang21.0_ab145b9.html">
+  <img width="820" height="370" alt="Mean conversion time on Apple M5 Max"
+       src="test/charts/apple-m5-max-mean.svg" />
+</a>
 
 `ostringstream` and `sprintf` are excluded due to their significantly slower
 performance.
 
-<img width="820" height="650" alt="Time vs. digit count on Apple M5 Max"
-     src="test/charts/apple-m5-max-by-digits.svg" />
+<a href="https://fmtlib.github.io/dtoa-benchmark/results/apple-m5-max_macos_clang21.0_ab145b9.html">
+  <img width="820" height="650" alt="Time vs. digit count on Apple M5 Max"
+       src="test/charts/apple-m5-max-by-digits.svg" />
+</a>
 
 On an AMD EPYC 7C13 (Milan) running Linux, Żmij is approximately **3.8× faster
 than Ryū** and **7× faster than double-conversion** when compiled with GCC 13.3.
@@ -92,11 +96,15 @@ than Ryū** and **7× faster than double-conversion** when compiled with GCC 13.
 | sprintf             | 477.333   | 1.47x   |
 | ostringstream       | 702.277   | 1.00x   |
 
-<img width="820" height="370" alt="Mean conversion time on AMD EPYC 7C13"
-     src="test/charts/epyc-7c13-mean.svg" />
+<a href="https://fmtlib.github.io/dtoa-benchmark/results/epyc-7c13_linux_gcc13.3_ee50fc8.html">
+  <img width="820" height="370" alt="Mean conversion time on AMD EPYC 7C13"
+       src="test/charts/epyc-7c13-mean.svg" />
+</a>
 
-<img width="820" height="650" alt="Time vs. digit count on AMD EPYC 7C13"
-     src="test/charts/epyc-7c13-by-digits.svg" />
+<a href="https://fmtlib.github.io/dtoa-benchmark/results/epyc-7c13_linux_gcc13.3_ee50fc8.html">
+  <img width="820" height="650" alt="Time vs. digit count on AMD EPYC 7C13"
+       src="test/charts/epyc-7c13-by-digits.svg" />
+</a>
 
 ## Compile time
 
