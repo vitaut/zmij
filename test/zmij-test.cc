@@ -7,6 +7,7 @@
 // internal functions.
 #ifndef ZMIJ_C
 #  define ZMIJ_C 0
+#  include "../zmij-to-chars.h"
 #  include "../zmij.cc"
 #else
 #  define _Alignas(x) alignas(x)
@@ -235,6 +236,25 @@ TEST(double_test, no_buffer) {
   EXPECT_EQ(result, "6.62607015e-34");
 }
 
+TEST(double_test, to_chars) {
+  char buffer[zmij::double_buffer_size];
+  auto result = zmij::to_chars(buffer, buffer + sizeof(buffer), 6.62607015e-34);
+  EXPECT_EQ(result.ec, std::errc());
+  EXPECT_EQ(std::string(buffer, result.ptr), "6.62607015e-34");
+
+  // Exact fit succeeds ("1.25" is 4 characters).
+  result = zmij::to_chars(buffer, buffer + 4, 1.25);
+  EXPECT_EQ(result.ec, std::errc());
+  EXPECT_EQ(std::string(buffer, result.ptr), "1.25");
+
+  // Too small: nothing written, ptr == last, value_too_large.
+  char small[3] = {'?', '?', '?'};
+  result = zmij::to_chars(small, small + 2, 1.25);
+  EXPECT_EQ(result.ec, std::errc::value_too_large);
+  EXPECT_EQ(result.ptr, small + 2);
+  EXPECT_EQ(std::string(small, sizeof(small)), "???");
+}
+
 TEST(double_test, to_decimal) {
   zmij::dec_fp dec = zmij::to_decimal(6.62607015e-34);
   EXPECT_EQ(dec.sig, 66260701500000000);
@@ -368,6 +388,20 @@ TEST(float_test, no_buffer) {
   auto end = zmij::write(buffer, sizeof(buffer), value);
   std::string result(buffer, end);
   EXPECT_EQ(result, "6.62607e-34");
+}
+
+TEST(float_test, to_chars) {
+  char buffer[zmij::float_buffer_size];
+  auto result = zmij::to_chars(buffer, buffer + sizeof(buffer), 6.62607e-34f);
+  EXPECT_EQ(result.ec, std::errc());
+  EXPECT_EQ(std::string(buffer, result.ptr), "6.62607e-34");
+
+  // Too small: nothing written, ptr == last, value_too_large.
+  char small[3] = {'?', '?', '?'};
+  result = zmij::to_chars(small, small + 2, 1.25f);
+  EXPECT_EQ(result.ec, std::errc::value_too_large);
+  EXPECT_EQ(result.ptr, small + 2);
+  EXPECT_EQ(std::string(small, sizeof(small)), "???");
 }
 
 TEST(float_test, to_decimal_precision) {
