@@ -14,8 +14,8 @@
 
 namespace zmij {
 enum {
-  double_buffer_size = 34,
-  float_buffer_size = 16,
+  float_buffer_size = zmij_float_buffer_size,
+  double_buffer_size = zmij_double_buffer_size,
 };
 
 auto write(char* out, size_t n, double value) noexcept -> char* {
@@ -29,11 +29,11 @@ auto write(char* out, size_t n, float value) noexcept -> char* {
 
 #include <gtest/gtest.h>
 
-#include <cstdint>  // uint64_t
-#include <cstdio>   // snprintf
-#include <cstdlib>  // atoi
-#include <limits>   // std::numeric_limits
-#include <string>   // std::string
+#include <stdint.h>  // uint64_t
+#include <stdio.h>   // snprintf
+#include <stdlib.h>  // atoi
+#include <limits>    // std::numeric_limits
+#include <string>    // std::string
 
 #include "dragonbox/dragonbox_to_chars.h"
 #include "fmt/format.h"
@@ -214,6 +214,18 @@ TEST(double_test, fixed_with_zeros) {
   EXPECT_EQ(dtoa(-5942736479622170.0), "-5942736479622170");
 }
 
+TEST(double_test, no_overrun) {
+  char buffer[zmij::double_buffer_size + 1];
+  memset(buffer, '?', sizeof(buffer));
+  auto end =
+      zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
+  EXPECT_EQ(std::string(buffer, end), std::string("-1.2345678901234567e+123"));
+  EXPECT_EQ(buffer[zmij::double_buffer_size], '?');
+}
+
+TEST(double_test, no_underrun) { dtoa(9.061488e+15); }
+
+// Tests below use internal APIs (to_decimal, dec_fp) absent from the C port.
 #if !ZMIJ_C
 TEST(double_test, no_buffer) {
   double value = 6.62607015e-34;
@@ -221,14 +233,6 @@ TEST(double_test, no_buffer) {
   auto end = zmij::write(buffer, sizeof(buffer), value);
   std::string result(buffer, end);
   EXPECT_EQ(result, "6.62607015e-34");
-}
-
-TEST(float_test, no_buffer) {
-  float value = 6.62607e-34;
-  char buffer[zmij::float_buffer_size];
-  auto end = zmij::write(buffer, sizeof(buffer), value);
-  std::string result(buffer, end);
-  EXPECT_EQ(result, "6.62607e-34");
 }
 
 TEST(double_test, to_decimal) {
@@ -322,18 +326,6 @@ TEST(double_test, to_decimal_precision) {
   // Large values at low precision reach the low end of the table.
   EXPECT_EQ(to_decimal(1.7976931348623157e308, 1), decimal(2, 308));  // DBL_MAX
   EXPECT_EQ(to_decimal(1.7976931348623157e308, 2), decimal(18, 307));
-
-  // The float overload: carry, round-half-even, sign, subnormal, and FLT_MAX.
-  EXPECT_EQ(to_decimal(1.5f, 2), decimal(15, -1));
-  EXPECT_EQ(to_decimal(9.99f, 2), decimal(10, 0));         // carry
-  EXPECT_EQ(to_decimal(2.5f, 1), decimal(2, 0));           // round half to even
-  EXPECT_EQ(to_decimal(-1.5f, 2), decimal(15, -1, true));  // sign preserved
-  EXPECT_EQ(
-      to_decimal(std::numeric_limits<float>::denorm_min(), 1), decimal(1, -45)
-  );  // FLT_TRUE_MIN, subnormal path
-  EXPECT_EQ(
-      to_decimal(std::numeric_limits<float>::max(), 9), decimal(340282347, 30)
-  );  // FLT_MAX
 }
 
 TEST(double_test, to_decimal_precision_irregular) {
@@ -349,24 +341,7 @@ TEST(double_test, to_decimal_precision_irregular) {
     }
   }
 }
-
-TEST(float_test, fixed_with_zeros) {
-  EXPECT_EQ(ftoa(43210.0f), "43210");
-  EXPECT_EQ(ftoa(43210.1f), "43210.1");
-  EXPECT_EQ(ftoa(10000.f), "10000");
-}
-#endif  // ZMIJ_C
-
-TEST(double_test, no_overrun) {
-  char buffer[zmij::double_buffer_size + 1];
-  memset(buffer, '?', sizeof(buffer));
-  auto end =
-      zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
-  EXPECT_EQ(std::string(buffer, end), std::string("-1.2345678901234567e+123"));
-  EXPECT_EQ(buffer[zmij::double_buffer_size], '?');
-}
-
-TEST(double_test, no_underrun) { dtoa(9.061488e+15); }
+#endif  // !ZMIJ_C
 
 TEST(float_test, normal) {
   EXPECT_EQ(ftoa(6.62607e-34f), "6.62607e-34");
@@ -385,6 +360,37 @@ TEST(float_test, no_overrun) {
   EXPECT_EQ(std::string(buffer, end), std::string("-1.00000005e+15"));
   EXPECT_EQ(buffer[zmij::float_buffer_size], '?');
 }
+
+#if !ZMIJ_C
+TEST(float_test, no_buffer) {
+  float value = 6.62607e-34;
+  char buffer[zmij::float_buffer_size];
+  auto end = zmij::write(buffer, sizeof(buffer), value);
+  std::string result(buffer, end);
+  EXPECT_EQ(result, "6.62607e-34");
+}
+
+TEST(float_test, to_decimal_precision) {
+  using zmij::to_decimal;
+
+  EXPECT_EQ(to_decimal(1.5f, 2), decimal(15, -1));
+  EXPECT_EQ(to_decimal(9.99f, 2), decimal(10, 0));         // carry
+  EXPECT_EQ(to_decimal(2.5f, 1), decimal(2, 0));           // round half to even
+  EXPECT_EQ(to_decimal(-1.5f, 2), decimal(15, -1, true));  // sign preserved
+  EXPECT_EQ(
+      to_decimal(std::numeric_limits<float>::denorm_min(), 1), decimal(1, -45)
+  );  // FLT_TRUE_MIN, subnormal path
+  EXPECT_EQ(
+      to_decimal(std::numeric_limits<float>::max(), 9), decimal(340282347, 30)
+  );  // FLT_MAX
+}
+
+TEST(float_test, fixed_with_zeros) {
+  EXPECT_EQ(ftoa(43210.0f), "43210");
+  EXPECT_EQ(ftoa(43210.1f), "43210.1");
+  EXPECT_EQ(ftoa(10000.f), "10000");
+}
+#endif  // !ZMIJ_C
 
 auto main(int argc, char** argv) -> int {
   testing::InitGoogleTest(&argc, argv);
