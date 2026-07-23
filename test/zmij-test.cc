@@ -309,6 +309,10 @@ TEST(dtoa_test, to_decimal_precision) {
   EXPECT_EQ(to_decimal(2.2250738585072009e-308, 17),
             decimal(22250738585072009, -324));
   EXPECT_EQ(to_decimal(2.2250738585072009e-308, 6), decimal(222507, -313));
+
+  // Large values at low precision reach the low end of the table.
+  EXPECT_EQ(to_decimal(1.7976931348623157e308, 1), decimal(2, 308));  // DBL_MAX
+  EXPECT_EQ(to_decimal(1.7976931348623157e308, 2), decimal(18, 307));
 }
 
 TEST(ftoa_test, fixed_with_zeros) {

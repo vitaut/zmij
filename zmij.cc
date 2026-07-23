@@ -394,6 +394,7 @@ constexpr uint64_t pow10_minor[] = {
     0xcecb8f27f4200f3a,
 };
 constexpr uint128 pow10_major[] = {
+    {0xaddcb9e83c6b1793, 0xdf4abe242a1bbf3e},  // -331 (+1 ULP: see fixups)
     {0xaf8e5410288e1b6f, 0x07ecf0ae5ee44dda},  // -303
     {0xb1442798f49ffb4a, 0x99cd11cfdf41779d},  // -275
     {0xb2fe3f0b8599ef07, 0x861fa7e6dcb4aa15},  // -247
@@ -420,23 +421,24 @@ constexpr uint128 pow10_major[] = {
     {0xdb68c2ca82ed2a05, 0xa67398db9f6820e1},  //  341
 };
 constexpr uint32_t pow10_fixups[] = {
-    0x0a4e363f, 0x00001840, 0x00006400, 0x24200040, 0x00000000,
-    0x0c000000, 0x82c81380, 0x5e4ce01f, 0xd730f60f, 0x0000001b,
-    0x00000000, 0xcdf7fffc, 0x6e8201d8, 0x40cd3fd1, 0xdb642501,
-    0x00000d0d, 0x14042400, 0x53713840, 0xd1781db4, 0x00f7e593};
+    0x8d8fc810, 0x06100293, 0x19000000, 0x00100000, 0x00000908,
+    0x00000000, 0x04e00300, 0x3807e0b2, 0x3d83d793, 0x0006f5cc,
+    0x00000000, 0xffff0000, 0x8076337d, 0x4ff45ba0, 0x09405033,
+    0x034376d9, 0x09000000, 0x4e100501, 0x076d14dc, 0xf964f45e,
+    0x0000003d};
 
 // 128-bit significands of powers of 10 rounded down.
 struct pow10_significand_table {
   static constexpr bool compress = ZMIJ_OPTIMIZE_SIZE != 0;
   static constexpr bool split_tables = !compress && ZMIJ_AARCH64 != 0;
-  static constexpr int num_pow10s = 635;
+  static constexpr int num_pow10s = 649;
   uint64_t data[compress ? 1 : num_pow10s * 2] = {};
 
   // Computes the 128-bit significand of 10**i using method by Dougall Johnson.
   static constexpr auto compute(unsigned i) noexcept -> uint128 {
     constexpr int stride = sizeof(pow10_minor) / sizeof(*pow10_minor);
-    auto m = pow10_minor[(i + 10) % stride];
-    auto h = pow10_major[(i + 10) / stride];
+    auto m = pow10_minor[(i + 24) % stride];
+    auto h = pow10_major[(i + 24) / stride];
 
     uint64_t h1 = umul128_hi64(h.lo, m);
 
@@ -465,7 +467,7 @@ struct pow10_significand_table {
   }
 
   ZMIJ_CONSTEXPR auto operator[](int dec_exp) const noexcept -> uint128 {
-    constexpr int dec_exp_min = -293;
+    constexpr int dec_exp_min = -307;
     int i = dec_exp - dec_exp_min;
     if (compress) return compute(i);
     if (!split_tables) {
@@ -1266,7 +1268,6 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   // so one round-half-to-even step rounds it (idea by Russ Cox).
   constexpr int shift = traits::num_bits - traits::digits;  // 11
   int point_shift = shift - compute_exp_shift(bin_exp, dec_exp);
-  // TODO: large values at low precision underflow pow10_significands.
   uint128 pow10 = static_data.pow10_significands[-dec_exp];
   // Bump inexact powers (dec_exp < -55 or > 0) up to a 128-bit ceiling so they
   // can't mimic an exact tie; the +1 stays in the low word, never carrying.

@@ -7,7 +7,7 @@ import sys
 
 # Range of decimal exponents covered by the pow10 significand table.
 dec_exp_min = -341
-dec_exp_max =  293
+dec_exp_max =  307
 
 num_bits = 128
 

@@ -13,6 +13,20 @@
 // 128-bit significands of powers of 10 rounded down.
 // Generated with gen-pow10.py.
 const uint128 expected[] = {
+    {0x8fd0c16206306bab, 0xa5d3b6d479f8e056},  // -307
+    {0xb3c4f1ba87bc8696, 0x8f48a4899877186c},  // -306
+    {0xe0b62e2929aba83c, 0x331acdabfe94de87},  // -305
+    {0x8c71dcd9ba0b4925, 0x9ff0c08b7f1d0b14},  // -304
+    {0xaf8e5410288e1b6f, 0x07ecf0ae5ee44dd9},  // -303
+    {0xdb71e91432b1a24a, 0xc9e82cd9f69d6150},  // -302
+    {0x892731ac9faf056e, 0xbe311c083a225cd2},  // -301
+    {0xab70fe17c79ac6ca, 0x6dbd630a48aaf406},  // -300
+    {0xd64d3d9db981787d, 0x092cbbccdad5b108},  // -299
+    {0x85f0468293f0eb4e, 0x25bbf56008c58ea5},  // -298
+    {0xa76c582338ed2621, 0xaf2af2b80af6f24e},  // -297
+    {0xd1476e2c07286faa, 0x1af5af660db4aee1},  // -296
+    {0x82cca4db847945ca, 0x50d98d9fc890ed4d},  // -295
+    {0xa37fce126597973c, 0xe50ff107bab528a0},  // -294
     {0xcc5fc196fefd7d0c, 0x1e53ed49a96272c8},  // -293
     {0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a},  // -292
     {0x9faacf3df73609b1, 0x77b191618c54e9ac},  // -291
@@ -651,7 +665,7 @@ const uint128 expected[] = {
 };
 
 TEST(pow10_test, verify) {
-  constexpr int dec_exp_min = -293;
+  constexpr int dec_exp_min = -307;
   for (int i = 0; i < int(sizeof(expected) / sizeof(*expected)); ++i) {
     auto actual = static_data.pow10_significands[dec_exp_min + i];
     EXPECT_EQ(actual.hi, expected[i].hi);
