@@ -490,7 +490,7 @@ struct pow10_significand_table {
 //   3 * 2**59 / 100 = 1.72...e+16  (needs shift = 1 + 1)
 //   3 * 2**60 / 100 = 3.45...e+16  (needs shift = 2 + 1)
 constexpr ZMIJ_INLINE auto compute_exp_shift(int bin_exp, int dec_exp) noexcept
-    -> unsigned char {
+    -> signed char {
   assert(dec_exp >= -350 && dec_exp <= 350);
   // log2_pow10_sig = round(log2(10) * 2**log2_pow10_exp) + 1
   constexpr int log2_pow10_sig = 217'707, log2_pow10_exp = 16;
@@ -1258,20 +1258,53 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   // num_sig_bits), approximating log2(bin_sig) as num_sig_bits (normals).
   int dec_exp = compute_dec_exp(bin_exp + traits::num_sig_bits) - (precision - 1);
 
-  // Multiply by 10**-dec_exp: `integral` is the integer part (the precision
-  // digits) and `fractional` the fraction below it, used later for rounding.
-  // bin_sig is left-justified to bit 63 so the scaling shift lands on the
-  // result and stays non-negative across the precision range.
+  // Multiply by 10**-dec_exp and pack the result into `scaled`: the
+  // `precision`-digit integer in the high bits with two guard bits below it -
+  // bit 1 is the 1/2 place and bit 0 the sticky bit (OR of everything below
+  // 1/2). This lets a single round-half-to-even step do all the rounding.
   constexpr int shift = traits::num_bits - traits::digits;  // 11
   int point_shift = shift - compute_exp_shift(bin_exp, dec_exp);
   uint128 pow10 = static_data.pow10_significands[-dec_exp];
-  uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
-  long long integral = p.hi >> point_shift;
+  uint64_t y = uint64_t(bin_sig) << shift;
+  uint128 p = umul192_hi128(pow10.hi, pow10.lo, y);
+  uint64_t integral = p.hi >> point_shift;
   uint64_t fractional = p.hi << (64 - point_shift) | p.lo >> point_shift;
+  // The sticky bit covers every bit strictly below the 1/2 place: the rest of
+  // `fractional`, the low point_shift bits of p.lo, and the 64 product bits
+  // umul192_hi128 discards (recovered as pow10.lo * y).
+  uint64_t tail = (fractional << 1) | (p.lo << (64 - point_shift)) | pow10.lo * y;
+  uint64_t scaled = integral << 2 | (fractional >> 63) << 1 | (tail != 0);
 
-  // TODO: round `integral` to `precision` digits using `fractional`.
-  (void)fractional;
-  return {negative ? -integral : integral, dec_exp, negative};
+  static constexpr long long pow10_i[] = {
+      1,
+      10,
+      100,
+      1'000,
+      10'000,
+      100'000,
+      1'000'000,
+      10'000'000,
+      100'000'000,
+      1'000'000'000,
+      10'000'000'000,
+      100'000'000'000,
+      1'000'000'000'000,
+      10'000'000'000'000,
+      100'000'000'000'000,
+      1'000'000'000'000'000,
+      10'000'000'000'000'000,
+      100'000'000'000'000'000,
+      1'000'000'000'000'000'000};
+
+  // Round half-to-even off the two guard bits.
+  auto round_even = [](uint64_t x) { return (x + 1 + ((x >> 2) & 1)) >> 2; };
+  long long dec_sig = round_even(scaled);
+  if (dec_sig >= pow10_i[precision]) {  // One digit too many (overshoot/carry).
+    // Drop one decimal digit and round again, preserving the sticky bit.
+    dec_sig = round_even(scaled / 10 | (scaled & 1) | (scaled % 10 != 0));
+    ++dec_exp;
+  }
+  return {dec_sig, dec_exp, negative};
 }
 
 namespace detail {

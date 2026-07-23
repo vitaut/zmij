@@ -263,11 +263,41 @@ TEST(dtoa_test, to_decimal) {
   EXPECT_EQ(dec.sig, garlic);
 }
 
+namespace zmij {
+bool operator==(const dec_fp& a, const dec_fp& b) {
+  return a.sig == b.sig && a.exp == b.exp && a.negative == b.negative;
+}
+void PrintTo(const dec_fp& d, std::ostream* os) {
+  *os << "{sig=" << d.sig << ", exp=" << d.exp << ", negative=" << d.negative
+      << "}";
+}
+}  // namespace zmij
+
+static zmij::dec_fp decimal(long long sig, int exp, bool negative = false) {
+  return {sig, exp, negative};
+}
+
 TEST(dtoa_test, to_decimal_precision) {
-  zmij::dec_fp dec = zmij::to_decimal(1.5, 2);
-  EXPECT_EQ(dec.sig, 15);
-  EXPECT_EQ(dec.exp, -1);
-  EXPECT_EQ(dec.negative, false);
+  using zmij::to_decimal;
+
+  EXPECT_EQ(to_decimal(1.5, 2), decimal(15, -1));
+
+  // Overshoot: the integral part carries precision + 1 digits, so the extra
+  // digit is dropped and the exponent bumped up.
+  EXPECT_EQ(to_decimal(12.0, 2), decimal(12, 0));
+  EXPECT_EQ(to_decimal(123.0, 3), decimal(123, 0));
+
+  // Carry: rounding 9...9 up rolls into a new leading digit.
+  EXPECT_EQ(to_decimal(9.99, 2), decimal(10, 0));
+  EXPECT_EQ(to_decimal(99.9, 2), decimal(10, 1));
+
+  // Round half-to-even.
+  EXPECT_EQ(to_decimal(0.125, 2), decimal(12, -2));  // 1.25 -> 1.2
+  EXPECT_EQ(to_decimal(2.5, 1), decimal(2, 0));      // -> 2 (even)
+  EXPECT_EQ(to_decimal(3.5, 1), decimal(4, 0));      // -> 4 (even)
+
+  // Sign is carried in `negative`; `sig` stays positive.
+  EXPECT_EQ(to_decimal(-9.99, 2), decimal(10, 0, true));
 }
 
 TEST(ftoa_test, fixed_with_zeros) {
