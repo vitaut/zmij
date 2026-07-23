@@ -1253,29 +1253,30 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   if (precision < 1) precision = 1;
   if (precision > 18) precision = 18;
 
-  // value == integral * 10**dec_exp, with integral holding the precision
-  // digits. floor(log10(value)) is estimated by compute_dec_exp(bin_exp +
-  // num_sig_bits), approximating log2(bin_sig) as num_sig_bits (normals).
-  int dec_exp = compute_dec_exp(bin_exp + traits::num_sig_bits) - (precision - 1);
+  // Choose dec_exp so integral holds the precision digits. bin_exp +
+  // num_sig_bits approximates log2(value).
+  int dec_exp =
+      compute_dec_exp(bin_exp + traits::num_sig_bits) - (precision - 1);
 
-  // Multiply by 10**-dec_exp and pack the result into `scaled`: the
-  // `precision`-digit integer in the high bits with two guard bits below it -
-  // bit 1 is the 1/2 place and bit 0 the sticky bit (OR of everything below
-  // 1/2). This lets a single round-half-to-even step do all the rounding.
+  // Multiply by 10**-dec_exp and pack into `scaled`: the precision-digit
+  // integer above two guard bits - bit 1 the 1/2 place, bit 0 the sticky bit -
+  // so one round-half-to-even step rounds it (idea by Russ Cox).
   constexpr int shift = traits::num_bits - traits::digits;  // 11
   int point_shift = shift - compute_exp_shift(bin_exp, dec_exp);
   uint128 pow10 = static_data.pow10_significands[-dec_exp];
-  uint64_t y = uint64_t(bin_sig) << shift;
-  uint128 p = umul192_hi128(pow10.hi, pow10.lo, y);
-  uint64_t integral = p.hi >> point_shift;
-  uint64_t fractional = p.hi << (64 - point_shift) | p.lo >> point_shift;
-  // The sticky bit covers every bit strictly below the 1/2 place: the rest of
-  // `fractional`, the low point_shift bits of p.lo, and the 64 product bits
-  // umul192_hi128 discards (recovered as pow10.lo * y).
-  uint64_t tail = (fractional << 1) | (p.lo << (64 - point_shift)) | pow10.lo * y;
-  uint64_t scaled = integral << 2 | (fractional >> 63) << 1 | (tail != 0);
+  // Bump inexact powers (dec_exp < -55 or > 0) up to a 128-bit ceiling so they
+  // can't mimic an exact tie; the +1 stays in the low word, never carrying.
+  uint128 p = umul192_hi128(pow10.hi, pow10.lo + (dec_exp < -55 | dec_exp > 0),
+                            bin_sig << shift);
 
-  static constexpr long long pow10_i[] = {
+  uint64_t integral = p.hi >> point_shift;
+  // The ceiling makes the low 64 product bits unreliable, so sticky uses only
+  // p.lo and p.hi's bits below 1/2; inexact powers always leave a 1 there.
+  uint64_t half = p.hi >> (point_shift - 1) & 1;
+  uint64_t tail = (p.hi & ((uint64_t(1) << (point_shift - 1)) - 1)) | p.lo;
+  uint64_t scaled = integral << 2 | half << 1 | (tail != 0);
+
+  static constexpr long long pow10s[] = {
       1,
       10,
       100,
@@ -1294,12 +1295,13 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
       1'000'000'000'000'000,
       10'000'000'000'000'000,
       100'000'000'000'000'000,
-      1'000'000'000'000'000'000};
+      1'000'000'000'000'000'000,
+  };
 
   // Round half-to-even off the two guard bits.
   auto round_even = [](uint64_t x) { return (x + 1 + ((x >> 2) & 1)) >> 2; };
   long long dec_sig = round_even(scaled);
-  if (dec_sig >= pow10_i[precision]) {  // One digit too many (overshoot/carry).
+  if (dec_sig >= pow10s[precision]) {  // One digit too many (overshoot/carry).
     // Drop one decimal digit and round again, preserving the sticky bit.
     dec_sig = round_even(scaled / 10 | (scaled & 1) | (scaled % 10 != 0));
     ++dec_exp;

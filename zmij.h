@@ -33,7 +33,8 @@ struct dec_fp {
 auto to_decimal(double value) noexcept -> dec_fp;
 
 /// Converts `value` into a correctly rounded decimal with exactly `precision`
-/// significant digits (general format). `precision` is clamped to [1, 18].
+/// significant digits, returned as sig * 10**exp. `precision` is clamped to
+/// [1, 18].
 auto to_decimal(double value, int precision) noexcept -> dec_fp;
 
 enum {
