@@ -26,18 +26,22 @@ struct to_chars_result {
 /// output is too small returns {last, std::errc::value_too_large} and writes
 /// nothing.
 inline auto to_chars(char* first, char* last, float value) -> to_chars_result {
+  if (size_t(last - first) >= float_buffer_size)
+    return {detail::write(value, first), {}};
   char buffer[float_buffer_size];
   size_t size = size_t(detail::write(value, buffer) - buffer);
   if (size > size_t(last - first)) return {last, std::errc::value_too_large};
   memcpy(first, buffer, size);
-  return {first + size, std::errc()};
+  return {first + size, {}};
 }
 inline auto to_chars(char* first, char* last, double value) -> to_chars_result {
+  if (size_t(last - first) >= double_buffer_size)
+    return {detail::write(value, first), {}};
   char buffer[double_buffer_size];
   size_t size = size_t(detail::write(value, buffer) - buffer);
   if (size > size_t(last - first)) return {last, std::errc::value_too_large};
   memcpy(first, buffer, size);
-  return {first + size, std::errc()};
+  return {first + size, {}};
 }
 
 }  // namespace zmij

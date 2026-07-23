@@ -18,6 +18,7 @@ with implementations in C and C++
 * Fast [compile time](#compile-time)
 * IEEE 754 `double` and `float` support
 * Safer API than classic `dtoa`
+* Optional [`std::to_chars`][to-chars]-style API
 * User-friendly output format similar to Python's default representation
 * Negative zero dependencies
 * Small, clean codebase consisting of one
@@ -37,6 +38,17 @@ int main() {
   *end = '\0';
   puts(buf);
 }
+```
+
+For a [`std::to_chars`][to-chars]-style API, include `zmij-to-chars.h`, which
+provides `zmij::to_chars` returning a `{ptr, ec}` result (usable in C++14):
+
+```c++
+#include "zmij-to-chars.h"
+
+char buf[zmij::double_buffer_size];
+auto result = zmij::to_chars(buf, buf + sizeof(buf), 5.0507837461e-27);
+// result.ec == std::errc() on success; result.ptr points past the output.
 ```
 
 ## Performance
@@ -162,3 +174,5 @@ We would like to express our gratitude to the individuals who have made
 
 * Community contributors who provided feedback, issues, suggestions, and
   occasional commits, helping improve the robustness and performance of Żmij.
+
+[to-chars]: https://en.cppreference.com/w/cpp/utility/to_chars
