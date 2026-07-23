@@ -263,6 +263,13 @@ TEST(dtoa_test, to_decimal) {
   EXPECT_EQ(dec.sig, garlic);
 }
 
+TEST(dtoa_test, to_decimal_precision) {
+  zmij::dec_fp dec = zmij::to_decimal(1.5, 2);
+  EXPECT_EQ(dec.sig, 15);
+  EXPECT_EQ(dec.exp, -1);
+  EXPECT_EQ(dec.negative, false);
+}
+
 TEST(ftoa_test, fixed_with_zeros) {
   EXPECT_EQ(ftoa(43210.0f), "43210");
   EXPECT_EQ(ftoa(43210.1f), "43210.1");

@@ -32,6 +32,10 @@ struct dec_fp {
 ///   auto [sig, exp, negative] = to_decimal(6.62607015e-34);
 auto to_decimal(double value) noexcept -> dec_fp;
 
+/// Converts `value` into a correctly rounded decimal with exactly `precision`
+/// significant digits (general format). `precision` is clamped to [1, 18].
+auto to_decimal(double value, int precision) noexcept -> dec_fp;
+
 enum {
   float_buffer_size = 17,
   double_buffer_size = 34,

@@ -1236,6 +1236,44 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
   return {dec.sig * 10 + last_digit, dec.exp, negative};
 }
 
+inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
+  using traits = float_traits<double>;
+  auto bits = traits::to_bits(value);
+  auto bin_exp = traits::get_exp(bits);
+  auto bin_sig = traits::get_sig(bits);
+  auto negative = traits::is_negative(bits);
+  if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
+    if (bin_exp != 0) return {int64_t(bin_sig), int(~0u >> 1), negative};
+    if (bin_sig == 0) return {0, 0, negative};
+    assert(false && "subnormals not yet supported");
+  }
+  bin_sig ^= traits::implicit_bit;
+  bin_exp -= traits::exp_offset;
+
+  if (precision < 1) precision = 1;
+  if (precision > 18) precision = 18;
+
+  // value == integral * 10**dec_exp, with integral holding the precision
+  // digits. floor(log10(value)) is estimated by compute_dec_exp(bin_exp +
+  // num_sig_bits), approximating log2(bin_sig) as num_sig_bits (normals).
+  int dec_exp = compute_dec_exp(bin_exp + traits::num_sig_bits) - (precision - 1);
+
+  // Multiply by 10**-dec_exp: `integral` is the integer part (the precision
+  // digits) and `fractional` the fraction below it, used later for rounding.
+  // bin_sig is left-justified to bit 63 so the scaling shift lands on the
+  // result and stays non-negative across the precision range.
+  constexpr int shift = traits::num_bits - traits::digits;  // 11
+  int point_shift = shift - compute_exp_shift(bin_exp, dec_exp);
+  uint128 pow10 = static_data.pow10_significands[-dec_exp];
+  uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
+  long long integral = p.hi >> point_shift;
+  uint64_t fractional = p.hi << (64 - point_shift) | p.lo >> point_shift;
+
+  // TODO: round `integral` to `precision` digits using `fractional`.
+  (void)fractional;
+  return {negative ? -integral : integral, dec_exp, negative};
+}
+
 namespace detail {
 
 // It is slightly faster to return a pointer to the end than the size.
