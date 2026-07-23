@@ -1236,7 +1236,10 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
   return {dec.sig * 10 + last_digit, dec.exp, negative};
 }
 
+namespace detail {
+
 inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
+  assert(precision >= 1 && precision <= 18);
   using traits = float_traits<double>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);
@@ -1245,13 +1248,12 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return {int64_t(bin_sig), int(~0u >> 1), negative};
     if (bin_sig == 0) return {0, 0, negative};
-    assert(false && "subnormals not yet supported");
+    int shift = clz(bin_sig) - (traits::num_bits - 1 - traits::num_sig_bits);
+    bin_sig = (bin_sig << shift) ^ traits::implicit_bit;
+    bin_exp = 1 - shift;
   }
   bin_sig ^= traits::implicit_bit;
   bin_exp -= traits::exp_offset;
-
-  if (precision < 1) precision = 1;
-  if (precision > 18) precision = 18;
 
   // Choose dec_exp so integral holds the precision digits. bin_exp +
   // num_sig_bits approximates log2(value).
@@ -1263,6 +1265,7 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   // so one round-half-to-even step rounds it (idea by Russ Cox).
   constexpr int shift = traits::num_bits - traits::digits;  // 11
   int point_shift = shift - compute_exp_shift(bin_exp, dec_exp);
+  // TODO: -dec_exp overflows the pow10_significands range at exponent extremes.
   uint128 pow10 = static_data.pow10_significands[-dec_exp];
   // Bump inexact powers (dec_exp < -55 or > 0) up to a 128-bit ceiling so they
   // can't mimic an exact tie; the +1 stays in the low word, never carrying.
@@ -1308,8 +1311,6 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   }
   return {dec_sig, dec_exp, negative};
 }
-
-namespace detail {
 
 // It is slightly faster to return a pointer to the end than the size.
 template <typename Float>

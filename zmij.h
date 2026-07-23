@@ -6,13 +6,17 @@
 #ifndef ZMIJ_H_
 #define ZMIJ_H_
 
+#include <assert.h>  // assert
 #include <stddef.h>  // size_t
 #include <string.h>  // memcpy
 
 namespace zmij {
+struct dec_fp;
+
 namespace detail {
 template <typename Float>
 auto write(Float value, char* buffer) noexcept -> char*;
+auto to_decimal(double value, int precision) noexcept -> dec_fp;
 }  // namespace detail
 
 enum {
@@ -33,9 +37,14 @@ struct dec_fp {
 auto to_decimal(double value) noexcept -> dec_fp;
 
 /// Converts `value` into a correctly rounded decimal with exactly `precision`
-/// significant digits, returned as sig * 10**exp. `precision` is clamped to
-/// [1, 18].
-auto to_decimal(double value, int precision) noexcept -> dec_fp;
+/// significant digits (sig * 10**exp). `precision` must be in [1, 18];
+/// out-of-range values are clamped.
+inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
+  assert(precision >= 1 && precision <= 18);
+  if (precision < 1) precision = 1;
+  if (precision > 18) precision = 18;
+  return detail::to_decimal(value, precision);
+}
 
 enum {
   float_buffer_size = 17,
