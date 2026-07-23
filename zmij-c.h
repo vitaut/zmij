@@ -19,25 +19,29 @@ enum {
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
-/// `out`. `out` should point to a buffer of size `n` or larger.
-static inline size_t zmij_write_float(char* out, size_t n, float value) {
-  if (n >= zmij_float_buffer_size)
-    return zmij_detail_write_float(value, out) - out;
+/// `out` without a null terminator. Returns a pointer past the last character
+/// written; if the representation exceeds `n` characters, only the first `n`
+/// are written.
+static inline char* zmij_write_float(char* out, size_t n, float value) {
+  if (n >= zmij_float_buffer_size) return zmij_detail_write_float(value, out);
   char buffer[zmij_float_buffer_size];
-  size_t result = zmij_detail_write_float(value, buffer) - buffer;
-  memcpy(out, buffer, n);
-  return result;
+  size_t size = zmij_detail_write_float(value, buffer) - buffer;
+  if (size > n) size = n;
+  memcpy(out, buffer, size);
+  return out + size;
 }
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
-/// `out`. `out` should point to a buffer of size `n` or larger.
-static inline size_t zmij_write_double(char* out, size_t n, double value) {
-  if (n >= zmij_double_buffer_size)
-    return zmij_detail_write_double(value, out) - out;
+/// `out` without a null terminator. Returns a pointer past the last character
+/// written; if the representation exceeds `n` characters, only the first `n`
+/// are written.
+static inline char* zmij_write_double(char* out, size_t n, double value) {
+  if (n >= zmij_double_buffer_size) return zmij_detail_write_double(value, out);
   char buffer[zmij_double_buffer_size];
-  size_t result = zmij_detail_write_double(value, buffer) - buffer;
-  memcpy(out, buffer, n);
-  return result;
+  size_t size = zmij_detail_write_double(value, buffer) - buffer;
+  if (size > n) size = n;
+  memcpy(out, buffer, size);
+  return out + size;
 }
 
 #endif  // ZMIJ_C_H_

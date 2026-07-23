@@ -19,10 +19,10 @@ enum {
 };
 
 auto write(char* out, size_t n, double value) noexcept -> char* {
-  return out + zmij_write_double(out, n, value);
+  return zmij_write_double(out, n, value);
 }
 auto write(char* out, size_t n, float value) noexcept -> char* {
-  return out + zmij_write_float(out, n, value);
+  return zmij_write_float(out, n, value);
 }
 }  // namespace zmij
 #endif
