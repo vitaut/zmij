@@ -2,6 +2,7 @@
 # clang-format -i --style=file <file>
 Language: Cpp
 BasedOnStyle: Google
+AlignAfterOpenBracket: BlockIndent
 IndentPPDirectives: AfterHash
 IndentCaseLabels: false
 AlwaysBreakTemplateDeclarations: false

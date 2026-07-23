@@ -6,11 +6,11 @@
 // configurations without building multiple versions of the library and to test
 // internal functions.
 #ifndef ZMIJ_C
-#define ZMIJ_C 0
-#include "../zmij.cc"
+#  define ZMIJ_C 0
+#  include "../zmij.cc"
 #else
-#define _Alignas(x) alignas(x)
-#include "../zmij.c"
+#  define _Alignas(x) alignas(x)
+#  include "../zmij.c"
 
 namespace zmij {
 enum {
@@ -24,7 +24,7 @@ auto write(char* out, size_t n, double value) noexcept -> char* {
 auto write(char* out, size_t n, float value) noexcept -> char* {
   return out + zmij_write_float(out, n, value);
 }
-}
+}  // namespace zmij
 #endif
 
 #include <gtest/gtest.h>
@@ -83,19 +83,19 @@ TEST(double_test, subnormal) {
 
 TEST(double_test, write_irregular) {
   const char* fixed[] = {
-    "0.0001220703125",
-    "0.000244140625",
-    "0.00048828125",
-    "0.0009765625",
-    "0.001953125",
-    "0.00390625",
-    "0.0078125",
-    "0.015625",
-    "0.03125",
-    "0.0625",
-    "0.125",
-    "0.25",
-    "0.5"
+      "0.0001220703125",
+      "0.000244140625",
+      "0.00048828125",
+      "0.0009765625",
+      "0.001953125",
+      "0.00390625",
+      "0.0078125",
+      "0.015625",
+      "0.03125",
+      "0.0625",
+      "0.125",
+      "0.25",
+      "0.5"
   };
   for (uint64_t exp = 1; exp < 0x3ff; ++exp) {
     uint64_t bits = exp << 52;
@@ -116,22 +116,13 @@ TEST(double_test, write_irregular) {
 }
 
 TEST(double_test, write_exponents) {
-  const char* fixed[] = {
-    "0.00012207031250000003",
-    "0.00024414062500000005",
-    "0.0004882812500000001",
-    "0.0009765625000000002",
-    "0.0019531250000000004",
-    "0.003906250000000001",
-    "0.007812500000000002",
-    "0.015625000000000003",
-    "0.03125000000000001",
-    "0.06250000000000001",
-    "0.12500000000000003",
-    "0.25000000000000006",
-    "0.5000000000000001",
-    "1.0000000000000002"
-  };
+  const char* fixed[] = {"0.00012207031250000003", "0.00024414062500000005",
+                         "0.0004882812500000001",  "0.0009765625000000002",
+                         "0.0019531250000000004",  "0.003906250000000001",
+                         "0.007812500000000002",   "0.015625000000000003",
+                         "0.03125000000000001",    "0.06250000000000001",
+                         "0.12500000000000003",    "0.25000000000000006",
+                         "0.5000000000000001",     "1.0000000000000002"};
   for (uint64_t exp = 0; exp <= 0x3ff; ++exp) {
     uint64_t bits = (exp << 52) | 1;
     double value = 0;
@@ -193,7 +184,7 @@ TEST(double_test, boundaries) {
   auto to_string = [](uint64_t sig, int dec_exp) -> std::string {
     std::string digits = std::to_string(sig);
     int num_digits = int(digits.size());
-    dec_exp += num_digits - 1;  // exponent of the leading digit
+    dec_exp += num_digits - 1;           // exponent of the leading digit
     if (dec_exp < -4 || dec_exp > 15) {  // scientific
       std::string sig_str = num_digits == 1
                                 ? digits
@@ -202,7 +193,8 @@ TEST(double_test, boundaries) {
     }
     int point = dec_exp + 1;  // digits left of the decimal point
     if (point <= 0) return "0." + std::string(-point, '0') + digits;
-    if (point >= num_digits) return digits + std::string(point - num_digits, '0');
+    if (point >= num_digits)
+      return digits + std::string(point - num_digits, '0');
     return digits.substr(0, point) + "." + digits.substr(point);
   };
 
@@ -322,8 +314,9 @@ TEST(double_test, to_decimal_precision) {
   // Smallest subnormal at full precision (exercises the widened table top).
   EXPECT_EQ(to_decimal(5e-324, 18), decimal(494065645841246544, -341));
   // Largest subnormal, round-tripped at full precision.
-  EXPECT_EQ(to_decimal(2.2250738585072009e-308, 17),
-            decimal(22250738585072009, -324));
+  EXPECT_EQ(
+      to_decimal(2.2250738585072009e-308, 17), decimal(22250738585072009, -324)
+  );
   EXPECT_EQ(to_decimal(2.2250738585072009e-308, 6), decimal(222507, -313));
 
   // Large values at low precision reach the low end of the table.
@@ -335,10 +328,12 @@ TEST(double_test, to_decimal_precision) {
   EXPECT_EQ(to_decimal(9.99f, 2), decimal(10, 0));         // carry
   EXPECT_EQ(to_decimal(2.5f, 1), decimal(2, 0));           // round half to even
   EXPECT_EQ(to_decimal(-1.5f, 2), decimal(15, -1, true));  // sign preserved
-  EXPECT_EQ(to_decimal(std::numeric_limits<float>::denorm_min(), 1),
-            decimal(1, -45));  // FLT_TRUE_MIN, subnormal path
-  EXPECT_EQ(to_decimal(std::numeric_limits<float>::max(), 9),
-            decimal(340282347, 30));  // FLT_MAX
+  EXPECT_EQ(
+      to_decimal(std::numeric_limits<float>::denorm_min(), 1), decimal(1, -45)
+  );  // FLT_TRUE_MIN, subnormal path
+  EXPECT_EQ(
+      to_decimal(std::numeric_limits<float>::max(), 9), decimal(340282347, 30)
+  );  // FLT_MAX
 }
 
 TEST(double_test, to_decimal_precision_irregular) {
@@ -347,9 +342,10 @@ TEST(double_test, to_decimal_precision_irregular) {
     double value = 0;
     memcpy(&value, &bits, sizeof(double));
     for (int precision = 1; precision <= 18; ++precision) {
-      EXPECT_EQ(zmij::to_decimal(value, precision),
-                expected_decimal(value, precision))
-          << "value=" << value << " precision=" << precision;
+      EXPECT_EQ(
+          zmij::to_decimal(value, precision), expected_decimal(value, precision)
+      ) << "value="
+        << value << " precision=" << precision;
     }
   }
 }
@@ -364,14 +360,13 @@ TEST(float_test, fixed_with_zeros) {
 TEST(double_test, no_overrun) {
   char buffer[zmij::double_buffer_size + 1];
   memset(buffer, '?', sizeof(buffer));
-  auto end = zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
+  auto end =
+      zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
   EXPECT_EQ(std::string(buffer, end), std::string("-1.2345678901234567e+123"));
   EXPECT_EQ(buffer[zmij::double_buffer_size], '?');
 }
 
-TEST(double_test, no_underrun) {
-  dtoa(9.061488e+15);
-}
+TEST(double_test, no_underrun) { dtoa(9.061488e+15); }
 
 TEST(float_test, normal) {
   EXPECT_EQ(ftoa(6.62607e-34f), "6.62607e-34");
