@@ -30,12 +30,13 @@ auto write(char* out, size_t n, float value) noexcept -> char* {
 #include <gtest/gtest.h>
 
 #include <cstdint>  // uint64_t
+#include <cstdio>   // snprintf
+#include <cstdlib>  // atoi
 #include <limits>   // std::numeric_limits
 #include <string>   // std::string
 
 #include "dragonbox/dragonbox_to_chars.h"
 #include "fmt/format.h"
-
 
 auto dtoa(double value) -> std::string {
   char buffer[zmij::double_buffer_size + 1] = {};
@@ -63,14 +64,14 @@ TEST(zmij_test, utilities) {
   EXPECT_EQ(count_trailing_nonzeros(0x09000000'00000000ull), 8);
 }
 
-TEST(dtoa_test, normal) {
+TEST(double_test, normal) {
   EXPECT_EQ(dtoa(6.62607015e-34), "6.62607015e-34");
 
   // Exact half-ulp tie when rounding to nearest integer.
   EXPECT_EQ(dtoa(5.444310685350916e+14), "544431068535091.6");
 }
 
-TEST(dtoa_test, subnormal) {
+TEST(double_test, subnormal) {
   EXPECT_EQ(dtoa(std::numeric_limits<double>::denorm_min()), "5e-324");
   EXPECT_EQ(dtoa(1e-323), "1e-323");
   EXPECT_EQ(dtoa(1.2e-322), "1.2e-322");
@@ -80,7 +81,7 @@ TEST(dtoa_test, subnormal) {
   EXPECT_EQ(dtoa(2.2250738585072004e-308), "2.2250738585072004e-308");
 }
 
-TEST(dtoa_test, all_irregular) {
+TEST(double_test, write_irregular) {
   const char* fixed[] = {
     "0.0001220703125",
     "0.000244140625",
@@ -114,7 +115,7 @@ TEST(dtoa_test, all_irregular) {
   }
 }
 
-TEST(dtoa_test, all_exponents) {
+TEST(double_test, write_exponents) {
   const char* fixed[] = {
     "0.00012207031250000003",
     "0.00024414062500000005",
@@ -149,22 +150,22 @@ TEST(dtoa_test, all_exponents) {
   }
 }
 
-TEST(dtoa_test, small_int) { EXPECT_EQ(dtoa(1), "1"); }
+TEST(double_test, small_int) { EXPECT_EQ(dtoa(1), "1"); }
 
-TEST(dtoa_test, zero) {
+TEST(double_test, zero) {
   EXPECT_EQ(dtoa(0), "0");
   EXPECT_EQ(dtoa(-0.0), "-0");
 }
 
-TEST(dtoa_test, inf) {
+TEST(double_test, inf) {
   EXPECT_EQ(dtoa(std::numeric_limits<double>::infinity()), "inf");
 }
 
-TEST(dtoa_test, nan) {
+TEST(double_test, nan) {
   EXPECT_EQ(dtoa(-std::numeric_limits<double>::quiet_NaN()), "-nan");
 }
 
-TEST(dtoa_test, shorter) {
+TEST(double_test, shorter) {
   // A possibly shorter underestimate is picked (u' in Schubfach).
   EXPECT_EQ(dtoa(-4.932096661796888e-226), "-4.932096661796888e-226");
 
@@ -172,7 +173,7 @@ TEST(dtoa_test, shorter) {
   EXPECT_EQ(dtoa(3.439070283483335e+35), "3.439070283483335e+35");
 }
 
-TEST(dtoa_test, single_candidate) {
+TEST(double_test, single_candidate) {
   // Only an underestimate is in the rounding region (u in Schubfach).
   EXPECT_EQ(dtoa(6.606854224493745e-17), "6.606854224493745e-17");
 
@@ -188,7 +189,7 @@ static const uint64_t boundary_bits[] = {
 
 // Check zmij against dragonbox on every rounding-boundary double verify.py
 // enumerates, using dragonbox's to_decimal as an independent oracle.
-TEST(dtoa_test, boundary_sweep) {
+TEST(double_test, boundaries) {
   auto to_string = [](uint64_t sig, int dec_exp) -> std::string {
     std::string digits = std::to_string(sig);
     int num_digits = int(digits.size());
@@ -214,7 +215,7 @@ TEST(dtoa_test, boundary_sweep) {
   }
 }
 
-TEST(dtoa_test, fixed_with_zeros) {
+TEST(double_test, fixed_with_zeros) {
   EXPECT_EQ(dtoa(43210.0), "43210");
   EXPECT_EQ(dtoa(43210.1), "43210.1");
   EXPECT_EQ(dtoa(10000), "10000");
@@ -222,7 +223,7 @@ TEST(dtoa_test, fixed_with_zeros) {
 }
 
 #if !ZMIJ_C
-TEST(dtoa_test, no_buffer) {
+TEST(double_test, no_buffer) {
   double value = 6.62607015e-34;
   char buffer[zmij::double_buffer_size];
   auto end = zmij::write(buffer, sizeof(buffer), value);
@@ -230,7 +231,7 @@ TEST(dtoa_test, no_buffer) {
   EXPECT_EQ(result, "6.62607015e-34");
 }
 
-TEST(ftoa_test, no_buffer) {
+TEST(float_test, no_buffer) {
   float value = 6.62607e-34;
   char buffer[zmij::float_buffer_size];
   auto end = zmij::write(buffer, sizeof(buffer), value);
@@ -238,7 +239,7 @@ TEST(ftoa_test, no_buffer) {
   EXPECT_EQ(result, "6.62607e-34");
 }
 
-TEST(dtoa_test, to_decimal) {
+TEST(double_test, to_decimal) {
   zmij::dec_fp dec = zmij::to_decimal(6.62607015e-34);
   EXPECT_EQ(dec.sig, 66260701500000000);
   EXPECT_EQ(dec.exp, -50);
@@ -264,7 +265,7 @@ TEST(dtoa_test, to_decimal) {
 }
 
 namespace zmij {
-bool operator==(const dec_fp& a, const dec_fp& b) {
+auto operator==(const dec_fp& a, const dec_fp& b) -> bool {
   return a.sig == b.sig && a.exp == b.exp && a.negative == b.negative;
 }
 void PrintTo(const dec_fp& d, std::ostream* os) {
@@ -273,11 +274,26 @@ void PrintTo(const dec_fp& d, std::ostream* os) {
 }
 }  // namespace zmij
 
-static zmij::dec_fp decimal(long long sig, int exp, bool negative = false) {
+static auto decimal(long long sig, int exp, bool negative = false)
+    -> zmij::dec_fp {
   return {sig, exp, negative};
 }
 
-TEST(dtoa_test, to_decimal_precision) {
+// Returns the expected `dec_fp` for `value` rounded to `precision` significant
+// digits, using libc's snprintf and parsing its scientific output.
+static auto expected_decimal(double value, int precision) -> zmij::dec_fp {
+  char s[32] = {};
+  snprintf(s, sizeof(s), "%.*e", precision - 1, value);
+  bool negative = s[0] == '-';
+  long long sig = 0;
+  size_t i = negative;
+  for (; s[i] != 'e'; ++i) {
+    if (s[i] != '.') sig = sig * 10 + (s[i] - '0');
+  }
+  return {sig, atoi(s + i + 1) - (precision - 1), negative};
+}
+
+TEST(double_test, to_decimal_precision) {
   using zmij::to_decimal;
 
   EXPECT_EQ(to_decimal(1.5, 2), decimal(15, -1));
@@ -314,7 +330,7 @@ TEST(dtoa_test, to_decimal_precision) {
   EXPECT_EQ(to_decimal(1.7976931348623157e308, 1), decimal(2, 308));  // DBL_MAX
   EXPECT_EQ(to_decimal(1.7976931348623157e308, 2), decimal(18, 307));
 
-  // The float overload shares the same machinery via float_traits.
+  // The float overload: carry, round-half-even, sign, subnormal, and FLT_MAX.
   EXPECT_EQ(to_decimal(1.5f, 2), decimal(15, -1));
   EXPECT_EQ(to_decimal(9.99f, 2), decimal(10, 0));         // carry
   EXPECT_EQ(to_decimal(2.5f, 1), decimal(2, 0));           // round half to even
@@ -325,14 +341,27 @@ TEST(dtoa_test, to_decimal_precision) {
             decimal(340282347, 30));  // FLT_MAX
 }
 
-TEST(ftoa_test, fixed_with_zeros) {
+TEST(double_test, to_decimal_precision_irregular) {
+  for (uint64_t exp = 1; exp <= 2046; ++exp) {
+    uint64_t bits = exp << 52;
+    double value = 0;
+    memcpy(&value, &bits, sizeof(double));
+    for (int precision = 1; precision <= 18; ++precision) {
+      EXPECT_EQ(zmij::to_decimal(value, precision),
+                expected_decimal(value, precision))
+          << "value=" << value << " precision=" << precision;
+    }
+  }
+}
+
+TEST(float_test, fixed_with_zeros) {
   EXPECT_EQ(ftoa(43210.0f), "43210");
   EXPECT_EQ(ftoa(43210.1f), "43210.1");
   EXPECT_EQ(ftoa(10000.f), "10000");
 }
 #endif  // ZMIJ_C
 
-TEST(dtoa_test, no_overrun) {
+TEST(double_test, no_overrun) {
   char buffer[zmij::double_buffer_size + 1];
   memset(buffer, '?', sizeof(buffer));
   auto end = zmij::write(buffer, zmij::double_buffer_size, -1.2345678901234567e+123);
@@ -340,21 +369,21 @@ TEST(dtoa_test, no_overrun) {
   EXPECT_EQ(buffer[zmij::double_buffer_size], '?');
 }
 
-TEST(dtoa_test, no_underrun) {
+TEST(double_test, no_underrun) {
   dtoa(9.061488e+15);
 }
 
-TEST(ftoa_test, normal) {
+TEST(float_test, normal) {
   EXPECT_EQ(ftoa(6.62607e-34f), "6.62607e-34");
   EXPECT_EQ(ftoa(1.342178e+08f), "1.342178e+08");
   EXPECT_EQ(ftoa(1.3421781e+08f), "1.3421781e+08");
 }
 
-TEST(ftoa_test, subnormal) {
+TEST(float_test, subnormal) {
   EXPECT_EQ(ftoa(std::numeric_limits<float>::denorm_min()), "1e-45");
 }
 
-TEST(ftoa_test, no_overrun) {
+TEST(float_test, no_overrun) {
   char buffer[zmij::float_buffer_size + 1];
   memset(buffer, '?', sizeof(buffer));
   auto end = zmij::write(buffer, zmij::float_buffer_size, -1.00000005e+15f);
