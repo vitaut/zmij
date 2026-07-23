@@ -5,9 +5,9 @@
 import math
 import sys
 
-# Range of decimal exponents [K_min, K_max] from the paper.
-dec_exp_min = -324
-dec_exp_max =  292
+# Range of decimal exponents covered by the pow10 significand table.
+dec_exp_min = -341
+dec_exp_max =  293
 
 num_bits = 128
 

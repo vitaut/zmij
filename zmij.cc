@@ -416,19 +416,20 @@ constexpr uint128 pow10_major[] = {
     {0xd31045a8341ca07c, 0x1ede48111209a051},  //  229
     {0xd51ea6fa85785631, 0x552a74227f3ea566},  //  257
     {0xd732290fbacaf133, 0xa97c177947ad4096},  //  285
-    {0xd94ad8b1c7380874, 0x18375281ae7822bc},  //  313
+    {0xd94ad8b1c7380874, 0x18375281ae7822bd},  //  313 (+1 ULP: see fixups)
+    {0xdb68c2ca82ed2a05, 0xa67398db9f6820e1},  //  341
 };
 constexpr uint32_t pow10_fixups[] = {
     0x0a4e363f, 0x00001840, 0x00006400, 0x24200040, 0x00000000,
     0x0c000000, 0x82c81380, 0x5e4ce01f, 0xd730f60f, 0x0000001b,
     0x00000000, 0xcdf7fffc, 0x6e8201d8, 0x40cd3fd1, 0xdb642501,
-    0x00000d0d, 0x14042400, 0x53713840, 0x11781db4, 0x00000000};
+    0x00000d0d, 0x14042400, 0x53713840, 0xd1781db4, 0x00f7e593};
 
 // 128-bit significands of powers of 10 rounded down.
 struct pow10_significand_table {
   static constexpr bool compress = ZMIJ_OPTIMIZE_SIZE != 0;
   static constexpr bool split_tables = !compress && ZMIJ_AARCH64 != 0;
-  static constexpr int num_pow10s = 618;
+  static constexpr int num_pow10s = 635;
   uint64_t data[compress ? 1 : num_pow10s * 2] = {};
 
   // Computes the 128-bit significand of 10**i using method by Dougall Johnson.
@@ -1249,10 +1250,10 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
     if (bin_exp != 0) return {int64_t(bin_sig), int(~0u >> 1), negative};
     if (bin_sig == 0) return {0, 0, negative};
     int shift = clz(bin_sig) - (traits::num_bits - 1 - traits::num_sig_bits);
-    bin_sig = (bin_sig << shift) ^ traits::implicit_bit;
+    bin_sig <<= shift;  // Move the leading 1 up to the implicit-bit position.
     bin_exp = 1 - shift;
   }
-  bin_sig ^= traits::implicit_bit;
+  bin_sig |= traits::implicit_bit;
   bin_exp -= traits::exp_offset;
 
   // Choose dec_exp so integral holds the precision digits. bin_exp +
@@ -1265,7 +1266,7 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   // so one round-half-to-even step rounds it (idea by Russ Cox).
   constexpr int shift = traits::num_bits - traits::digits;  // 11
   int point_shift = shift - compute_exp_shift(bin_exp, dec_exp);
-  // TODO: -dec_exp overflows the pow10_significands range at exponent extremes.
+  // TODO: large values at low precision underflow pow10_significands.
   uint128 pow10 = static_data.pow10_significands[-dec_exp];
   // Bump inexact powers (dec_exp < -55 or > 0) up to a 128-bit ceiling so they
   // can't mimic an exact tie; the +1 stays in the low word, never carrying.

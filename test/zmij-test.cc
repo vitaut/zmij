@@ -299,11 +299,12 @@ TEST(dtoa_test, to_decimal_precision) {
   // Sign is carried in `negative`; `sig` stays positive.
   EXPECT_EQ(to_decimal(-9.99, 2), decimal(10, 0, true));
 
-  // Subnormals: normalized like normals, then scaled. The power-of-ten table
-  // only reaches these exponents at low precision for the tiniest values, so
-  // precision here stays within the supported range.
+  // Subnormals take a separate normalization path, so check both boundaries
+  // (smallest and largest) at low and full precision.
   EXPECT_EQ(to_decimal(5e-324, 1), decimal(5, -324));         // DBL_TRUE_MIN
   EXPECT_EQ(to_decimal(-5e-324, 1), decimal(5, -324, true));  // sign preserved
+  // Smallest subnormal at full precision (exercises the widened table top).
+  EXPECT_EQ(to_decimal(5e-324, 18), decimal(494065645841246544, -341));
   // Largest subnormal, round-tripped at full precision.
   EXPECT_EQ(to_decimal(2.2250738585072009e-308, 17),
             decimal(22250738585072009, -324));

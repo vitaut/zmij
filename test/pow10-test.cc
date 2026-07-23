@@ -13,6 +13,7 @@
 // 128-bit significands of powers of 10 rounded down.
 // Generated with gen-pow10.py.
 const uint128 expected[] = {
+    {0xcc5fc196fefd7d0c, 0x1e53ed49a96272c8},  // -293
     {0xff77b1fcbebcdc4f, 0x25e8e89c13bb0f7a},  // -292
     {0x9faacf3df73609b1, 0x77b191618c54e9ac},  // -291
     {0xc795830d75038c1d, 0xd59df5b9ef6a2417},  // -290
@@ -630,10 +631,27 @@ const uint128 expected[] = {
     {0xca5e89b18b602368, 0x385bb19cb14bdfc4},  //  322
     {0xfcf62c1dee382c42, 0x46729e03dd9ed7b5},  //  323
     {0x9e19db92b4e31ba9, 0x6c07a2c26a8346d1},  //  324
+    {0xc5a05277621be293, 0xc7098b7305241885},  //  325
+    {0xf70867153aa2db38, 0xb8cbee4fc66d1ea7},  //  326
+    {0x9a65406d44a5c903, 0x737f74f1dc043328},  //  327
+    {0xc0fe908895cf3b44, 0x505f522e53053ff2},  //  328
+    {0xf13e34aabb430a15, 0x647726b9e7c68fef},  //  329
+    {0x96c6e0eab509e64d, 0x5eca783430dc19f5},  //  330
+    {0xbc789925624c5fe0, 0xb67d16413d132072},  //  331
+    {0xeb96bf6ebadf77d8, 0xe41c5bd18c57e88f},  //  332
+    {0x933e37a534cbaae7, 0x8e91b962f7b6f159},  //  333
+    {0xb80dc58e81fe95a1, 0x723627bbb5a4adb0},  //  334
+    {0xe61136f2227e3b09, 0xcec3b1aaa30dd91c},  //  335
+    {0x8fcac257558ee4e6, 0x213a4f0aa5e8a7b1},  //  336
+    {0xb3bd72ed2af29e1f, 0xa988e2cd4f62d19d},  //  337
+    {0xe0accfa875af45a7, 0x93eb1b80a33b8605},  //  338
+    {0x8c6c01c9498d8b88, 0xbc72f130660533c3},  //  339
+    {0xaf87023b9bf0ee6a, 0xeb8fad7c7f8680b4},  //  340
+    {0xdb68c2ca82ed2a05, 0xa67398db9f6820e1},  //  341
 };
 
 TEST(pow10_test, verify) {
-  constexpr int dec_exp_min = -292;
+  constexpr int dec_exp_min = -293;
   for (int i = 0; i < int(sizeof(expected) / sizeof(*expected)); ++i) {
     auto actual = static_data.pow10_significands[dec_exp_min + i];
     EXPECT_EQ(actual.hi, expected[i].hi);
