@@ -1241,9 +1241,33 @@ inline auto to_decimal(double value) noexcept -> dec_fp {
 
 namespace detail {
 
-inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
+// Powers of ten indexed by precision, for the overshoot check below.
+constexpr long long pow10s[] = {
+    1,
+    10,
+    100,
+    1'000,
+    10'000,
+    100'000,
+    1'000'000,
+    10'000'000,
+    100'000'000,
+    1'000'000'000,
+    10'000'000'000,
+    100'000'000'000,
+    1'000'000'000'000,
+    10'000'000'000'000,
+    100'000'000'000'000,
+    1'000'000'000'000'000,
+    10'000'000'000'000'000,
+    100'000'000'000'000'000,
+    1'000'000'000'000'000'000,
+};
+
+template <typename Float>
+auto to_decimal(Float value, int precision) noexcept -> dec_fp {
   assert(precision >= 1 && precision <= 18);
-  using traits = float_traits<double>;
+  using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);
   auto bin_sig = traits::get_sig(bits);
@@ -1251,7 +1275,8 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return {int64_t(bin_sig), int(~0u >> 1), negative};
     if (bin_sig == 0) return {0, 0, negative};
-    int shift = clz(bin_sig) - (traits::num_bits - 1 - traits::num_sig_bits);
+    // clz operates on 64 bits, so measure from bit 63 regardless of type.
+    int shift = clz(bin_sig) - (63 - traits::num_sig_bits);
     bin_sig <<= shift;  // Move the leading 1 up to the implicit-bit position.
     bin_exp = 1 - shift;
   }
@@ -1266,13 +1291,13 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   // Multiply by 10**-dec_exp and pack into `scaled`: the precision-digit
   // integer above two guard bits - bit 1 the 1/2 place, bit 0 the sticky bit -
   // so one round-half-to-even step rounds it (idea by Russ Cox).
-  constexpr int shift = traits::num_bits - traits::digits;  // 11
+  constexpr int shift = 64 - traits::digits;  // Left-justify the significand.
   int point_shift = shift - compute_exp_shift(bin_exp, dec_exp);
   uint128 pow10 = static_data.pow10_significands[-dec_exp];
   // Bump inexact powers (dec_exp < -55 or > 0) up to a 128-bit ceiling so they
   // can't mimic an exact tie; the +1 stays in the low word, never carrying.
   uint128 p = umul192_hi128(pow10.hi, pow10.lo + (dec_exp < -55 | dec_exp > 0),
-                            bin_sig << shift);
+                            uint64_t(bin_sig) << shift);
 
   uint64_t integral = p.hi >> point_shift;
   // The ceiling makes the low 64 product bits unreliable, so sticky uses only
@@ -1280,28 +1305,6 @@ inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
   uint64_t half = p.hi >> (point_shift - 1) & 1;
   uint64_t tail = (p.hi & ((uint64_t(1) << (point_shift - 1)) - 1)) | p.lo;
   uint64_t scaled = integral << 2 | half << 1 | (tail != 0);
-
-  static constexpr long long pow10s[] = {
-      1,
-      10,
-      100,
-      1'000,
-      10'000,
-      100'000,
-      1'000'000,
-      10'000'000,
-      100'000'000,
-      1'000'000'000,
-      10'000'000'000,
-      100'000'000'000,
-      1'000'000'000'000,
-      10'000'000'000'000,
-      100'000'000'000'000,
-      1'000'000'000'000'000,
-      10'000'000'000'000'000,
-      100'000'000'000'000'000,
-      1'000'000'000'000'000'000,
-  };
 
   // Round half-to-even off the two guard bits.
   auto round_even = [](uint64_t x) { return (x + 1 + ((x >> 2) & 1)) >> 2; };
@@ -1444,6 +1447,9 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
 template auto write(float value, char* buffer) noexcept -> char*;
 template auto write(double value, char* buffer) noexcept -> char*;
+
+template auto to_decimal(float value, int precision) noexcept -> dec_fp;
+template auto to_decimal(double value, int precision) noexcept -> dec_fp;
 
 }  // namespace detail
 }  // namespace zmij

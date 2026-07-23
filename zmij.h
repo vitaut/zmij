@@ -16,7 +16,9 @@ struct dec_fp;
 namespace detail {
 template <typename Float>
 auto write(Float value, char* buffer) noexcept -> char*;
-auto to_decimal(double value, int precision) noexcept -> dec_fp;
+
+template <typename Float>
+auto to_decimal(Float value, int precision) noexcept -> dec_fp;
 }  // namespace detail
 
 enum {
@@ -40,6 +42,16 @@ auto to_decimal(double value) noexcept -> dec_fp;
 /// significant digits (sig * 10**exp). `precision` must be in [1, 18];
 /// out-of-range values are clamped.
 inline auto to_decimal(double value, int precision) noexcept -> dec_fp {
+  assert(precision >= 1 && precision <= 18);
+  if (precision < 1) precision = 1;
+  if (precision > 18) precision = 18;
+  return detail::to_decimal(value, precision);
+}
+
+/// Converts `value` into a correctly rounded decimal with exactly `precision`
+/// significant digits (sig * 10**exp). `precision` must be in [1, 18];
+/// out-of-range values are clamped.
+inline auto to_decimal(float value, int precision) noexcept -> dec_fp {
   assert(precision >= 1 && precision <= 18);
   if (precision < 1) precision = 1;
   if (precision > 18) precision = 18;

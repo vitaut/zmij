@@ -313,6 +313,16 @@ TEST(dtoa_test, to_decimal_precision) {
   // Large values at low precision reach the low end of the table.
   EXPECT_EQ(to_decimal(1.7976931348623157e308, 1), decimal(2, 308));  // DBL_MAX
   EXPECT_EQ(to_decimal(1.7976931348623157e308, 2), decimal(18, 307));
+
+  // The float overload shares the same machinery via float_traits.
+  EXPECT_EQ(to_decimal(1.5f, 2), decimal(15, -1));
+  EXPECT_EQ(to_decimal(9.99f, 2), decimal(10, 0));         // carry
+  EXPECT_EQ(to_decimal(2.5f, 1), decimal(2, 0));           // round half to even
+  EXPECT_EQ(to_decimal(-1.5f, 2), decimal(15, -1, true));  // sign preserved
+  EXPECT_EQ(to_decimal(std::numeric_limits<float>::denorm_min(), 1),
+            decimal(1, -45));  // FLT_TRUE_MIN, subnormal path
+  EXPECT_EQ(to_decimal(std::numeric_limits<float>::max(), 9),
+            decimal(340282347, 30));  // FLT_MAX
 }
 
 TEST(ftoa_test, fixed_with_zeros) {
