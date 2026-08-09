@@ -1131,13 +1131,13 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
 }
 
 template <int num_bits> struct dec_digits {
-  uint64_t digits;
   // `unshuffled` is the byte-reversed BCD vector used by write_exp_float_simd.
 #if ZMIJ_USE_NEON
   uint8x16_t unshuffled;
 #elif ZMIJ_USE_SSE4_1
   __m128i unshuffled;
 #endif
+  uint64_t digits;
   int num_digits;
 };
 
@@ -1216,7 +1216,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
-  return {bswap64(unshuffled_bcd) + zeros, bcd_xmm, len};
+  return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
 #elif ZMIJ_USE_NEON
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
   // the exponential-notation path uses it to skip the simd->gpr->bswap->simd
@@ -1228,7 +1228,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   uint64_t unshuffled_bcd =
       vget_lane_u64(vreinterpret_u64_u8(vget_low_u8(unshuffled)), 0);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
-  return {bswap64(unshuffled_bcd) + zeros, unshuffled, len};
+  return {unshuffled, bswap64(unshuffled_bcd) + zeros, len};
 #else
   auto result = to_bcd8(value);
   return {result.bcd + zeros, result.len};
