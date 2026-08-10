@@ -107,10 +107,13 @@ def floor_sum(n: int, m: int, a: int, b: int) -> int:
 
 def count_mod_mul_solutions(num: int, mod: int,
                             x_min: int, x_max: int,
-                            y_min: int, y_max: int) -> int:
+                            y_min: int, y_max: int,
+                            add: int = 0) -> int:
     """
-    Count the x in [x_min, x_max] for which (num * x) % mod lies in
-    [y_min, y_max].
+    Count the x in [x_min, x_max] for which (num * x + add) % mod lies in
+    [y_min, y_max]. The optional `add` shifts the arithmetic progression, so an
+    affine map is counted in one floor_sum pass; `add == 0` (the default) is the
+    plain multiplicative case.
 
     Handles every case (non-coprime num/mod, degenerate intervals,
     x_max >= mod, ...) without special-casing, and always returns a valid
@@ -121,7 +124,7 @@ def count_mod_mul_solutions(num: int, mod: int,
     assert 0 <= y_min <= y_max
 
     n = x_max - x_min + 1
-    b = num * x_min
+    b = num * x_min + add
 
     hi = min(y_max, mod - 1)
     if y_min > hi:

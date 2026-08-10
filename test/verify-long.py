@@ -102,9 +102,6 @@ For performance, the algorithm packs the last decimal digit of `integral` (top
 4 bits) with the high 124 bits of `fractional` into a single 128-bit integer
 compared against 0.5ulp. Dropping `fractional`'s low 4 bits costs a little
 precision, so the boundary conditions above need extra care.
-
-to_decimal (the Żmij port) and to_decimal_exact (the Fraction reference)
-are kept for investigating any flagged case.
 """
 
 from dataclasses import dataclass
@@ -134,8 +131,8 @@ class Format:
         exp_offset = (1 << (self.exp_bits - 1)) - 1 + sig_bits
         self.sig_min = 1 << sig_bits              # smallest normal significand
         self.sig_max = (1 << self.digits) - 1
-        self.min_e2 = 1 - exp_offset              # min unbiased exponent
-        self.max_e2 = (1 << self.exp_bits) - 2 - exp_offset
+        self.bin_exp_min = 1 - exp_offset         # min unbiased exponent
+        self.bin_exp_max = (1 << self.exp_bits) - 2 - exp_offset
 
 
 BINARY80 = Format("x87 80-bit", digits=64, exp_bits=15)
@@ -242,7 +239,7 @@ def to_decimal_exact(bin_sig: int, bin_exp: int, fmt: Format
         succ = Fraction(bin_sig + 1) * two ** bin_exp
     else:
         succ = Fraction(fmt.sig_min) * two ** (bin_exp + 1)
-    if bin_sig == fmt.sig_min and bin_exp > fmt.min_e2:
+    if bin_sig == fmt.sig_min and bin_exp > fmt.bin_exp_min:
         pred = Fraction(fmt.sig_max) * two ** (bin_exp - 1)
     else:
         pred = Fraction(bin_sig - 1) * two ** bin_exp
@@ -285,26 +282,41 @@ def to_decimal_exact(bin_sig: int, bin_exp: int, fmt: Format
 # retargeted to the extended-precision formats, and using floor_sum instead of
 # continued fractions and the three-gap theorem.
 #
-# One search per rounding boundary. Each counts the near-boundary residues, the
-# R = (bin_sig * pow10) mod 2**shift the algorithm reads as a tie, using
-# floor_sum via count_mod_mul_solutions.
+# One search per rounding boundary. Each counts the near-boundary residues (A),
+# the R = (bin_sig * pow10) mod 2**shift the algorithm reads as a tie, using
+# floor_sum via count_mod_mul_solutions. For the two trim boundaries we also
+# count the exact ties (B, exact_tie_progression) and the intersection A & B
+# (intersection_count); asserting |A| == |B| == |A & B| proves A == B, so every
+# significand the algorithm trims is a genuine tie and vice versa. Equal
+# cardinality alone would not: the sets can differ yet still match in size.
+# The round-to-nearest search has no closed-form count and instead oracle-checks
+# each candidate.
 
 
-def half_ulp_solution_count(bin_exp: int, dec_exp: int, sig_min: int,
-                            sig_max: int, sign: int) -> int:
+def exact_tie_progression(bin_exp: int, dec_exp: int, sig_min: int,
+                          sig_max: int, sign: int) -> Tuple[int, int, int]:
     """
-    Number of significands in [sig_min, sig_max] whose boundary
-    v + sign * half_ulp lands exactly on a multiple of 10**(dec_exp + 1), the
-    grid a trim rounds to. Nonzero only for dec_exp > 0: smaller values are
-    dyadic fractions (denominator a power of two) that can never sit exactly on
-    such a multiple.
+    Significands in [sig_min, sig_max] whose boundary v + sign * half_ulp lands
+    exactly on a multiple of 10**(dec_exp + 1), the grid a trim rounds to.
+
+    The boundary is 2**(bin_exp - 1) * (2 * sig + sign) (v = sig * 2**bin_exp,
+    half_ulp = 2**(bin_exp - 1)). 2 * sig + sign is odd, so it holds no factors
+    of two, and landing on a multiple of 10**(dec_exp + 1) = 2**(dec_exp + 1) *
+    5**(dec_exp + 1) first needs bin_exp >= dec_exp + 2 to supply the twos. The
+    surviving power of two is then a unit mod 5**(dec_exp + 1), so the condition
+    reduces to 2 * sig + sign == 0 (mod 5**(dec_exp + 1)): one residue class
+    sig == first (mod period), period = 5**(dec_exp + 1). Return (first, period,
+    count) with `first` the smallest solution >= sig_min, or (0, 0, 0) if none.
     """
-    if dec_exp <= 0:
-        return 0
-    ulp = 1 << bin_exp                 # bin_exp > 0 whenever dec_exp > 0
-    dec_den = 10 ** (dec_exp + 1)      # == 10 ** len(str(ulp))
-    r = (sign * (ulp >> 1)) % dec_den  # v + sign * half_ulp on a multiple of 10
-    return count_mod_mul_solutions(ulp, dec_den, sig_min, sig_max, r, r)
+    if bin_exp < dec_exp + 2:          # boundary lacks the twos to hit the grid
+        return 0, 0, 0
+    period = 5 ** max(dec_exp + 1, 0)  # 5-adic part of grid, 1 if dec_exp < 0
+    # 2 is invertible mod the odd period, with inverse (period + 1) // 2.
+    x0 = (-sign * ((period + 1) // 2)) % period
+    first = x0 + -(-(sig_min - x0) // period) * period  # first >= sig_min
+    if first > sig_max:
+        return 0, 0, 0
+    return first, period, (sig_max - first) // period + 1
 
 
 class Params:
@@ -323,12 +335,14 @@ class Params:
                       and (5 ** -self.dec_exp).bit_length() <= POW10_BITS)
 
 
-def find_edge_case_1(p: Params, sig_min: int, sig_max: int,
+def find_edge_case_1(p: Params, sig_min: int, sig_max: int, fmt: Format,
                      found: Set[Tuple[int, int]]) -> None:
     """
-    Round to nearest: report significands whose fractional part lands within
+    Round to nearest: check significands whose fractional part lands within
     one LSB of the 1/2 tie (fractional == 2**127), where the floored pow10
     could push the true value across it. Exact pow10 adds no error, so skip it.
+    Unlike the trim ties there is no closed-form count, so each candidate is
+    compared against the exact oracle and any misround is recorded in `found`.
     """
     if p.exact:
         return
@@ -340,7 +354,9 @@ def find_edge_case_1(p: Params, sig_min: int, sig_max: int,
         return
     for bin_sig, _ in enumerate_mod_mul_solutions(p.pow10, den, sig_min,
                                                   sig_max, lo, hi):
-        found.add((p.bin_exp, bin_sig))
+        if to_decimal(bin_sig, p.bin_exp, fmt) != \
+                to_decimal_exact(bin_sig, p.bin_exp, fmt):
+            found.add((p.bin_exp, bin_sig))
 
 
 def trim_band(p: Params, c: int) -> Tuple[int, int, int]:
@@ -355,6 +371,28 @@ def trim_band(p: Params, c: int) -> Tuple[int, int, int]:
     return 10 << p.shift, base, base + lsb - 1
 
 
+def assert_trim(p: Params, sig_min: int, sig_max: int, c: int, sign: int,
+                label: str) -> None:
+    """
+    Assert the algorithm's tie set A (near-boundary residues c reads as a tie)
+    equals the exact tie set B (boundaries on the decimal grid). We check
+    |A| == |B| == |A & B|: since A & B is contained in both, equal counts force
+    A & B == A == B, so no false ties (misrounds) and no missed ties.
+    """
+    den, lo, hi = trim_band(p, c)
+    approx = count_mod_mul_solutions(p.pow10, den, sig_min, sig_max, lo, hi)
+    first, period, exact = exact_tie_progression(p.bin_exp, p.dec_exp,
+                                                 sig_min, sig_max, sign)
+    # Ties along first, first + period, ... that also fall in the trim band,
+    # walked with count_mod_mul_solutions' affine `add` so it stays O(log) even
+    # when there are astronomically many ties.
+    both = 0 if exact == 0 else count_mod_mul_solutions(
+        p.pow10 * period, den, 0, exact - 1, lo, hi, add=p.pow10 * first)
+    assert approx == exact == both, \
+        f"{label} bin_exp={p.bin_exp} dec_exp={p.dec_exp} " \
+        f"approx={approx} exact={exact} both={both}"
+
+
 def find_edge_case_2(p: Params, sig_min: int, sig_max: int) -> None:
     """
     Trim up to a multiple of 10: v + half_ulp on that multiple.
@@ -362,52 +400,48 @@ def find_edge_case_2(p: Params, sig_min: int, sig_max: int) -> None:
     Flooring pow10 (hence also half_ulp) can only lower the algorithm's c, so a
     genuine tie is expected one LSB below the true threshold ten - half_ulp, at
     gap == 1, the position the even override treats as the tie. We search at
-    c == ten - half_ulp - 1, and the count assertion below confirms it.
+    c == ten - half_ulp - 1, and the set-equality assertion confirms it.
     """
     if p.exact:
         return
-    den, lo, hi = trim_band(p, (10 << 124) - p.half_ulp - 1)
-    count = count_mod_mul_solutions(p.pow10, den, sig_min, sig_max, lo, hi)
-    assert count == half_ulp_solution_count(p.bin_exp, p.dec_exp, sig_min,
-                                            sig_max, +1), \
-        f"trim_up bin_exp={p.bin_exp} dec_exp={p.dec_exp} count={count}"
+    assert_trim(p, sig_min, sig_max, (10 << 124) - p.half_ulp - 1, +1,
+                "trim_up")
 
 
 def find_edge_case_3(p: Params, sig_min: int, sig_max: int) -> None:
     """Trim down to a multiple of 10: v - half_ulp on that multiple."""
     if p.exact:
         return
-    den, lo, hi = trim_band(p, p.half_ulp)                 # c == half_ulp
-    count = count_mod_mul_solutions(p.pow10, den, sig_min, sig_max, lo, hi)
-    assert count == half_ulp_solution_count(p.bin_exp, p.dec_exp, sig_min,
-                                            sig_max, -1), \
-        f"trim_down bin_exp={p.bin_exp} dec_exp={p.dec_exp} count={count}"
+    assert_trim(p, sig_min, sig_max, p.half_ulp, -1, "trim_down")  # c==half_ulp
 
 
 def find_edge_cases(fmt: Format) -> None:
     """Run the three edge-case searches over every binary exponent."""
+    if not __debug__:
+        raise RuntimeError("run this verifier without -O; the trim-tie set "
+                           "equality checks rely on proof-critical assertions")
     print(f"{fmt.name} edge-case sweep ... ", end="", flush=True)
     found: Set[Tuple[int, int]] = set()
-    for bin_exp in range(fmt.min_e2, fmt.max_e2 + 1):
+    for bin_exp in range(fmt.bin_exp_min, fmt.bin_exp_max + 1):
         p = Params(bin_exp)
         # Regular significands (the power of two at sig_min is irregular and
-        # not covered here); subnormals share min_e2 and use the regular path.
+        # not covered here); subnormals share bin_exp_min, use the regular path.
         ranges = [(fmt.sig_min + 1, fmt.sig_max)]
-        if bin_exp == fmt.min_e2:
+        if bin_exp == fmt.bin_exp_min:
             ranges.append((1, fmt.sig_min - 1))
         for sig_min, sig_max in ranges:
-            find_edge_case_1(p, sig_min, sig_max, found)
+            find_edge_case_1(p, sig_min, sig_max, fmt, found)
             find_edge_case_2(p, sig_min, sig_max)
             find_edge_case_3(p, sig_min, sig_max)
 
     print("ok")
     if found:
-        print(f"  {len(found)} round-to-nearest near-tie candidate(s) to "
-              f"inspect:")
+        print(f"  {len(found)} round-to-nearest misround(s):")
         for bin_exp, bin_sig in sorted(found):
             print(f"    bin_sig=0x{bin_sig:X} bin_exp={bin_exp}: "
                   f"actual={to_decimal(bin_sig, bin_exp, fmt)} "
                   f"expected={to_decimal_exact(bin_sig, bin_exp, fmt)}")
+    assert not found, f"{fmt.name}: {len(found)} round-to-nearest misround(s)"
 
 
 if __name__ == "__main__":

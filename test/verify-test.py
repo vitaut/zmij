@@ -34,14 +34,15 @@ exact_fractional = verify_zmij.exact_fractional
 
 def count_mod_mul_solutions_naive(p: int, q: int,
                                   x_min: int, x_max: int,
-                                  y_min: int, y_max: int) -> int:
+                                  y_min: int, y_max: int,
+                                  add: int = 0) -> int:
     """Naive reference for `count_mod_mul_solutions`."""
     assert 0 < p and 0 < q
     assert 0 <= x_min <= x_max
     assert 0 <= y_min <= y_max
     x_count = 0
     for x in range(x_min, x_max + 1):
-        y = p * x % q
+        y = (p * x + add) % q
         if y_min <= y <= y_max:
             x_count += 1
     return x_count
@@ -61,6 +62,61 @@ def test_count_mod_mul_solutions() -> None:
                             naive = count_mod_mul_solutions_naive(*args)
                             assert fast == naive, (*args, fast, naive)
     print("ok")
+
+
+def test_count_affine() -> None:
+    """
+    Validate the optional affine `add` against the naive reference, sweeping
+    `add` past `mod` to exercise the (num * x + add) % mod wraparound.
+    """
+    print("count affine ... ", end="", flush=True)
+    for mod in range(1, 13):
+        for num in range(1, 13):
+            for add in (0, 1, 5, mod, 2 * mod + 3):
+                for x_min in range(0, 5):
+                    for x_max in range(x_min, x_min + 5):
+                        for y_min in range(0, mod + 2):
+                            for y_max in range(y_min, mod + 2):
+                                args = (num, mod, x_min, x_max, y_min, y_max)
+                                fast = count_mod_mul_solutions(*args, add=add)
+                                naive = count_mod_mul_solutions_naive(*args,
+                                                                      add=add)
+                                assert fast == naive, (*args, add, fast, naive)
+    print("ok")
+
+
+def test_count_affine_shift(trials: int = 10000) -> None:
+    """
+    Large-scale oracle: adding `add` shifts every residue num*x by (add % mod)
+    on the ring, so the affine count over [y_min, y_max] equals the plain count
+    over the back-shifted band, wrapping into two pieces when it crosses 0.
+    """
+    print("count affine shift ... ", end="", flush=True)
+    rng = random.Random(5)
+    for _ in range(trials):
+        mod = rng.randint(1, 1 << 60)
+        num = rng.randint(1, 1 << 60)
+        add = rng.randint(0, 1 << 62)
+        x_min = rng.randint(0, 1 << 50)
+        x_max = x_min + rng.randint(0, 1 << 40)
+        y_min = rng.randint(0, mod - 1)
+        y_max = rng.randint(y_min, mod - 1)
+        got = count_mod_mul_solutions(num, mod, x_min, x_max,
+                                      y_min, y_max, add=add)
+        s = add % mod
+        lo, hi = y_min - s, y_max - s     # back-shift the target band by s
+        if lo >= 0:                       # band stays within [0, mod)
+            want = count_mod_mul_solutions(num, mod, x_min, x_max, lo, hi)
+        elif hi < 0:                      # whole band shifted below 0, one piece
+            want = count_mod_mul_solutions(num, mod, x_min, x_max,
+                                           lo + mod, hi + mod)
+        else:                             # straddles 0: split at the seam
+            want = (count_mod_mul_solutions(num, mod, x_min, x_max,
+                                            lo + mod, mod - 1)
+                    + count_mod_mul_solutions(num, mod, x_min, x_max, 0, hi))
+        assert got == want, (num, mod, add, x_min, x_max, y_min, y_max,
+                             got, want)
+    print(f"ok ({trials:,} trials)")
 
 
 def test_count_full_period(trials: int = 10000) -> None:
@@ -191,6 +247,8 @@ def test_sample(samples: int = 100000) -> None:
 
 if __name__ == "__main__":
     test_count_mod_mul_solutions()
+    test_count_affine()
+    test_count_affine_shift()
     test_count_full_period()
     test_count_metamorphic()
     test_enumerate_mod_mul_solutions()
