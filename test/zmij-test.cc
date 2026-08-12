@@ -717,14 +717,14 @@ TEST(long_double_test, to_chars) {
         << "value=" << double(value);
   }
 
-#  if LDBL_MANT_DIG != DBL_MANT_DIG
-  // An extended value drives write_big (shortest) rather than the double path.
-  long double extended = 1.0L + 0x1p-63L;
-  auto r = zmij::to_chars(buf, buf + sizeof(buf), extended);
-  char* end = zmij::write(ref, sizeof(ref), extended);
-  EXPECT_EQ(r.ec, std::errc());
-  EXPECT_EQ(std::string(buf, r.ptr), std::string(ref, end));
-#  endif
+  if (LDBL_MANT_DIG != DBL_MANT_DIG) {
+    // An extended value drives write_big (shortest) not the double path.
+    long double extended = 1.0L + 0x1p-63L;
+    auto r = zmij::to_chars(buf, buf + sizeof(buf), extended);
+    char* end = zmij::write(ref, sizeof(ref), extended);
+    EXPECT_EQ(r.ec, std::errc());
+    EXPECT_EQ(std::string(buf, r.ptr), std::string(ref, end));
+  }
 
   // Too small: truncated output, ptr == last, value_too_large.
   char small[3] = {'?', '?', '?'};
@@ -771,7 +771,6 @@ TEST(long_double_test, to_chars_format) {
   EXPECT_EQ(std::string(small, sizeof(small)), "1.500");
 }
 
-#  if LDBL_MANT_DIG != DBL_MANT_DIG
 // Number of significant decimal digits in a shortest-formatted string.
 static int count_sig_digits(const std::string& s) {
   size_t e = s.find_first_of("eE");
@@ -791,6 +790,8 @@ static int count_sig_digits(const std::string& s) {
 // as double, so it drives write_big (shortest) rather than the double fast
 // path.
 TEST(long_double_test, write_shortest) {
+  if (LDBL_MANT_DIG == DBL_MANT_DIG)
+    GTEST_SKIP() << "long double is double; no extended path";
   auto check = [](long double value) {
     char buf[zmij::long_double_buffer_size + 1];
     memset(buf, '?', sizeof(buf));
@@ -845,8 +846,19 @@ TEST(long_double_test, write_shortest) {
     if (value == 0 || std::isinf(value)) continue;
     check((next() & 1) ? value : -value);
   }
+
+  // Regression (binary128): for this value v - half_ulp lands one nibble past
+  // the trim boundary, yet the packed 124-bit comparison read c == half_ulp as
+  // a tie and trimmed to even, dropping the last digit. The refined tie-break
+  // keeps it. bin_sig = 0x00012caaef34c608080750fd906c8100, exponent -2266.
+  if (LDBL_MANT_DIG == 113) {
+    long double misround = long_double(0x00012caaef34c608ull) * 0x1p64L +
+                           long_double(0x080750fd906c8100ull);
+    misround = std::ldexp(misround, -2266);
+    check(misround);
+    check(-misround);
+  }
 }
-#  endif  // LDBL_MANT_DIG != DBL_MANT_DIG
 
 TEST(float_test, write_general) {
   EXPECT_EQ(to_general(1.5f, 6), "1.5");
@@ -900,6 +912,59 @@ TEST(double_test, write_general_irregular) {
           << "value=" << value << " precision=" << precision;
     }
   }
+}
+
+template <typename Float> static auto to_hex(Float value) -> std::string {
+  char buffer[zmij::buffer_sizes<Float>::hex];
+  return {buffer, zmij::write_hex(buffer, sizeof(buffer), value)};
+}
+
+TEST(float_test, write_hex) {
+  EXPECT_EQ(to_hex(1.0f), "0x1p+0");
+  EXPECT_EQ(to_hex(-3.5f), "-0x1.cp+1");
+  EXPECT_EQ(to_hex(0.1f), "0x1.99999ap-4");
+  EXPECT_EQ(to_hex(0.0f), "0x0p+0");
+  EXPECT_EQ(to_hex(-0.0f), "-0x0p+0");
+  EXPECT_EQ(to_hex(std::numeric_limits<float>::infinity()), "inf");
+  EXPECT_EQ(to_hex(std::numeric_limits<float>::quiet_NaN()), "nan");
+}
+
+TEST(double_test, write_hex) {
+  EXPECT_EQ(to_hex(1.0), "0x1p+0");
+  EXPECT_EQ(to_hex(2.0), "0x1p+1");
+  EXPECT_EQ(to_hex(0.5), "0x1p-1");
+  EXPECT_EQ(to_hex(-1.5), "-0x1.8p+0");
+  EXPECT_EQ(to_hex(0.0), "0x0p+0");
+  EXPECT_EQ(to_hex(-0.0), "-0x0p+0");
+  // Shortest form: trailing zero nibbles are dropped.
+  EXPECT_EQ(to_hex(3.14159265358979), "0x1.921fb54442d11p+1");
+  // Subnormals are normalized to a leading 0x1, matching printf's %a.
+  EXPECT_EQ(to_hex(std::numeric_limits<double>::denorm_min()), "0x1p-1074");
+  EXPECT_EQ(to_hex(std::numeric_limits<double>::min() -
+                   std::numeric_limits<double>::denorm_min()),
+            "0x1.ffffffffffffep-1023");
+  EXPECT_EQ(to_hex(std::numeric_limits<double>::infinity()), "inf");
+  EXPECT_EQ(to_hex(std::numeric_limits<double>::quiet_NaN()), "nan");
+}
+
+TEST(double_test, write_hex_no_buffer) {
+  // "-0x1.8p+0" truncated to the first 4 chars, end points past them.
+  char buf[4];
+  char* end = zmij::write_hex(buf, sizeof(buf), -1.5);
+  EXPECT_EQ(std::string(buf, end), "-0x1");
+}
+
+// Double-exact values so the expected output is the same whether long double
+// is x87 80-bit, IEEE binary128, or plain double. This is not compared against
+// snprintf's %La: glibc's 80-bit %La uses a non-leading-1 form (e.g. "0xcp-3"
+// for 1.5), whereas write_hex always normalizes to a leading 0x1.
+TEST(long_double_test, write_hex) {
+  EXPECT_EQ(to_hex(1.5L), "0x1.8p+0");
+  EXPECT_EQ(to_hex(-2.0L), "-0x1p+1");
+  EXPECT_EQ(to_hex(0.5L), "0x1p-1");
+  EXPECT_EQ(to_hex(0.0L), "0x0p+0");
+  EXPECT_EQ(to_hex(1024.0L), "0x1p+10");
+  EXPECT_EQ(to_hex(3.25L), "0x1.ap+1");
 }
 
 #endif  // !ZMIJ_C

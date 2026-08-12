@@ -72,6 +72,11 @@ auto write_general(Float value, int precision, char* buffer) noexcept -> char*;
 template <typename Float>
 auto write_fixed(Float value, int precision, char* buffer) noexcept -> char*;
 
+// Writes `value` in hexadecimal floating-point notation (like printf's %a) in
+// its shortest form, e.g. -0x1.8p+1.
+template <typename Float>
+auto write_hex(Float value, char* buffer) noexcept -> char*;
+
 }  // namespace detail
 
 enum {
@@ -100,20 +105,22 @@ enum {
 };
 
 /// Buffer sizes for the write* functions, usable in generic code as
-/// buffer_sizes<Float>::shortest, ::scientific, and ::fixed. `scientific`
-/// assumes precision up to 17 and `fixed` up to 18; long double sets its own
-/// bounds below. Larger precision must be sized by the caller.
+/// buffer_sizes<Float>::shortest, ::scientific, ::fixed, and ::hex.
+/// `scientific` assumes precision up to 17 and `fixed` up to 18; long double
+/// sets its own bounds below. Larger precision must be sized by the caller.
 template <typename Float> struct buffer_sizes;
 
 template <> struct buffer_sizes<float> {
   static constexpr size_t shortest = float_buffer_size;  // write
   static constexpr size_t scientific = 24;  // write_scientific (and general)
   static constexpr size_t fixed = 59;       // write_fixed
+  static constexpr size_t hex = 16;         // write_hex
 };
 template <> struct buffer_sizes<double> {
   static constexpr size_t shortest = double_buffer_size;  // write
   static constexpr size_t scientific = 25;  // write_scientific (and general)
   static constexpr size_t fixed = 329;      // write_fixed
+  static constexpr size_t hex = 24;         // write_hex
 };
 // long double: `scientific` is sized to round-trip: precision 35 (scientific)
 // or 36 (general). `fixed` is omitted as it would need an impractical buffer,
@@ -121,6 +128,8 @@ template <> struct buffer_sizes<double> {
 template <> struct buffer_sizes<long double> {
   static constexpr size_t shortest = long_double_buffer_size;  // write
   static constexpr size_t scientific = 44;  // write_scientific (and general)
+  // Worst case is IEEE binary128: 1 sign + "0x1." + 28 digits + "p+16383".
+  static constexpr size_t hex = 40;  // write_hex
 };
 
 /// Writes the shortest correctly rounded decimal representation of `value` to
@@ -353,6 +362,50 @@ inline auto write_fixed(char* out, size_t n, long double value,
   if (precision < 0) precision = 6;
   auto size = detail::write_big(value, precision, out, n, format::fixed);
   return size != 0 ? detail::clamp_end(out, size, n) : nullptr;
+}
+
+auto write_hex(char* out, size_t n, double value) noexcept -> char*;
+
+/// Writes `value` in hexadecimal floating-point notation (like printf's %a) in
+/// its shortest form (e.g. -0x1.8p+1) to `out`, without a null terminator.
+///
+/// Returns a pointer past the last character written; if the representation
+/// exceeds `n` characters, only the first `n` are written.
+inline auto write_hex(char* out, size_t n, float value) noexcept -> char* {
+  return write_hex(out, n, double(value));
+}
+
+/// Writes `value` in hexadecimal floating-point notation (like printf's %a) in
+/// its shortest form (e.g. -0x1.8p+1) to `out`, without a null terminator.
+///
+/// Returns a pointer past the last character written; if the representation
+/// exceeds `n` characters, only the first `n` are written.
+inline auto write_hex(char* out, size_t n, double value) noexcept -> char* {
+  if (n >= buffer_sizes<double>::hex) return detail::write_hex(value, out);
+  char buffer[buffer_sizes<double>::hex];
+  size_t size = detail::write_hex(value, buffer) - buffer;
+  if (size > n) size = n;
+  memcpy(out, buffer, size);
+  return out + size;
+}
+
+/// Writes `value` in hexadecimal floating-point notation (like printf's %a) in
+/// its shortest form (e.g. -0x1.8p+1) to `out`, without a null terminator.
+///
+/// Returns a pointer past the last character written; if the representation
+/// exceeds `n` characters, only the first `n` are written.
+inline auto write_hex(char* out, size_t n, long double value) noexcept
+    -> char* {
+#if LDBL_MANT_DIG == DBL_MANT_DIG
+  return write_hex(out, n, double(value));
+#else
+  if (n >= buffer_sizes<long double>::hex) return detail::write_hex(value, out);
+  char buffer[buffer_sizes<long double>::hex];
+  size_t size = detail::write_hex(value, buffer) - buffer;
+  if (size > n) size = n;
+  memcpy(out, buffer, size);
+  return out + size;
+#endif
 }
 
 }  // namespace zmij

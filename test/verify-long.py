@@ -185,7 +185,11 @@ def to_decimal(bin_sig: int, bin_exp: int, fmt: Format) -> Tuple[int, int]:
             round_up = (integral & 1) != 0
         trim_down = c <= half_ulp
         if c == half_ulp:
-            trim_down = even
+            # A 124-bit tie: c == half_ulp fixes the high bits, so the low 64
+            # bits (pow10 one nibble finer) refine it, to even on an exact match.
+            frac_lo = fractional & ((1 << 64) - 1)
+            ulp_lo = (pow10 >> (shift - 127)) & ((1 << 64) - 1)
+            trim_down = even if frac_lo == ulp_lo else frac_lo < ulp_lo
     else:
         round_up = fractional > half
         quarter_ulp = half_ulp >> 1
@@ -338,11 +342,12 @@ class Params:
 def find_edge_case_1(p: Params, sig_min: int, sig_max: int, fmt: Format,
                      found: Set[Tuple[int, int]]) -> None:
     """
-    Round to nearest: check significands whose fractional part lands within
-    one LSB of the 1/2 tie (fractional == 2**127), where the floored pow10
-    could push the true value across it. Exact pow10 adds no error, so skip it.
-    Unlike the trim ties there is no closed-form count, so each candidate is
-    compared against the exact oracle and any misround is recorded in `found`.
+    Round to nearest (boundary condition 1): check significands whose
+    fractional part lands within one LSB of the 1/2 tie (fractional == 2**127),
+    where the floored pow10 could push the true value across it. Exact pow10
+    adds no error, so skip it. Unlike the trim ties there is no closed-form
+    count, so each candidate is compared against the exact oracle and any
+    misround is recorded in `found`.
     """
     if p.exact:
         return
@@ -359,27 +364,34 @@ def find_edge_case_1(p: Params, sig_min: int, sig_max: int, fmt: Format,
             found.add((p.bin_exp, bin_sig))
 
 
-def trim_band(p: Params, c: int) -> Tuple[int, int, int]:
+def trim_band(p: Params, c: int, bits: int = 124) -> Tuple[int, int, int]:
     """
     Residue window (mod 10 * 2**shift) and modulus covering the one LSB the
-    algorithm reads as this c. c = last_digit * 2**124 | fractional >> 4;
-    encoding res = last_digit * 2**shift + R (R = product mod 2**shift) pins
-    the last digit while R ranges over one LSB.
+    algorithm reads as this c. c = last_digit * 2**bits | fractional >> (128 -
+    bits); encoding res = last_digit * 2**shift + R (R = product mod 2**shift)
+    pins the last digit while R ranges over one LSB.
+
+    `bits` is how many of `fractional`'s high bits `c` retains: 124 for the
+    packed 124-bit comparison, 128 for the full-precision refinement, which
+    narrows the window to a single `fractional` unit.
     """
-    lsb = 1 << (p.shift - 124)
-    base = (c >> 124) * (1 << p.shift) + (c & ((1 << 124) - 1)) * lsb
+    lsb = 1 << (p.shift - bits)
+    base = (c >> bits) * (1 << p.shift) + (c & ((1 << bits) - 1)) * lsb
     return 10 << p.shift, base, base + lsb - 1
 
 
 def assert_trim(p: Params, sig_min: int, sig_max: int, c: int, sign: int,
-                label: str) -> None:
+                label: str, bits: int = 124) -> None:
     """
     Assert the algorithm's tie set A (near-boundary residues c reads as a tie)
     equals the exact tie set B (boundaries on the decimal grid). We check
     |A| == |B| == |A & B|: since A & B is contained in both, equal counts force
     A & B == A == B, so no false ties (misrounds) and no missed ties.
+
+    `bits` selects the comparison precision (see trim_band): 124 for the packed
+    comparison, 128 for the full-precision refinement.
     """
-    den, lo, hi = trim_band(p, c)
+    den, lo, hi = trim_band(p, c, bits)
     approx = count_mod_mul_solutions(p.pow10, den, sig_min, sig_max, lo, hi)
     first, period, exact = exact_tie_progression(p.bin_exp, p.dec_exp,
                                                  sig_min, sig_max, sign)
@@ -395,7 +407,24 @@ def assert_trim(p: Params, sig_min: int, sig_max: int, c: int, sign: int,
 
 def find_edge_case_2(p: Params, sig_min: int, sig_max: int) -> None:
     """
-    Trim up to a multiple of 10: v + half_ulp on that multiple.
+    Trim down to a multiple of 10 (boundary condition 2): v - half_ulp on that
+    multiple.
+
+    c == half_ulp is a 124-bit tie the algorithm refines with fractional's 4
+    dropped bits, so the true tie is the full 128-bit equality c_fine ==
+    (pow10 >> shift - 127), where c_fine = last_digit << 128 | fractional. We
+    search that 128-bit boundary and the set-equality assertion confirms it.
+    """
+    if p.exact:
+        return
+    boundary = p.pow10 >> (p.shift - 127)
+    assert_trim(p, sig_min, sig_max, boundary, -1, "trim_down", bits=128)
+
+
+def find_edge_case_3(p: Params, sig_min: int, sig_max: int) -> None:
+    """
+    Trim up to a multiple of 10 (boundary condition 3): v + half_ulp on that
+    multiple.
 
     Flooring pow10 (hence also half_ulp) can only lower the algorithm's c, so a
     genuine tie is expected one LSB below the true threshold ten - half_ulp, at
@@ -406,13 +435,6 @@ def find_edge_case_2(p: Params, sig_min: int, sig_max: int) -> None:
         return
     assert_trim(p, sig_min, sig_max, (10 << 124) - p.half_ulp - 1, +1,
                 "trim_up")
-
-
-def find_edge_case_3(p: Params, sig_min: int, sig_max: int) -> None:
-    """Trim down to a multiple of 10: v - half_ulp on that multiple."""
-    if p.exact:
-        return
-    assert_trim(p, sig_min, sig_max, p.half_ulp, -1, "trim_down")  # c==half_ulp
 
 
 def find_edge_cases(fmt: Format) -> None:

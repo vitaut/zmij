@@ -114,16 +114,6 @@ taking the best of 3 runs.
 * Rust: https://github.com/dtolnay/zmij
 * Zig: https://github.com/de-sh/zmij
 
-## Differences from Schubfach
-
-* 1 instead of 3 multiplications by a power of 10
-* Faster logarithm approximations
-* Faster division and modulo
-* Fewer conditional branches
-* More efficient significand and exponent output
-* Improved storage of powers of 10
-* SIMD support
-
 ## Name
 
 Żmij (pronounced roughly zhmeey or more precisely /ʐmij/) is a Polish word that

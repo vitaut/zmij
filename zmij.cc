@@ -2023,7 +2023,12 @@ auto write_big(Float value, char* out, size_t n) noexcept -> size_t {
     round_up = fractional >= half;
     if (fractional == half) round_up = (uint64_t(integral) & 1) != 0;
     trim_down = c <= half_ulp;
-    if (c == half_ulp) trim_down = even;
+    if (c == half_ulp) {
+      // 124-bit tie: low 64 bits break it, to even on an exact match.
+      uint64_t frac_lo = uint64_t(fractional), ulp_lo;
+      pow10::extract(p10_sig, pow10::result_limbs, shift - 127, &ulp_lo, 1);
+      trim_down = frac_lo == ulp_lo ? even : frac_lo < ulp_lo;
+    }
   } else {
     round_up = fractional > half;
     uint128_t quarter_ulp = half_ulp >> 1;
@@ -2269,6 +2274,56 @@ auto write_fixed(Float value, int precision, char* buffer) noexcept -> char* {
   return buffer + total + 1;
 }
 
+template <typename Float>
+auto write_hex(Float value, char* buffer) noexcept -> char* {
+  using traits = float_traits<Float>;
+  auto bits = traits::to_bits(value);
+  auto bin_exp = traits::get_exp(bits);
+  auto bin_sig = traits::get_sig(bits);
+
+  *buffer = '-';
+  buffer += traits::is_negative(bits);
+
+  bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
+  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+    if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
+    if (bin_sig == 0) {  // zero: leading 0, exponent cancels to 0 below
+      bin_exp = traits::exp_bias;
+    } else {  // subnormal: normalize to a leading 1, matching printf's %a
+      normalize<Float>(bin_sig, bin_exp);
+      bin_sig = bin_sig ^ traits::implicit_bit;
+      is_normal = true;
+    }
+  }
+  bin_exp -= traits::exp_bias;
+
+  *buffer++ = '0';
+  *buffer++ = 'x';
+  *buffer++ = char('0' + is_normal);
+
+  constexpr int width = int(sizeof(bin_sig)) * 8;
+  bin_sig = bin_sig << (width - traits::num_sig_bits);
+  if (bin_sig != 0) {
+    *buffer++ = '.';
+    do {
+      *buffer++ = "0123456789abcdef"[uint64_t(bin_sig >> (width - 4))];
+      bin_sig = bin_sig << 4;
+    } while (bin_sig != 0);
+  }
+
+  *buffer++ = 'p';
+  *buffer++ = bin_exp < 0 ? '-' : '+';
+  unsigned exp = bin_exp < 0 ? unsigned(-bin_exp) : unsigned(bin_exp);
+  char tmp[8];
+  char* t = tmp;
+  do {
+    *t++ = char('0' + exp % 10);
+    exp /= 10;
+  } while (exp != 0);
+  while (t != tmp) *buffer++ = *--t;
+  return buffer;
+}
+
 template auto write(float value, char* buffer) noexcept -> char*;
 template auto write(double value, char* buffer) noexcept -> char*;
 
@@ -2299,6 +2354,11 @@ template auto write_fixed(float value, int precision, char* buffer) noexcept
     -> char*;
 template auto write_fixed(double value, int precision, char* buffer) noexcept
     -> char*;
+
+template auto write_hex(double value, char* buffer) noexcept -> char*;
+#if LDBL_MANT_DIG != DBL_MANT_DIG
+template auto write_hex(long double value, char* buffer) noexcept -> char*;
+#endif
 
 }  // namespace detail
 }  // namespace zmij
