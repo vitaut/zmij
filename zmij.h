@@ -13,12 +13,13 @@
 
 namespace zmij {
 
-// Floating-point formatting style. Values match std::chars_format (hex is
-// unsupported), so general == fixed | scientific.
+// Floating-point formatting style. Values match std::chars_format, so
+// general == fixed | scientific.
 enum class format {
   scientific = 1,
   fixed = 2,
   general = 3,
+  hex = 4,
 };
 
 namespace detail {
@@ -49,13 +50,6 @@ inline auto write_big(float value, int precision, char* out, size_t n,
                       format fmt) noexcept -> size_t {
   return write_big(double(value), precision, out, n, fmt);
 }
-#if LDBL_MANT_DIG == DBL_MANT_DIG
-template <>
-inline auto write_big(long double value, int precision, char* out, size_t n,
-                      format fmt) noexcept -> size_t {
-  return write_big(double(value), precision, out, n, fmt);
-}
-#endif
 
 // Returns the past-the-end pointer after writing min(size, n) chars to `out`.
 inline auto clamp_end(char* out, size_t size, size_t n) noexcept -> char* {
@@ -73,9 +67,38 @@ template <typename Float>
 auto write_fixed(Float value, int precision, char* buffer) noexcept -> char*;
 
 // Writes `value` in hexadecimal floating-point notation (like printf's %a) in
-// its shortest form, e.g. -0x1.8p+1.
+// its shortest form, e.g. -0x1.8p+1. If `prefix` is false the leading "0x" is
+// omitted (e.g. -1.8p+1).
 template <typename Float>
-auto write_hex(Float value, char* buffer) noexcept -> char*;
+auto write_hex(Float value, char* buffer, bool prefix = true) noexcept -> char*;
+
+// Writes `value` in hexadecimal floating-point notation with `precision` hex
+// digits after the point, correctly rounded (ties to even), e.g. -0x1.80p+1,
+// into `out`, truncating after `n` chars. Returns the total length the result
+// would need. If `prefix` is false the leading "0x" is omitted.
+template <typename Float>
+auto write_hex(Float value, int precision, char* out, size_t n,
+               bool prefix = true) noexcept -> size_t;
+
+// When long double == double it has no explicit instantiations, so forward the
+// long double detail writers to their double counterparts.
+#if LDBL_MANT_DIG == DBL_MANT_DIG
+template <>
+inline auto write_big(long double value, int precision, char* out, size_t n,
+                      format fmt) noexcept -> size_t {
+  return write_big(double(value), precision, out, n, fmt);
+}
+template <>
+inline auto write_hex(long double value, char* buffer, bool prefix) noexcept
+    -> char* {
+  return write_hex(double(value), buffer, prefix);
+}
+template <>
+inline auto write_hex(long double value, int precision, char* out, size_t n,
+                      bool prefix) noexcept -> size_t {
+  return write_hex(double(value), precision, out, n, prefix);
+}
+#endif  // LDBL_MANT_DIG == DBL_MANT_DIG
 
 }  // namespace detail
 
@@ -396,16 +419,12 @@ inline auto write_hex(char* out, size_t n, double value) noexcept -> char* {
 /// exceeds `n` characters, only the first `n` are written.
 inline auto write_hex(char* out, size_t n, long double value) noexcept
     -> char* {
-#if LDBL_MANT_DIG == DBL_MANT_DIG
-  return write_hex(out, n, double(value));
-#else
   if (n >= buffer_sizes<long double>::hex) return detail::write_hex(value, out);
   char buffer[buffer_sizes<long double>::hex];
   size_t size = detail::write_hex(value, buffer) - buffer;
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
-#endif
 }
 
 }  // namespace zmij

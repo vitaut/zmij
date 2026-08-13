@@ -558,6 +558,10 @@ template <typename Float> struct float_traits : std::numeric_limits<Float> {
   static auto get_exp(sig_type bits) noexcept -> int64_t {
     return int64_t(uint64_t(bits >> exp_shift) & unsigned(exp_mask));
   }
+  static auto is_normal(int64_t bin_exp) noexcept -> bool {
+    // Fold subnormal/zero (exp 0) and inf/nan (exp exp_mask) into one check.
+    return unsigned(bin_exp - 1) < unsigned(exp_mask - 1);
+  }
 };
 
 template <typename Float>
@@ -915,6 +919,14 @@ inline auto digits2(size_t value) noexcept -> const char* {
       "6061626364656667686970717273747576777879"
       "8081828384858687888990919293949596979899";
   return &data[value * 2];
+}
+
+// Writes chars `a` and `b` to `out` and returns the position after them.
+ZMIJ_INLINE auto write2(char* out, char a, char b) noexcept -> char* {
+  uint16_t v = uint16_t(uint8_t(a) | uint8_t(b) << 8);
+  if (is_big_endian) v = uint16_t(v << 8 | v >> 8);
+  memcpy(out, &v, 2);
+  return out + 2;
 }
 
 constexpr int div10k_exp = 40;
@@ -1351,26 +1363,38 @@ ZMIJ_INLINE auto write_zero(char* buffer, int precision) noexcept -> char* {
 // Writes the exponent as 'e', a sign and at least two digits (e.g. e+05).
 template <typename Float>
 ZMIJ_INLINE auto write_exp(char* buffer, int dec_exp) noexcept -> char* {
-  uint16_t e_sign = dec_exp >= 0 ? ('+' << 8 | 'e') : ('-' << 8 | 'e');
-  if (is_big_endian) e_sign = e_sign << 8 | e_sign >> 8;
-  memcpy(buffer, &e_sign, 2);
-  buffer += 2;
-  uint32_t exp = dec_exp >= 0 ? uint32_t(dec_exp) : uint32_t(-dec_exp);
+  buffer = write2(buffer, 'e', dec_exp >= 0 ? '+' : '-');
+  uint32_t abs_exp = dec_exp >= 0 ? uint32_t(dec_exp) : uint32_t(-dec_exp);
   if (float_traits<Float>::max_exponent10 >= 100) {
     constexpr bool wide = float_traits<Float>::max_exponent10 >= 1000;
     uint32_t hi = use_umul128_hi64 && !wide
-                      ? umul128_hi64(exp, 0x290000000000000)
-                      : (exp * div100_sig) >> div100_exp;
+                      ? umul128_hi64(abs_exp, 0x290000000000000)
+                      : (abs_exp * div100_sig) >> div100_exp;
     if (wide) {
       *buffer = char('0' + hi / 10);
       buffer += hi >= 10;
     }
     *buffer = char('0' + (wide ? hi % 10 : hi));
-    buffer += exp >= 100;
-    exp -= hi * 100;
+    buffer += abs_exp >= 100;
+    abs_exp -= hi * 100;
   }
-  memcpy(buffer, digits2(exp), 2);
+  memcpy(buffer, digits2(abs_exp), 2);
   return buffer + 2;
+}
+
+// Writes the binary exponent as 'p', a sign and at least one digit (e.g. p+3).
+auto write_hex_exp(char* buffer, int bin_exp) noexcept -> char* {
+  buffer = write2(buffer, 'p', bin_exp < 0 ? '-' : '+');
+  unsigned abs_exp = unsigned(bin_exp < 0 ? -bin_exp : bin_exp);
+  char digits[8];
+  char* p = digits + sizeof(digits);
+  do {
+    *--p = char('0' + abs_exp % 10);
+    abs_exp /= 10;
+  } while (abs_exp != 0);
+  size_t n = size_t(digits + sizeof(digits) - p);
+  memcpy(buffer, p, n);
+  return buffer + n;
 }
 
 template <typename Float, typename UInt>
@@ -1697,7 +1721,7 @@ auto write_fixed_big(char* buffer, uint64_t bin_sig, int bin_exp,
     memcpy(buffer + num_int_digits + 1, p + num_int_digits, precision);
     return buffer + num_int_digits + 1 + precision;
   }
-  memcpy(buffer, "0.", 2);  // |value| < 1: "0." + leading zeros + digits.
+  write2(buffer, '0', '.');  // |value| < 1: "0." + leading zeros + digits.
   int lead_zeros = precision - num_digits;
   memset(buffer + 2, '0', lead_zeros);
   memcpy(buffer + 2 + lead_zeros, p, num_digits);
@@ -1865,8 +1889,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   uint64_t threshold = traits::num_bits == 64 ? d->threshold : uint64_t(1e7);
 
   shortest_decimal dec;
-  bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
-  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) {
       *buffer = '0';
@@ -1968,8 +1991,7 @@ auto write_big(Float value, char* out, size_t n) noexcept -> size_t {
   writer w = {out, out + n, 0};
   if (traits::is_negative(bits)) w.write('-');
 
-  bool is_normal = unsigned(raw_exp - 1) < unsigned(traits::exp_mask - 1);
-  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+  if (!traits::is_normal(raw_exp)) [[ZMIJ_UNLIKELY]] {
     if (raw_exp != 0) return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     if (bin_sig == 0) return w.write('0');
     raw_exp = 1;
@@ -2075,8 +2097,7 @@ auto write_big(Float value, int precision, char* out, size_t n,
   writer w = {out, out + n, 0};
   if (traits::is_negative(bits)) w.write('-');
 
-  bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
-  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0)  // inf or nan
       return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     if (bin_sig != 0) normalize<Float>(bin_sig, bin_exp);
@@ -2116,8 +2137,7 @@ auto write_scientific(Float value, int precision, char* buffer) noexcept
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
-  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) {  // zero, e.g. 0.000e+00
       memset(buffer, '0', precision + 1);
@@ -2145,8 +2165,7 @@ auto write_general(Float value, int precision, char* buffer) noexcept -> char* {
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
-  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) {  // zero
       *buffer = '0';
@@ -2198,8 +2217,7 @@ auto write_fixed(Float value, int precision, char* buffer) noexcept -> char* {
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
-  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) return write_zero(buffer, precision);  // e.g. 0.000
     normalize<Float>(bin_sig, bin_exp);
@@ -2257,7 +2275,7 @@ auto write_fixed(Float value, int precision, char* buffer) noexcept -> char* {
   int total = num_int_digits + precision;  // significant digits + zero padding
 
   if (num_int_digits <= 0) {  // |value| < 1: "0." + leading zeros + digits
-    memcpy(buffer, "0.", 2);
+    write2(buffer, '0', '.');
     memset(buffer + 2, '0', -num_int_digits);
     buffer += 2 - num_int_digits;
     memcpy(buffer, &hi.digits, 16);
@@ -2275,7 +2293,7 @@ auto write_fixed(Float value, int precision, char* buffer) noexcept -> char* {
 }
 
 template <typename Float>
-auto write_hex(Float value, char* buffer) noexcept -> char* {
+auto write_hex(Float value, char* buffer, bool prefix) noexcept -> char* {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);
@@ -2284,22 +2302,17 @@ auto write_hex(Float value, char* buffer) noexcept -> char* {
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  bool is_normal = unsigned(bin_exp - 1) < unsigned(traits::exp_mask - 1);
-  if (!is_normal) [[ZMIJ_UNLIKELY]] {
+  bool zero = false;
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
-    if (bin_sig == 0) {  // zero: leading 0, exponent cancels to 0 below
-      bin_exp = traits::exp_bias;
-    } else {  // subnormal: normalize to a leading 1, matching printf's %a
-      normalize<Float>(bin_sig, bin_exp);
-      bin_sig = bin_sig ^ traits::implicit_bit;
-      is_normal = true;
-    }
+    zero = bin_sig == 0;
+    if (zero) bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else normalize<Float>(bin_sig, bin_exp);
   }
   bin_exp -= traits::exp_bias;
 
-  *buffer++ = '0';
-  *buffer++ = 'x';
-  *buffer++ = char('0' + is_normal);
+  if (prefix) buffer = write2(buffer, '0', 'x');
+  *buffer++ = char('0' + !zero);
 
   constexpr int width = int(sizeof(bin_sig)) * 8;
   bin_sig = bin_sig << (width - traits::num_sig_bits);
@@ -2311,34 +2324,72 @@ auto write_hex(Float value, char* buffer) noexcept -> char* {
     } while (bin_sig != 0);
   }
 
-  *buffer++ = 'p';
-  *buffer++ = bin_exp < 0 ? '-' : '+';
-  unsigned exp = bin_exp < 0 ? unsigned(-bin_exp) : unsigned(bin_exp);
-  char tmp[8];
-  char* t = tmp;
-  do {
-    *t++ = char('0' + exp % 10);
-    exp /= 10;
-  } while (exp != 0);
-  while (t != tmp) *buffer++ = *--t;
-  return buffer;
+  return write_hex_exp(buffer, bin_exp);
+}
+
+template <typename Float>
+auto write_hex(Float value, int precision, char* out, size_t n,
+               bool prefix) noexcept -> size_t {
+  using traits = float_traits<Float>;
+  auto bits = traits::to_bits(value);
+  auto bin_exp = traits::get_exp(bits);
+  auto bin_sig = traits::get_sig(bits);
+
+  writer w = {out, out + n, 0};
+  if (traits::is_negative(bits)) w.write('-');
+
+  bool zero = false;
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+    if (bin_exp != 0) return w.write(bin_sig != 0 ? "nan" : "inf", 3);
+    zero = bin_sig == 0;
+    if (zero) bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else normalize<Float>(bin_sig, bin_exp);
+  }
+  bin_exp -= traits::exp_bias;
+
+  // Left-align the fraction so hex digits can be read off the top.
+  constexpr int width = int(sizeof(bin_sig)) * 8;
+  bin_sig = bin_sig << (width - traits::num_sig_bits);
+
+  // Round to `precision` hex digits (ties to even). A carry out of all kept
+  // bits propagates into the leading digit, which for a normalized value just
+  // increments the binary exponent.
+  int keep = precision * 4;
+  if (keep < traits::num_sig_bits) {
+    int drop = width - keep;
+    auto half = decltype(bin_sig)(1) << (drop - 1);
+    // Round to nearest, ties to even: bias by (half - 1 + lsb) then truncate,
+    // where lsb is the retained part's low bit. A tie rounds up only when lsb
+    // is set (odd); for precision 0 that bit is the implicit, odd leading 1.
+    auto lsb = keep == 0 ? 1 : (bin_sig >> drop) & 1;
+    auto before = bin_sig;
+    bin_sig = bin_sig + (half - 1 + lsb);
+    if (bin_sig < before) ++bin_exp;
+    bin_sig = keep == 0 ? 0 : (bin_sig >> drop) << drop;
+  }
+
+  if (prefix) w.write("0x", 2);
+  w.write(char('0' + !zero));
+
+  if (precision > 0) {
+    w.write('.');
+    int i = 0;
+    for (; i < precision && bin_sig != 0; ++i) {
+      w.write("0123456789abcdef"[uint64_t(bin_sig >> (width - 4))]);
+      bin_sig = bin_sig << 4;
+    }
+    w.write_zeros(precision - i);
+  }
+
+  char exp[8];
+  return w.write(exp, int(write_hex_exp(exp, bin_exp) - exp));
 }
 
 template auto write(float value, char* buffer) noexcept -> char*;
 template auto write(double value, char* buffer) noexcept -> char*;
 
-#if LDBL_MANT_DIG != DBL_MANT_DIG
-// write_big is a template to emit no code where long double == double.
-template auto write_big(long double value, char* out, size_t n) noexcept
-    -> size_t;
-#endif
-
 template auto write_big(double value, int precision, char* out, size_t n,
                         format fmt) noexcept -> size_t;
-#if LDBL_MANT_DIG != DBL_MANT_DIG
-template auto write_big(long double value, int precision, char* out, size_t n,
-                        format fmt) noexcept -> size_t;
-#endif
 
 template auto write_scientific(float value, int precision,
                                char* buffer) noexcept -> char*;
@@ -2355,9 +2406,22 @@ template auto write_fixed(float value, int precision, char* buffer) noexcept
 template auto write_fixed(double value, int precision, char* buffer) noexcept
     -> char*;
 
-template auto write_hex(double value, char* buffer) noexcept -> char*;
+template auto write_hex(double value, char* buffer, bool prefix) noexcept
+    -> char*;
+template auto write_hex(double value, int precision, char* out, size_t n,
+                        bool prefix) noexcept -> size_t;
+
+// long double instantiations, only needed when it differs from double; else
+// the public wrappers forward long double to the double path.
 #if LDBL_MANT_DIG != DBL_MANT_DIG
-template auto write_hex(long double value, char* buffer) noexcept -> char*;
+template auto write_big(long double value, char* out, size_t n) noexcept
+    -> size_t;
+template auto write_big(long double value, int precision, char* out, size_t n,
+                        format fmt) noexcept -> size_t;
+template auto write_hex(long double value, char* buffer, bool prefix) noexcept
+    -> char*;
+template auto write_hex(long double value, int precision, char* out, size_t n,
+                        bool prefix) noexcept -> size_t;
 #endif
 
 }  // namespace detail
