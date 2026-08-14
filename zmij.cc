@@ -1237,6 +1237,18 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
+#elif ZMIJ_USE_SIMD_X86 >= 31
+  // SSSE3 uses the SSE2 BCD arithmetic, but keeps the unshuffled
+  // representation in XMM so pshufb can do the final formatting.
+  //
+  // to_bcd8() already gives us the correctly ordered 8-digit BCD.
+  // Reverse that ordering to reconstruct the representation expected
+  // by write_exp_float_simd().
+  auto result = to_bcd8(value);
+  uint64_t unshuffled_bcd = bswap64(result.bcd);
+  __m128i unshuffled =
+      _mm_cvtsi64_si128(static_cast<long long>(unshuffled_bcd));
+  return {unshuffled, result.bcd + zeros, result.len};
 #elif ZMIJ_USE_SIMD_ARM
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
   // the exponential-notation path uses it to skip the simd->gpr->bswap->simd
@@ -1453,7 +1465,11 @@ ZMIJ_INLINE auto write_scientific_digits(char* buffer,
                                          dec_digits<64>::digits_type digits,
                                          unsigned lo, int num_digits,
                                          int dec_exp) noexcept -> char* {
+#if ZMIJ_USE_SIMD_X86
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer + 1), digits);
+#else
   memcpy(buffer + 1, &digits, 16);
+#endif
   memcpy(buffer + 17, digits2(lo), 2);
   buffer[0] = buffer[1];
   buffer[1] = '.';  // Overwritten by the exponent when num_digits is 1.
@@ -1987,7 +2003,19 @@ auto write(Float value, char* buffer) noexcept -> char* {
     write_digits(buffer, dig.digits, !has_extra_digit, *d);
     buffer[bcd_size + has_extra_digit - 1] = last_digit;
     unsigned point_pos = layout.point_pos;
+#if ZMIJ_USE_SIMD_X86 >= 20
+    if (bcd_size == 16 && layout.shift_pos > layout.point_pos) {
+      const __m128i value = _mm_loadu_si128(
+          reinterpret_cast<const __m128i*>(start + layout.point_pos));
+
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(start + layout.shift_pos),
+                       value);
+    } else {
+      memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
+    }
+#else
     memmove(start + layout.shift_pos, start + point_pos, bcd_size);
+#endif
     start[point_pos] = '.';
     return buffer + layout.end_pos[num_digits + has_extra_digit - 1];
   }
