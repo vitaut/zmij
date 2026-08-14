@@ -835,7 +835,7 @@ struct fixed_layout_table {
     unsigned char point_pos;
     // Start position for shifting digits right by one to insert the point.
     unsigned char shift_pos;
-#if ZMIJ_USE_SIMD_X86 >= 41
+#if ZMIJ_USE_SIMD_X86 >= 31
     // Buffer-relative position of the last_digit byte, indexed by
     // has_extra_digit. Only used for bcd_size == 16 (doubles).
     unsigned char last_digit_pos[2];
@@ -987,6 +987,10 @@ struct data {
 #  else
   uint128 hundred = splat32(100);
   uint128 moddiv10 = splat16(10 * (1 << 8) - 1);
+#    if ZMIJ_USE_SIMD_X86 >= 31
+  uint128 bswap = uint128{pack8(7, 6, 5, 4, 3, 2, 1, 0),
+                          pack8(15, 14, 13, 12, 11, 10, 9, 8)};
+#    endif                          
 #  endif
   uint128 div10k = splat64(div10k_sig);
   uint128 neg10k = splat64(::neg10k);
