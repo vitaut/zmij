@@ -1032,7 +1032,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
   ZMIJ_ASM(("" : "+r"(hundred_million)));
 
   // abcdefgh = value / 100000000, ijklmnop = value % 100000000.
-  uint64_t abcdefgh = uint64_t(umul128(value, div100m_sig) >> div100m_exp);
+  uint64_t abcdefgh = uint64_t(umul128(value, d.div100m_sig) >> d.div100m_exp);
   uint64_t ijklmnop = value - abcdefgh * hundred_million;
 
   uint64x1_t ijklmnop_abcdefgh_64 = {ijklmnop << 32 | abcdefgh};
