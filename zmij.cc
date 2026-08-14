@@ -33,6 +33,8 @@
 
 #ifdef ZMIJ_USE_SIMD_X86
 // Use the provided definition.
+#elif defined(__AVX2__)
+#  define ZMIJ_USE_SIMD_X86 51
 #elif defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
 #  define ZMIJ_USE_SIMD_X86 41
@@ -47,7 +49,9 @@
 #  define ZMIJ_USE_SIMD_X86 0
 #endif
 #if ZMIJ_USE_SIMD_X86
-static_assert(ZMIJ_USE_SIMD_X86 >= 20 || ZMIJ_USE_SIMD_X86 <= 41);
+static_assert(ZMIJ_USE_SIMD_X86 == 0 || ZMIJ_USE_SIMD_X86 == 20 ||
+              ZMIJ_USE_SIMD_X86 == 31 || ZMIJ_USE_SIMD_X86 == 41 ||
+              ZMIJ_USE_SIMD_X86 == 51);
 #  include <immintrin.h>
 #endif
 
@@ -1146,7 +1150,7 @@ template <int num_bits> struct dec_digits {
   // `unshuffled` is the byte-reversed BCD vector used by write_exp_float_simd.
 #if ZMIJ_USE_SIMD_ARM
   uint8x16_t unshuffled;
-#elif ZMIJ_USE_SIMD_X86 >= 41
+#elif ZMIJ_USE_SIMD_X86 >= 31
   __m128i unshuffled;
 #endif
   uint64_t digits;
@@ -1227,13 +1231,20 @@ template <>
 ZMIJ_INLINE auto to_digits<32>(uint64_t value,
                                [[ZMIJ_MAYBE_UNUSED]] const data& d) noexcept
     -> dec_digits<32> {
-#if ZMIJ_USE_SIMD_X86 >= 41
+#if ZMIJ_USE_SIMD_X86 >= 31
   // Inline to_bcd8's SSE4.1 body so we can return the unshuffled xmm too;
   // the exponential-notation path uses it to skip the bswap-via-gpr.
   uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
   __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
+#  if ZMIJ_USE_SIMD_X86 >= 41
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
+#  else
+  // SSE2 to_bcd_4x4 ordering differs.
+  bcd = _mm_shuffle_epi32(bcd, _MM_SHUFFLE(0, 1, 2, 3));
+  uint64_t unshuffled = _mm_cvtsi128_si64(bcd);
+  int len = unshuffled ? 8 - clz(unshuffled) / 8 : 0;
+#  endif
   return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
 #elif ZMIJ_USE_SIMD_ARM
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
@@ -1324,6 +1335,7 @@ ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
                                               has_extra_digit);
 #if ZMIJ_USE_SIMD_X86 >= 31
   __m128i ascii = ascii_bcd(dig.unshuffled, d);
+  __m128i src = insert_hi64(ascii, tail);
   __m128i shuffle = _mm_load_si128(m128ptr(entry.shuffle));
   __m128i out = _mm_shuffle_epi8(src, shuffle);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), out);
