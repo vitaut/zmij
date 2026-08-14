@@ -33,16 +33,12 @@
 
 #ifdef ZMIJ_USE_SIMD_X86
 // Use the provided definition.
-#elif defined(__AVX2__)
-#  define ZMIJ_USE_SIMD_X86 51
-#elif defined(__AVX__)
+#elif defined(__SSE4_1__) || defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
-#  define ZMIJ_USE_SIMD_X86 41
-#elif defined(__SSE4_1__)
 #  define ZMIJ_USE_SIMD_X86 41
 #elif defined(__SSSE3__)
 #  define ZMIJ_USE_SIMD_X86 31
-#elif defined(__SSE2__) defined(_M_AMD64) || \
+#elif defined(__SSE2__) || defined(_M_AMD64) || \
     (defined(_M_IX86_FP) && _M_IX86_FP == 2)
 #  define ZMIJ_USE_SIMD_X86 20
 #else
@@ -50,8 +46,7 @@
 #endif
 #if ZMIJ_USE_SIMD_X86
 static_assert(ZMIJ_USE_SIMD_X86 == 0 || ZMIJ_USE_SIMD_X86 == 20 ||
-              ZMIJ_USE_SIMD_X86 == 31 || ZMIJ_USE_SIMD_X86 == 41 ||
-              ZMIJ_USE_SIMD_X86 == 51);
+              ZMIJ_USE_SIMD_X86 == 41);
 #  include <immintrin.h>
 #endif
 
@@ -961,15 +956,12 @@ struct data {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
-  ZMIJ_INLINE auto split100m(uint64_t value) noexcept -> uint64_t {
-    return uint64_t(umul128(value, div100m_sig) >> 90);
-  }
-
   ZMIJ_CONST_DECL uint64_t threshold = 1e15;
   // +6 is needed for boundary cases found by verify.py.
   ZMIJ_CONST_DECL uint64_t biased_half = (uint64_t(1) << 63) + 6;
 
   ZMIJ_CONST_DECL uint64_t div100m_sig = 0xabcc77118461cefd;
+  ZMIJ_CONST_DECL int div100m_exp = 90;
   ZMIJ_CONST_DECL uint64_t hundred_million = 100000000;
 #if ZMIJ_USE_SIMD_ARM
   ZMIJ_CONST_DECL int32_t neg10k = 0x10000 - 10000;
@@ -1036,7 +1028,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
   ZMIJ_ASM(("" : "+r"(hundred_million)));
 
   // abcdefgh = value / 100000000, ijklmnop = value % 100000000.
-  uint64_t abcdefgh = uint64_t(umul128(value, d.div100m_sig) >> 90);
+  uint64_t abcdefgh = uint64_t(umul128(value, div100m_sig) >> div100m_exp);
   uint64_t ijklmnop = value - abcdefgh * hundred_million;
 
   uint64x1_t ijklmnop_abcdefgh_64 = {ijklmnop << 32 | abcdefgh};
@@ -1186,8 +1178,10 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
   return {str, 16 - (clz(nonzero_mask) >> 2)};
 #elif ZMIJ_USE_SIMD_X86
-  uint32_t hi = uint32_t(value / 100'000'000);
-  uint32_t lo = uint32_t(value % 100'000'000);
+  const uint64_t hi64 =
+      umul128_hi64(value, d.div100m_sig << (64 - d.div100m_exp));
+  const uint32_t hi = uint32_t(hi64);
+  const uint32_t lo = uint32_t(value - uint64_t(hi) * d.hundred_million);
 
   const __m128i div10k = _mm_load_si128(m128ptr(&d.div10k));
   const __m128i neg10k = _mm_load_si128(m128ptr(&d.neg10k));
