@@ -13,6 +13,8 @@ set_property(CACHE ZMIJ_X86_SIMD PROPERTY STRINGS
 
 if (ZMIJ_X86_SIMD STREQUAL "sse2")
   target_compile_definitions(zmij PRIVATE ZMIJ_USE_SIMD_X86=20)
+elseif (ZMIJ_X86_SIMD STREQUAL "ssse3")
+  target_compile_definitions(zmij PRIVATE ZMIJ_USE_SIMD_X86=41)
 elseif (ZMIJ_X86_SIMD STREQUAL "sse41")
   target_compile_definitions(zmij PRIVATE ZMIJ_USE_SIMD_X86=41)
 endif()
