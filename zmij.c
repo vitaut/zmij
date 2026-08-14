@@ -125,6 +125,12 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
 #  define ZMIJ_ASM(x) ((void)0)
 #endif
 
+#if ZMIJ_HAS_ATTRIBUTE(unused)
+#  define ZMIJ_MAYBE_UNUSED __attribute__((unused))
+#else
+#  define ZMIJ_MAYBE_UNUSED
+#endif
+
 #if defined(ZMIJ_ALIGNAS)
 // Use the provided definition.
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L
@@ -184,21 +190,6 @@ typedef struct {
   uint64_t hi;
   uint64_t lo;
 } uint128;
-
-static inline uint64_t uint128_to_uint64(uint128 u) { return u.lo; }
-
-static inline uint128 uint128_add(uint128 lhs, uint128 rhs) {
-#ifdef _M_AMD64
-  uint64_t lo, hi;
-  _addcarry_u64(_addcarry_u64(0, lhs.lo, rhs.lo, &lo), lhs.hi, rhs.hi, &hi);
-  uint128 result = {hi, lo};
-  return result;
-#else
-  uint64_t lo = lhs.lo + rhs.lo;
-  uint128 result = {lhs.hi + rhs.hi + (lo < lhs.lo), lo};
-  return result;
-#endif  // _M_AMD64
-}
 
 #ifdef ZMIJ_USE_INT128
 // Use the provided definition.
@@ -317,19 +308,6 @@ static ZMIJ_INLINE uint64_t div10(uint64_t x) {
   return ZMIJ_USE_INT128 ? umul128_hi64(x, div10_sig64) : x / 10;
 }
 
-// Returns true_value if condition != 0, else false_value, without branching.
-static ZMIJ_INLINE int64_t zmij_select(uint64_t condition, int64_t true_value,
-                                       int64_t false_value) {
-  // Clang can figure it out on its own.
-  if (!ZMIJ_X86_64 || ZMIJ_CLANG) return condition ? true_value : false_value;
-  ZMIJ_ASM(
-      volatile("test %2, %2\n\t"
-               "cmovne %1, %0\n\t" :  //
-               "+r"(false_value) : "r"(true_value),
-               "r"(condition) : "cc"));
-  return false_value;
-}
-
 enum {
   double_num_bits = 64,
   double_num_sig_bits = DBL_MANT_DIG - 1,
@@ -439,7 +417,7 @@ static inline int count_trailing_nonzeros(uint64_t x) {
 
 // Converts value in the range [0, 100) to a string. GCC generates a bit better
 // code when value is pointer-size (https://www.godbolt.org/z/5fEPMT1cc).
-static inline const char* digits2(size_t value) {
+static ZMIJ_MAYBE_UNUSED inline const char* digits2(size_t value) {
   // Align data since unaligned access may be slower when crossing a
   // hardware-specific boundary.
   ZMIJ_ALIGNAS(2)
@@ -1772,7 +1750,7 @@ static ZMIJ_INLINE __m128i to_bcd_4x4(__m128i y, const zmij_data* d) {
 }
 #endif    // ZMIJ_USE_SSE
 
-static ZMIJ_INLINE int ctz(uint64_t x) {
+static ZMIJ_MAYBE_UNUSED ZMIJ_INLINE int ctz(uint64_t x) {
 #if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
   return __builtin_ctzll(x);
 #elif ZMIJ_MSC_VER

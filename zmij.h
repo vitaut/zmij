@@ -163,7 +163,7 @@ template <> struct buffer_sizes<long double> {
 inline auto write(char* out, size_t n, float value) noexcept -> char* {
   if (n >= float_buffer_size) return detail::write(value, out);
   char buffer[float_buffer_size];
-  size_t size = detail::write(value, buffer) - buffer;
+  auto size = size_t(detail::write(value, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -177,7 +177,7 @@ inline auto write(char* out, size_t n, float value) noexcept -> char* {
 inline auto write(char* out, size_t n, double value) noexcept -> char* {
   if (n >= double_buffer_size) return detail::write(value, out);
   char buffer[double_buffer_size];
-  size_t size = detail::write(value, buffer) - buffer;
+  auto size = size_t(detail::write(value, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -214,7 +214,8 @@ inline auto write_scientific(char* out, size_t n, float value,
   if (n >= buffer_sizes<float>::scientific)
     return detail::write_scientific(value, precision + 1, out);
   char buffer[buffer_sizes<float>::scientific];
-  size_t size = detail::write_scientific(value, precision + 1, buffer) - buffer;
+  auto size = size_t(detail::write_scientific(value, precision + 1, buffer) -
+                     buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -236,7 +237,8 @@ inline auto write_scientific(char* out, size_t n, double value,
   if (n >= buffer_sizes<double>::scientific)
     return detail::write_scientific(value, precision + 1, out);
   char buffer[buffer_sizes<double>::scientific];
-  size_t size = detail::write_scientific(value, precision + 1, buffer) - buffer;
+  auto size = size_t(detail::write_scientific(value, precision + 1, buffer) -
+                     buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -276,7 +278,7 @@ inline auto write_general(char* out, size_t n, float value,
   if (n >= buffer_sizes<float>::scientific)
     return detail::write_general(value, precision, out);
   char buffer[buffer_sizes<float>::scientific];
-  size_t size = detail::write_general(value, precision, buffer) - buffer;
+  auto size = size_t(detail::write_general(value, precision, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -300,7 +302,7 @@ inline auto write_general(char* out, size_t n, double value,
   if (n >= buffer_sizes<double>::scientific)
     return detail::write_general(value, precision, out);
   char buffer[buffer_sizes<double>::scientific];
-  size_t size = detail::write_general(value, precision, buffer) - buffer;
+  auto size = size_t(detail::write_general(value, precision, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -341,7 +343,7 @@ inline auto write_fixed(char* out, size_t n, float value,
   if (n >= buffer_sizes<float>::fixed)
     return detail::write_fixed(value, precision, out);
   char buffer[buffer_sizes<float>::fixed];
-  size_t size = detail::write_fixed(value, precision, buffer) - buffer;
+  auto size = size_t(detail::write_fixed(value, precision, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -364,7 +366,7 @@ inline auto write_fixed(char* out, size_t n, double value,
   if (n >= buffer_sizes<double>::fixed)
     return detail::write_fixed(value, precision, out);
   char buffer[buffer_sizes<double>::fixed];
-  size_t size = detail::write_fixed(value, precision, buffer) - buffer;
+  auto size = size_t(detail::write_fixed(value, precision, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -406,7 +408,7 @@ inline auto write_hex(char* out, size_t n, float value) noexcept -> char* {
 inline auto write_hex(char* out, size_t n, double value) noexcept -> char* {
   if (n >= buffer_sizes<double>::hex) return detail::write_hex(value, out);
   char buffer[buffer_sizes<double>::hex];
-  size_t size = detail::write_hex(value, buffer) - buffer;
+  auto size = size_t(detail::write_hex(value, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;
@@ -421,7 +423,7 @@ inline auto write_hex(char* out, size_t n, long double value) noexcept
     -> char* {
   if (n >= buffer_sizes<long double>::hex) return detail::write_hex(value, out);
   char buffer[buffer_sizes<long double>::hex];
-  size_t size = detail::write_hex(value, buffer) - buffer;
+  auto size = size_t(detail::write_hex(value, buffer) - buffer);
   if (size > n) size = n;
   memcpy(out, buffer, size);
   return out + size;

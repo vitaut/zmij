@@ -750,7 +750,7 @@ struct exp_string_table {
 
 // Shuffle vectors to build strings for exponential notation.
 //
-// Byte positions in the source register assembled by write_exp_float_simd:
+// Byte positions in the source register assembled by write_scientific_simd:
 //   bytes [0, exp_pos):              BCD ASCII digits (reversed)
 //   bytes [exp_pos, exp_pos + 4):    exponent string "e±NN"
 //   byte  last_digit_pos:            rounded last digit
@@ -1143,7 +1143,7 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
 }
 
 template <int num_bits> struct dec_digits {
-  // `unshuffled` is the byte-reversed BCD vector used by write_exp_float_simd.
+  // `unshuffled` is the byte-reversed BCD vector used by write_scientific_simd.
 #if ZMIJ_USE_SIMD_ARM
   uint8x16_t unshuffled;
 #elif ZMIJ_USE_SIMD_X86 >= 31
@@ -1318,7 +1318,7 @@ ZMIJ_INLINE auto reverse_bcd(__m128i bcd, const data& d) noexcept -> __m128i {
 
 #endif
 
-ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
+ZMIJ_INLINE auto write_scientific_simd(char* buffer, const dec_digits<32>& dig,
                                       int last_digit, bool has_last_digit,
                                       bool has_extra_digit, uint64_t exp_data,
                                       const data& d) noexcept -> char* {
@@ -1346,7 +1346,7 @@ ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
   return buffer + entry.length;
 }
 
-ZMIJ_INLINE auto write_exp_float_simd(char*, const dec_digits<64>&, int, bool,
+ZMIJ_INLINE auto write_scientific_simd(char*, const dec_digits<64>&, int, bool,
                                       bool, uint64_t, const data&) noexcept
     -> char* {
   return nullptr;
@@ -1553,7 +1553,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   // An optimization by Xiang JunBo:
   // Scale by 10**(-dec_exp-1) to directly produce the shorter candidate
   // (15-16 digits), deriving the extra digit from the fractional part.
-  // This eliminates div10 from the critical path.
+  // This eliminates division by 10 from the critical path.
   //
   // value = 5.0507837461e-27
   // next  = 5.0507837461000010e-27
@@ -1564,15 +1564,15 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   //
   // fractional = fractional' * 2**64 = 5818079786399166407
   //
-  //    5050783746100000.0       c               upper    5050783746100001.0
-  //             s              l|   L             |               S
-  // ──┬────┬────┼────┬────┬────┼*───┼────┬────┬───*┬────┬────┬────┼─*──┬───
+  //    5050783746100000.0       c                        5050783746100001.0
+  //            d0             d1|  u1                            u0
+  // ──┬────┬────┼────┬────┬────┼*───┼────┬────┬────┬────┬────┬────┼─*──┬───
   //  .8   .9   .0   .1   .2   .3   .4   .5   .6   .7   .8   .9   .0 | .1
-  //           └─────────────────┼─────────────────┘                next
+  //           └─────────────────┬─────────────────┘                next
   //                            1ulp
   //
-  // s - shorter underestimate, S - shorter overestimate
-  // l - longer underestimate,  L - longer overestimate
+  // d0 - shorter underestimate, u0 - shorter overestimate
+  // d1 - longer underestimate,  u1 - longer overestimate
   uint128 pow10 = d.pow10_significands[-dec_exp - 1];
   uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
 
@@ -2021,7 +2021,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
   }
   if (traits::num_bits == 32 && exp_float_shuffle_table::enable) {
     uint64_t exp_data = d->exp_strings.data[dec_exp + exp_string_table::offset];
-    return write_exp_float_simd(buffer, dig, dec.last_digit, has_last_digit,
+    return write_scientific_simd(buffer, dig, dec.last_digit, has_last_digit,
                                 has_extra_digit, exp_data, *d);
   }
 
@@ -2441,7 +2441,7 @@ auto write_hex(Float value, int precision, char* out, size_t n,
   if (precision > 0) {
     w.write('.');
     int i = 0;
-    for (; i < precision && bin_sig != 0; ++i) {
+    do {
       w.write("0123456789abcdef"[uint64_t(bin_sig >> (width - 4))]);
       bin_sig = bin_sig << 4;
     }
