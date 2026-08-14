@@ -20,38 +20,33 @@
 #  define ZMIJ_USE_SIMD 1
 #endif
 
-#ifdef ZMIJ_USE_NEON
+#ifdef ZMIJ_USE_SIMD_ARM
 // Use the provided definition.
 #elif defined(__ARM_NEON) || defined(_M_ARM64)
-#  define ZMIJ_USE_NEON ZMIJ_USE_SIMD
+#  define ZMIJ_USE_SIMD_ARM ZMIJ_USE_SIMD
 #else
-#  define ZMIJ_USE_NEON 0
+#  define ZMIJ_USE_SIMD_ARM 0
 #endif
-#if ZMIJ_USE_NEON
+#if ZMIJ_USE_SIMD_ARM
 #  include <arm_neon.h>
 #endif
 
-#ifdef ZMIJ_USE_SSE
+#ifdef ZMIJ_USE_SIMD_X86
 // Use the provided definition.
-#elif defined(__SSE2__)
-#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)
-#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#else
-#  define ZMIJ_USE_SSE 0
-#endif
-#if ZMIJ_USE_SSE
-#  include <immintrin.h>
-#endif
-
-#ifdef ZMIJ_USE_SSE4_1
-// Use the provided definition.
-static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
-#elif defined(__SSE4_1__) || defined(__AVX__)
+#elif defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
-#  define ZMIJ_USE_SSE4_1 ZMIJ_USE_SSE
+#  define ZMIJ_USE_SIMD_X86 41
+#elif defined(__SSE4_1__)
+#  define ZMIJ_USE_SIMD_X86 41
+#elif defined(__SSE2__) defined(_M_AMD64) || \
+    (defined(_M_IX86_FP) && _M_IX86_FP == 2)
+#  define ZMIJ_USE_SIMD_X86 20
 #else
-#  define ZMIJ_USE_SSE4_1 0
+#  define ZMIJ_USE_SIMD_X86 0
+#endif
+#if ZMIJ_USE_SIMD_X86
+static_assert(ZMIJ_USE_SIMD_X86 >= 20 || ZMIJ_USE_SIMD_X86 <= 41);
+#  include <immintrin.h>
 #endif
 
 #ifdef __aarch64__
@@ -764,7 +759,8 @@ struct exp_string_table {
 // byte is past the string and ignored by the caller.
 struct exp_float_shuffle_table {
   static constexpr bool enable =
-      (ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON) && exp_string_table::enable;
+      (ZMIJ_USE_SIMD_X86 >= 41 || ZMIJ_USE_SIMD_ARM) &&
+      exp_string_table::enable;
   static constexpr unsigned char exp_pos = 8;
   static constexpr unsigned char last_digit_pos = 12;
   static constexpr unsigned char point_pos = 13;
@@ -813,7 +809,7 @@ struct exp_float_shuffle_table {
 };
 
 constexpr auto fixed_entry_align() noexcept -> int {
-  if (ZMIJ_USE_SSE4_1) return 64;  // Align to a cache line.
+  if (ZMIJ_USE_SIMD_X86 >= 41) return 64;  // Align to a cache line.
   // Align entry to 32 bytes so indexing uses `lsl #5` not `umaddl`.
   return ZMIJ_AARCH64 && !ZMIJ_OPTIMIZE_SIZE ? 32 : 1;
 }
@@ -827,7 +823,7 @@ struct fixed_layout_table {
       traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 1;
 
   struct alignas(fixed_entry_align()) entry {
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SIMD_X86 >= 41
     // pshufb table mapping BCD bytes to their output slots; the decimal-point
     // slot (if any) holds a zero-marker (high bit set). Indexed by extra_digit.
     // Read via aligned load (_mm_load_si128), so must be 16-byte aligned.
@@ -838,7 +834,7 @@ struct fixed_layout_table {
     unsigned char point_pos;
     // Start position for shifting digits right by one to insert the point.
     unsigned char shift_pos;
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SIMD_X86 >= 41
     // Buffer-relative position of the last_digit byte, indexed by
     // has_extra_digit. Only used for bcd_size == 16 (doubles).
     unsigned char last_digit_pos[2];
@@ -857,7 +853,7 @@ struct fixed_layout_table {
       e.point_pos = dec_exp >= 0 ? 1 + dec_exp : 1;
       e.shift_pos = e.point_pos + (dec_exp >= 0);
 
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SIMD_X86 >= 41
       constexpr int bcd_size = 16;
       for (int extra = 0; extra < 2; ++extra) {
         int len = bcd_size + extra - 1;
@@ -873,7 +869,7 @@ struct fixed_layout_table {
         for (int i = 0; i < bcd_size; ++i)
           e.shuffle[extra][i] = i == point_slot ? 0xFF : bcd_idx++;
       }
-#endif  // ZMIJ_USE_SSE4_1
+#endif
 
       for (int n = 1; n <= traits::max_digits10; ++n) {
         int end_pos = n;
@@ -963,7 +959,7 @@ struct data {
   // +6 is needed for boundary cases found by verify.py.
   ZMIJ_CONST_DECL uint64_t biased_half = (uint64_t(1) << 63) + 6;
 
-#if ZMIJ_USE_NEON
+#if ZMIJ_USE_SIMD_ARM
   static constexpr int32_t neg10k = 0x10000 - 10000;
 
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
@@ -973,11 +969,11 @@ struct data {
   uint64_t hundred_million = 100000000;
   int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
   int16x8 multipliers16 = {0xce0, neg10};
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_USE_SIMD_X86
   // Ordered so the values used to format floats fit in a single cache line.
   uint128 div100 = splat32(div100_sig);
   uint128 div10 = splat16((1 << 16) / 10 + 1);
-#  if ZMIJ_USE_SSE4_1
+#  if ZMIJ_USE_SIMD_X86 >= 41
   uint128 neg100 = splat32(::neg100);
   uint128 neg10 = splat16((1 << 8) - 10);
   uint128 bswap = uint128{pack8(7, 6, 5, 4, 3, 2, 1, 0),
@@ -985,11 +981,11 @@ struct data {
 #  else
   uint128 hundred = splat32(100);
   uint128 moddiv10 = splat16(10 * (1 << 8) - 1);
-#  endif  // ZMIJ_USE_SSE4_1
+#  endif
   uint128 div10k = splat64(div10k_sig);
   uint128 neg10k = splat64(::neg10k);
   uint128 zeros = splat64(::zeros);
-#endif    // ZMIJ_USE_SSE
+#endif
 
   exp_shift_table exp_shifts;
   exp_string_table exp_strings;
@@ -1004,7 +1000,7 @@ struct data {
 };
 alignas(64) constexpr data static_data;
 
-#if ZMIJ_USE_NEON  // An optimized version for NEON by Dougall Johnson.
+#if ZMIJ_USE_SIMD_ARM  // An optimized version for NEON by Dougall Johnson.
 
 // Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
 ZMIJ_INLINE auto to_bcd_4x4(int32x4_t efgh_abcd_mnop_ijkl,
@@ -1048,7 +1044,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
   return to_bcd_4x4(efgh_abcd_mnop_ijkl, d);
 }
 
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_USE_SIMD_X86
 
 using m128ptr = const __m128i*;
 
@@ -1057,7 +1053,7 @@ using m128ptr = const __m128i*;
 ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const data& d) noexcept -> __m128i {
   const __m128i div100 = _mm_load_si128(m128ptr(&d.div100));
   const __m128i div10 = _mm_load_si128(m128ptr(&d.div10));
-#  if ZMIJ_USE_SSE4_1
+#  if ZMIJ_USE_SIMD_X86 >= 41
   const __m128i neg100 = _mm_load_si128(m128ptr(&d.neg100));
   const __m128i neg10 = _mm_load_si128(m128ptr(&d.neg10));
 
@@ -1075,10 +1071,10 @@ ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const data& d) noexcept -> __m128i {
   __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
   return _mm_sub_epi16(_mm_slli_epi16(z, 8),
                        _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
-#  endif  // ZMIJ_USE_SSE4_1
+#  endif
 }
 
-#endif  // ZMIJ_USE_SSE
+#endif
 
 struct bcd_result {
   uint64_t bcd;
@@ -1086,30 +1082,10 @@ struct bcd_result {
 };
 
 auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
-  if (!ZMIJ_USE_SSE && !ZMIJ_USE_NEON) {
-    // An optimization from Xiang JunBo.
-    // Three steps BCD. Base 10000 -> base 100 -> base 10.
-    // div and mod are evaluated simultaneously as, e.g.
-    //   (abcdefgh / 10000) << 32 + (abcdefgh % 10000)
-    //      == abcdefgh + (2**32 - 10000) * (abcdefgh / 10000)))
-    // where the division on the RHS is implemented by the multiply + shift
-    // trick and the fractional bits are masked away.
-    uint64_t abcd_efgh =
-        abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
-    uint64_t ab_cd_ef_gh =
-        abcd_efgh +
-        neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
-    uint64_t a_b_c_d_e_f_g_h =
-        ab_cd_ef_gh +
-        neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
-    uint64_t bcd = is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
-    return {bcd, count_trailing_nonzeros(bcd)};
-  }
-
   const auto* d = &static_data;
   ZMIJ_ASM(("" : "+r"(d)));  // Load constants from memory.
 
-#if ZMIJ_USE_NEON
+#if ZMIJ_USE_SIMD_ARM
   uint64_t abcd_efgh_64 =
       abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
   int32x4_t abcd_efgh = vcombine_s32(
@@ -1118,14 +1094,14 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
   uint8x8_t digits = vget_low_u8(digits_128);
   uint64_t bcd = vget_lane_u64(vreinterpret_u64_u8(vrev64_u8(digits)), 0);
   return {bcd, count_trailing_nonzeros(bcd)};
-#elif ZMIJ_USE_SSE4_1
+#elif ZMIJ_USE_SIMD_X86 >= 41
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd =
       _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bswap64(unshuffled_bcd), len};
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_USE_SIMD_X86
   // Evaluate the 4-digit limbs and arrange them such that we get a result which
   // is in the correct order.
   uint64_t abcd_efgh =
@@ -1139,14 +1115,32 @@ auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
                  uint32_t(_mm_cvtsi128_si32(v));
 #  endif
   return {bcd, count_trailing_nonzeros(bcd)};
-#endif  // ZMIJ_USE_SSE
+#else
+  // An optimization from Xiang JunBo.
+  // Three steps BCD. Base 10000 -> base 100 -> base 10.
+  // div and mod are evaluated simultaneously as, e.g.
+  //   (abcdefgh / 10000) << 32 + (abcdefgh % 10000)
+  //      == abcdefgh + (2**32 - 10000) * (abcdefgh / 10000)))
+  // where the division on the RHS is implemented by the multiply + shift
+  // trick and the fractional bits are masked away.
+  uint64_t abcd_efgh =
+      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+  uint64_t ab_cd_ef_gh =
+      abcd_efgh +
+      neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
+  uint64_t a_b_c_d_e_f_g_h =
+      ab_cd_ef_gh +
+      neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
+  uint64_t bcd = is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
+  return {bcd, count_trailing_nonzeros(bcd)};
+#endif
 }
 
 template <int num_bits> struct dec_digits {
   // `unshuffled` is the byte-reversed BCD vector used by write_exp_float_simd.
-#if ZMIJ_USE_NEON
+#if ZMIJ_USE_SIMD_ARM
   uint8x16_t unshuffled;
-#elif ZMIJ_USE_SSE4_1
+#elif ZMIJ_USE_SIMD_X86 >= 41
   __m128i unshuffled;
 #endif
   uint64_t digits;
@@ -1154,9 +1148,9 @@ template <int num_bits> struct dec_digits {
 };
 
 template <> struct dec_digits<64> {
-#if ZMIJ_USE_NEON
+#if ZMIJ_USE_SIMD_ARM
   using digits_type = uint16x8_t;
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_USE_SIMD_X86
   using digits_type = __m128i;
 #else
   using digits_type = uint128;
@@ -1171,14 +1165,7 @@ template <> struct dec_digits<64> {
 template <int num_bits>
 ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
     -> dec_digits<num_bits> {
-#if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
-  uint32_t hi = uint32_t(value / 100'000'000);
-  uint32_t lo = uint32_t(value % 100'000'000);
-  auto hi_bcd = to_bcd8(hi);
-  if (lo == 0) return {{zeros, hi_bcd.bcd + zeros}, hi_bcd.len};
-  auto lo_bcd = to_bcd8(lo);
-  return {{lo_bcd.bcd + zeros, hi_bcd.bcd + zeros}, 8 + lo_bcd.len};
-#elif ZMIJ_USE_NEON
+#if ZMIJ_USE_SIMD_ARM
   auto unshuffled_digits = to_unshuffled_digits(value, d);
   uint8x16_t digits = vrev64q_u8(unshuffled_digits);
   uint16x8_t str = vaddq_u16(vreinterpretq_u16_u8(digits),
@@ -1188,7 +1175,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   uint64_t nonzero_mask =
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
   return {str, 16 - (clz(nonzero_mask) >> 2)};
-#else  // ZMIJ_USE_SSE
+#elif ZMIJ_USE_SIMD_X86
   uint32_t hi = uint32_t(value / 100'000'000);
   uint32_t lo = uint32_t(value % 100'000'000);
 
@@ -1200,7 +1187,9 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 
   // Shuffle to ensure correctly ordered result from SSE2 path.
-  if (!ZMIJ_USE_SSE4_1) y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
+#  ifndef ZMIJ_USE_SIMD_X86 >= 41
+  y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
+#  endif
 
   __m128i bcd = to_bcd_4x4(y, d);
   const __m128i zeros = _mm_load_si128(m128ptr(&d.zeros));
@@ -1209,19 +1198,30 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   // is derived in parallel with the shuffle on the SSE4.1 path.
   uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
-  int len = ZMIJ_USE_SSE4_1 ? 16 - ctz(mask) : 64 - clz(mask);
-#  if ZMIJ_USE_SSE4_1
-  bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));  // SSSE3
+#  ifdef ZMIJ_USE_SIMD_X86 >= 41
+  int len = 16 - ctz(mask);
+#  else
+  int len = 64 - clz(mask);
+#  endif
+#  if ZMIJ_USE_SIMD_X86 >= 31
+  bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));
 #  endif
   return {_mm_or_si128(bcd, zeros), len};
-#endif  // ZMIJ_USE_SSE
+#else
+  uint32_t hi = uint32_t(value / 100'000'000);
+  uint32_t lo = uint32_t(value % 100'000'000);
+  auto hi_bcd = to_bcd8(hi);
+  if (lo == 0) return {{zeros, hi_bcd.bcd + zeros}, hi_bcd.len};
+  auto lo_bcd = to_bcd8(lo);
+  return {{lo_bcd.bcd + zeros, hi_bcd.bcd + zeros}, 8 + lo_bcd.len};
+#endif
 }
 
 template <>
 ZMIJ_INLINE auto to_digits<32>(uint64_t value,
                                [[ZMIJ_MAYBE_UNUSED]] const data& d) noexcept
     -> dec_digits<32> {
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SIMD_X86 >= 41
   // Inline to_bcd8's SSE4.1 body so we can return the unshuffled xmm too;
   // the exponential-notation path uses it to skip the bswap-via-gpr.
   uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
@@ -1229,7 +1229,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
-#elif ZMIJ_USE_NEON
+#elif ZMIJ_USE_SIMD_ARM
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
   // the exponential-notation path uses it to skip the simd->gpr->bswap->simd
   // roundtrip needed to materialize `digits`.
@@ -1252,20 +1252,20 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
 // dependent 16-byte memmove.
 ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
                               bool drop_leading_zero, const data& d) noexcept {
-  if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
-    memcpy(buffer, &digits, sizeof(digits));
-    memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
-    return;
-  }
-#if ZMIJ_USE_NEON
+#if ZMIJ_USE_SIMD_ARM
   uint8x16_t shuffle = vld1q_u8(d.shift_shuffle + drop_leading_zero);
   uint8x16_t shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
   vst1q_u8(reinterpret_cast<uint8_t*>(buffer), shifted);
-#elif ZMIJ_USE_SSE4_1
+#elif ZMIJ_USE_SIMD_X86 >= 41
   __m128i shuffle = _mm_loadu_si128(
       reinterpret_cast<const __m128i*>(d.shift_shuffle + drop_leading_zero));
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
                    _mm_shuffle_epi8(digits, shuffle));
+#else
+  // TODO use SSE here.
+  memcpy(buffer, &digits, sizeof(digits));
+  memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
+  return;
 #endif
 }
 
@@ -1286,14 +1286,14 @@ ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
   uint64_t tail = exp_data | (uint64_t(prefix) << 32);
   auto entry = d.exp_float_shuffles.get_entry(dig.num_digits, has_last_digit,
                                               has_extra_digit);
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SIMD_X86 >= 41
   __m128i ascii =
       _mm_or_si128(dig.unshuffled, _mm_load_si128(m128ptr(&d.zeros)));
   __m128i src = _mm_insert_epi64(ascii, int64_t(tail), 1);
   __m128i shuffle = _mm_load_si128(m128ptr(entry.shuffle));
   __m128i out = _mm_shuffle_epi8(src, shuffle);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), out);
-#elif ZMIJ_USE_NEON
+#elif ZMIJ_USE_SIMD_ARM
   uint8x16_t ascii = vorrq_u8(dig.unshuffled, vdupq_n_u8('0'));
   uint8x16_t src = vreinterpretq_u8_u64(
       vsetq_lane_u64(tail, vreinterpretq_u64_u8(ascii), 1));
@@ -1935,7 +1935,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
     const auto& layout = fixed_layouts->get(dec_exp);
     buffer += layout.start_pos;
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_USE_SIMD_X86 >= 41
     if (bcd_size == 16) {
       auto& digits = reinterpret_cast<const __m128i&>(dig.digits);
       __m128i tbl = _mm_load_si128(m128ptr(&layout.shuffle[has_extra_digit]));
@@ -1948,7 +1948,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
       buffer[layout.last_digit_pos[has_extra_digit]] = last_digit;
       return buffer + layout.end_pos[num_digits + has_extra_digit - 1];
     }
-#endif  // ZMIJ_USE_SSE4_1
+#endif
     write_digits(buffer, dig.digits, !has_extra_digit, *d);
     buffer[bcd_size + has_extra_digit - 1] = last_digit;
     unsigned point_pos = layout.point_pos;
@@ -2306,8 +2306,10 @@ auto write_hex(Float value, char* buffer, bool prefix) noexcept -> char* {
   if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     zero = bin_sig == 0;
-    if (zero) bin_exp = traits::exp_bias;  // This cancels to 0 below.
-    else normalize<Float>(bin_sig, bin_exp);
+    if (zero)
+      bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else
+      normalize<Float>(bin_sig, bin_exp);
   }
   bin_exp -= traits::exp_bias;
 
@@ -2342,8 +2344,10 @@ auto write_hex(Float value, int precision, char* out, size_t n,
   if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     zero = bin_sig == 0;
-    if (zero) bin_exp = traits::exp_bias;  // This cancels to 0 below.
-    else normalize<Float>(bin_sig, bin_exp);
+    if (zero)
+      bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else
+      normalize<Float>(bin_sig, bin_exp);
   }
   bin_exp -= traits::exp_bias;
 
