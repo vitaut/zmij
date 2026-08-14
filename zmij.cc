@@ -956,10 +956,6 @@ struct data {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
-  //ZMIJ_INLINE auto split100m(uint64_t value) noexcept -> uint64_t {
-  //  return uint64_t(umul128(value, div100m_sig) >> 90);
-  //}
-
   ZMIJ_CONST_DECL uint64_t threshold = 1e15;
   // +6 is needed for boundary cases found by verify.py.
   ZMIJ_CONST_DECL uint64_t biased_half = (uint64_t(1) << 63) + 6;
@@ -1220,8 +1216,8 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
 #  endif
   return {_mm_or_si128(bcd, zeros), len};
 #else
-  uint32_t hi = uint32_t(value / 100'000'000);
-  uint32_t lo = uint32_t(value % 100'000'000);
+  const uint32_t hi = uint32_t(value / 100'000'000);
+  const uint32_t lo = uint32_t(value % 100'000'000);
   auto hi_bcd = to_bcd8(hi);
   if (lo == 0) return {{zeros, hi_bcd.bcd + zeros}, hi_bcd.len};
   auto lo_bcd = to_bcd8(lo);
