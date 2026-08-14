@@ -38,6 +38,8 @@
 #  define ZMIJ_USE_SIMD_X86 41
 #elif defined(__SSE4_1__)
 #  define ZMIJ_USE_SIMD_X86 41
+#elif defined(__SSSE3__)
+#  define ZMIJ_USE_SIMD_X86 31
 #elif defined(__SSE2__) defined(_M_AMD64) || \
     (defined(_M_IX86_FP) && _M_IX86_FP == 2)
 #  define ZMIJ_USE_SIMD_X86 20
@@ -759,7 +761,7 @@ struct exp_string_table {
 // byte is past the string and ignored by the caller.
 struct exp_float_shuffle_table {
   static constexpr bool enable =
-      (ZMIJ_USE_SIMD_X86 >= 41 || ZMIJ_USE_SIMD_ARM) &&
+      (ZMIJ_USE_SIMD_X86 >= 31 || ZMIJ_USE_SIMD_ARM) &&
       exp_string_table::enable;
   static constexpr unsigned char exp_pos = 8;
   static constexpr unsigned char last_digit_pos = 12;
@@ -955,18 +957,22 @@ struct data {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
+  ZMIJ_INLINE auto split100m(uint64_t value) noexcept -> uint64_t {
+    return uint64_t(umul128(value, div100m_sig) >> 90);
+  }
+
   ZMIJ_CONST_DECL uint64_t threshold = 1e15;
   // +6 is needed for boundary cases found by verify.py.
   ZMIJ_CONST_DECL uint64_t biased_half = (uint64_t(1) << 63) + 6;
 
+  ZMIJ_CONST_DECL uint64_t div100m_sig = 0xabcc77118461cefd;
+  ZMIJ_CONST_DECL uint64_t hundred_million = 100000000;
 #if ZMIJ_USE_SIMD_ARM
-  static constexpr int32_t neg10k = 0x10000 - 10000;
+  ZMIJ_CONST_DECL int32_t neg10k = 0x10000 - 10000;
 
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
 
-  uint64_t mul_const = 0xabcc77118461cefd;
-  uint64_t hundred_million = 100000000;
   int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
   int16x8 multipliers16 = {0xce0, neg10};
 #elif ZMIJ_USE_SIMD_X86
@@ -1026,7 +1032,7 @@ ZMIJ_INLINE auto to_unshuffled_digits(uint64_t value, const data& d)
   ZMIJ_ASM(("" : "+r"(hundred_million)));
 
   // abcdefgh = value / 100000000, ijklmnop = value % 100000000.
-  uint64_t abcdefgh = uint64_t(umul128(value, d.mul_const) >> 90);
+  uint64_t abcdefgh = uint64_t(umul128(value, d.div100m_sig) >> 90);
   uint64_t ijklmnop = value - abcdefgh * hundred_million;
 
   uint64x1_t ijklmnop_abcdefgh_64 = {ijklmnop << 32 | abcdefgh};
@@ -1261,8 +1267,11 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
       reinterpret_cast<const __m128i*>(d.shift_shuffle + drop_leading_zero));
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
                    _mm_shuffle_epi8(digits, shuffle));
+#elif ZMIJ_USE_SIMD_X86 >= 20
+  if (drop_leading_zero) digits = _mm_srli_si128(digits, 1);
+
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
 #else
-  // TODO use SSE here.
   memcpy(buffer, &digits, sizeof(digits));
   memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
   return;
@@ -1271,9 +1280,36 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
 
 ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
                               bool drop_leading_zero, const data&) noexcept {
+  digits >>= (drop_leading_zero * 8);
   memcpy(buffer, &digits, sizeof(digits));
-  memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
 }
+
+#if ZMIJ_USE_SIMD_X86 >= 31
+
+ZMIJ_INLINE auto insert_hi64(__m128i lo, uint64_t hi) noexcept -> __m128i {
+#  if defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
+#    if ZMIJ_USE_SIMD_X86 >= 41
+  return _mm_insert_epi64(lo, static_cast<long long>(hi), 1);
+#    else
+  return _mm_unpacklo_epi64(lo, _mm_cvtsi64_si128(static_cast<long long>(hi)));
+#    endif
+#  else
+  __m128i hi_lo = _mm_cvtsi32_si128(static_cast<int32_t>(uint32_t(hi)));
+  __m128i hi_hi = _mm_cvtsi32_si128(static_cast<int32_t>(uint32_t(hi >> 32)));
+  hi_lo = _mm_unpacklo_epi32(hi_lo, hi_hi);
+  return _mm_unpacklo_epi64(lo, hi_lo);
+#  endif
+}
+
+ZMIJ_INLINE auto ascii_bcd(__m128i bcd, const data& d) noexcept -> __m128i {
+  return _mm_or_si128(bcd, _mm_load_si128(m128ptr(&d.zeros)));
+}
+
+ZMIJ_INLINE auto reverse_bcd(__m128i bcd, const data& d) noexcept -> __m128i {
+  return _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));
+}
+
+#endif
 
 ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
                                       int last_digit, bool has_last_digit,
@@ -1286,10 +1322,8 @@ ZMIJ_INLINE auto write_exp_float_simd(char* buffer, const dec_digits<32>& dig,
   uint64_t tail = exp_data | (uint64_t(prefix) << 32);
   auto entry = d.exp_float_shuffles.get_entry(dig.num_digits, has_last_digit,
                                               has_extra_digit);
-#if ZMIJ_USE_SIMD_X86 >= 41
-  __m128i ascii =
-      _mm_or_si128(dig.unshuffled, _mm_load_si128(m128ptr(&d.zeros)));
-  __m128i src = _mm_insert_epi64(ascii, int64_t(tail), 1);
+#if ZMIJ_USE_SIMD_X86 >= 31
+  __m128i ascii = ascii_bcd(dig.unshuffled, d);
   __m128i shuffle = _mm_load_si128(m128ptr(entry.shuffle));
   __m128i out = _mm_shuffle_epi8(src, shuffle);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), out);
@@ -1935,15 +1969,20 @@ auto write(Float value, char* buffer) noexcept -> char* {
 
     const auto& layout = fixed_layouts->get(dec_exp);
     buffer += layout.start_pos;
-#if ZMIJ_USE_SIMD_X86 >= 41
+#if ZMIJ_USE_SIMD_X86 >= 31
     if (bcd_size == 16) {
       auto& digits = reinterpret_cast<const __m128i&>(dig.digits);
       __m128i tbl = _mm_load_si128(m128ptr(&layout.shuffle[has_extra_digit]));
       __m128i out = _mm_shuffle_epi8(digits, tbl);
-      memcpy(buffer, &out, bcd_size);  // Store the assembled digits in one go.
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
+                       out);  // Store the assembled digits in one go.
       // The point can push BCD[15] outside the vector to buffer[16], so write
       // it unconditionally (otherwise it's in-vector or overwritten below).
+#  if ZMIJ_USE_SIMD_X86 >= 41
       buffer[bcd_size] = char(_mm_extract_epi8(digits, 15));
+#  else
+      buffer[bcd_size] = char(_mm_cvtsi128_si32(_mm_srli_si128(digits, 15)));
+#  endif
       start[layout.point_pos] = '.';
       buffer[layout.last_digit_pos[has_extra_digit]] = last_digit;
       return buffer + layout.end_pos[num_digits + has_extra_digit - 1];
