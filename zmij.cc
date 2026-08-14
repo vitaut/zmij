@@ -1182,8 +1182,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
   return {str, 16 - (clz(nonzero_mask) >> 2)};
 #elif ZMIJ_USE_SIMD_X86
-  const uint64_t hi64 =
-      umul128_hi64(value, d.div100m_sig << (64 - d.div100m_exp));
+  const uint64_t hi64 = umul128_hi64(value, d.div100m_sig) >> d.div100m_exp;
   const uint32_t hi = uint32_t(hi64);
   const uint32_t lo = uint32_t(value - uint64_t(hi) * d.hundred_million);
 
@@ -1229,20 +1228,13 @@ template <>
 ZMIJ_INLINE auto to_digits<32>(uint64_t value,
                                [[ZMIJ_MAYBE_UNUSED]] const data& d) noexcept
     -> dec_digits<32> {
-#if ZMIJ_USE_SIMD_X86 >= 31
+#if ZMIJ_USE_SIMD_X86 >= 41
   // Inline to_bcd8's SSE4.1 body so we can return the unshuffled xmm too;
   // the exponential-notation path uses it to skip the bswap-via-gpr.
   uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
   __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
-#  if ZMIJ_USE_SIMD_X86 >= 41
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
-#  else
-  // SSE2 to_bcd_4x4 ordering differs.
-  bcd = _mm_shuffle_epi32(bcd, _MM_SHUFFLE(0, 1, 2, 3));
-  uint64_t unshuffled = _mm_cvtsi128_si64(bcd);
-  int len = unshuffled ? 8 - clz(unshuffled) / 8 : 0;
-#  endif
   return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
 #elif ZMIJ_USE_SIMD_ARM
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
@@ -1271,7 +1263,7 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
   uint8x16_t shuffle = vld1q_u8(d.shift_shuffle + drop_leading_zero);
   uint8x16_t shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
   vst1q_u8(reinterpret_cast<uint8_t*>(buffer), shifted);
-#elif ZMIJ_USE_SIMD_X86 >= 41
+#elif ZMIJ_USE_SIMD_X86 >= 31
   __m128i shuffle = _mm_loadu_si128(
       reinterpret_cast<const __m128i*>(d.shift_shuffle + drop_leading_zero));
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
@@ -1296,17 +1288,10 @@ ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
 #if ZMIJ_USE_SIMD_X86 >= 31
 
 ZMIJ_INLINE auto insert_hi64(__m128i lo, uint64_t hi) noexcept -> __m128i {
-#  if defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64)
-#    if ZMIJ_USE_SIMD_X86 >= 41
+#  if ZMIJ_USE_SIMD_X86 >= 41
   return _mm_insert_epi64(lo, static_cast<long long>(hi), 1);
-#    else
-  return _mm_unpacklo_epi64(lo, _mm_cvtsi64_si128(static_cast<long long>(hi)));
-#    endif
 #  else
-  __m128i hi_lo = _mm_cvtsi32_si128(static_cast<int32_t>(uint32_t(hi)));
-  __m128i hi_hi = _mm_cvtsi32_si128(static_cast<int32_t>(uint32_t(hi >> 32)));
-  hi_lo = _mm_unpacklo_epi32(hi_lo, hi_hi);
-  return _mm_unpacklo_epi64(lo, hi_lo);
+  return _mm_unpacklo_epi64(lo, _mm_cvtsi64_si128(static_cast<long long>(hi)));
 #  endif
 }
 
