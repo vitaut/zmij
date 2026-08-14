@@ -36,8 +36,8 @@
 #elif defined(__SSE4_1__) || defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
 #  define ZMIJ_USE_SIMD_X86 41
-#elif defined(__SSSE3__)
-#  define ZMIJ_USE_SIMD_X86 31
+//#elif defined(__SSSE3__)
+//#  define ZMIJ_USE_SIMD_X86 31
 #elif defined(__SSE2__) || defined(_M_AMD64) || \
     (defined(_M_IX86_FP) && _M_IX86_FP == 2)
 #  define ZMIJ_USE_SIMD_X86 20
@@ -46,7 +46,7 @@
 #endif
 #if ZMIJ_USE_SIMD_X86
 static_assert(ZMIJ_USE_SIMD_X86 == 0 || ZMIJ_USE_SIMD_X86 == 20 ||
-              ZMIJ_USE_SIMD_X86 == 41);
+              /*ZMIJ_USE_SIMD_X86 == 31 ||*/ ZMIJ_USE_SIMD_X86 == 41);
 #  include <immintrin.h>
 #endif
 
@@ -956,6 +956,10 @@ struct data {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
+  //ZMIJ_INLINE auto split100m(uint64_t value) noexcept -> uint64_t {
+  //  return uint64_t(umul128(value, div100m_sig) >> 90);
+  //}
+
   ZMIJ_CONST_DECL uint64_t threshold = 1e15;
   // +6 is needed for boundary cases found by verify.py.
   ZMIJ_CONST_DECL uint64_t biased_half = (uint64_t(1) << 63) + 6;
@@ -1191,7 +1195,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 
   // Shuffle to ensure correctly ordered result from SSE2 path.
-#  ifndef ZMIJ_USE_SIMD_X86 >= 41
+#  if ZMIJ_USE_SIMD_X86 < 41
   y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
 #  endif
 
@@ -1202,7 +1206,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   // is derived in parallel with the shuffle on the SSE4.1 path.
   uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
-#  ifdef ZMIJ_USE_SIMD_X86 >= 41
+#  if ZMIJ_USE_SIMD_X86 >= 41
   int len = 16 - ctz(mask);
 #  else
   int len = 64 - clz(mask);
