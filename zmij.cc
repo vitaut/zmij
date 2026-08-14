@@ -36,8 +36,8 @@
 #elif defined(__SSE4_1__) || defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
 #  define ZMIJ_USE_SIMD_X86 41
-//#elif defined(__SSSE3__)
-//#  define ZMIJ_USE_SIMD_X86 31
+#elif defined(__SSSE3__)
+#  define ZMIJ_USE_SIMD_X86 31
 #elif defined(__SSE2__) || defined(_M_AMD64) || \
     (defined(_M_IX86_FP) && _M_IX86_FP == 2)
 #  define ZMIJ_USE_SIMD_X86 20
@@ -46,7 +46,7 @@
 #endif
 #if ZMIJ_USE_SIMD_X86
 static_assert(ZMIJ_USE_SIMD_X86 == 0 || ZMIJ_USE_SIMD_X86 == 20 ||
-              /*ZMIJ_USE_SIMD_X86 == 31 ||*/ ZMIJ_USE_SIMD_X86 == 41);
+              ZMIJ_USE_SIMD_X86 == 31 || ZMIJ_USE_SIMD_X86 == 41);
 #  include <immintrin.h>
 #endif
 
@@ -1182,9 +1182,8 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
       vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
   return {str, 16 - (clz(nonzero_mask) >> 2)};
 #elif ZMIJ_USE_SIMD_X86
-  const uint64_t hi64 = umul128_hi64(value, d.div100m_sig) >> d.div100m_exp;
-  const uint32_t hi = uint32_t(hi64);
-  const uint32_t lo = uint32_t(value - uint64_t(hi) * d.hundred_million);
+  const uint32_t hi = uint32_t(value / 100'000'000);
+  const uint32_t lo = uint32_t(value % 100'000'000);
 
   const __m128i div10k = _mm_load_si128(m128ptr(&d.div10k));
   const __m128i neg10k = _mm_load_si128(m128ptr(&d.neg10k));
@@ -1193,8 +1192,9 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 
-  // Shuffle to ensure correctly ordered result from SSE2 path.
+  // SSE2 and SSE4.1 produce different byte ordering:
 #  if ZMIJ_USE_SIMD_X86 < 41
+  // Reshufle for correct.
   y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
 #  endif
 
@@ -1204,6 +1204,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   // Computed against current bcd (rather than the post-bswap bcd) so the mask
   // is derived in parallel with the shuffle on the SSE4.1 path.
   uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
+
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
 #  if ZMIJ_USE_SIMD_X86 >= 41
   int len = 16 - ctz(mask);
