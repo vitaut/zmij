@@ -1405,18 +1405,13 @@ ZMIJ_INLINE auto write_zero(char* buffer, int precision) noexcept -> char* {
 // Writes the exponent as 'e', a sign and at least two digits (e.g. e+05).
 template <typename Float>
 ZMIJ_INLINE auto write_exp(char* buffer, int dec_exp) noexcept -> char* {
+  static_assert(float_traits<Float>::max_exponent10 < 1000, "");
   buffer = write2(buffer, 'e', dec_exp >= 0 ? '+' : '-');
   uint32_t abs_exp = dec_exp >= 0 ? uint32_t(dec_exp) : uint32_t(-dec_exp);
   if (float_traits<Float>::max_exponent10 >= 100) {
-    constexpr bool wide = float_traits<Float>::max_exponent10 >= 1000;
-    uint32_t hi = use_umul128_hi64 && !wide
-                      ? umul128_hi64(abs_exp, 0x290000000000000)
-                      : (abs_exp * div100_sig) >> div100_exp;
-    if (wide) {
-      *buffer = char('0' + hi / 10);
-      buffer += hi >= 10;
-    }
-    *buffer = char('0' + (wide ? hi % 10 : hi));
+    uint32_t hi = use_umul128_hi64 ? umul128_hi64(abs_exp, 0x290000000000000)
+                                   : (abs_exp * div100_sig) >> div100_exp;
+    *buffer = char('0' + hi);  // hundreds (0-3)
     buffer += abs_exp >= 100;
     abs_exp -= hi * 100;
   }
@@ -1790,7 +1785,7 @@ auto write_number(writer& w, const char* digits, int num_digits, int lead_exp,
       w.write_zeros(num_tail_zeros);  // pad the fraction to precision
     }
     char exp[8];
-    char* end = write_exp<long double>(exp, lead_exp);
+    char* end = zmij::detail::write_big_exp(exp, lead_exp);
     return w.write(exp, int(end - exp));
   }
 
@@ -1899,25 +1894,38 @@ auto write_big(writer& w, bigint num, int bin_exp, int precision, char* digits,
 
 namespace zmij {
 
-auto to_decimal(double value) noexcept -> dec_fp {
-  using traits = float_traits<double>;
+namespace detail {
+
+template <typename Float>
+auto to_decimal(Float value) noexcept -> dec_fp {
+  using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);  // binary exponent
   auto bin_sig = traits::get_sig(bits);  // binary significand
   auto negative = traits::is_negative(bits);
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
-    if (bin_exp != 0) return {bin_sig, int(~0u >> 1), negative};
+    if (bin_exp != 0) return {bin_sig, non_finite_exp, negative};
     if (bin_sig == 0) return {0, 0, negative};
     bin_exp = 1;
     bin_sig |= traits::implicit_bit;
   }
-  auto dec = ::to_decimal<double>(bin_sig ^ traits::implicit_bit, bin_exp,
-                                  bin_sig != 0, static_data);
+  auto dec = ::to_decimal<Float>(bin_sig ^ traits::implicit_bit, bin_exp,
+                                 bin_sig != 0, static_data);
   auto last_digit = -dec.has_last_digit & dec.last_digit;
   return {dec.sig * 10 + last_digit, dec.exp, negative};
 }
 
-namespace detail {
+auto write_big_exp(char* buffer, int dec_exp) noexcept -> char* {
+  buffer = write2(buffer, 'e', dec_exp >= 0 ? '+' : '-');
+  uint32_t abs_exp = dec_exp >= 0 ? uint32_t(dec_exp) : uint32_t(-dec_exp);
+  uint32_t hi = (abs_exp * div100_sig) >> div100_exp;  // abs_exp / 100
+  *buffer = char('0' + hi / 10);
+  buffer += hi >= 10;
+  *buffer = char('0' + hi % 10);
+  buffer += abs_exp >= 100;
+  memcpy(buffer, digits2(abs_exp - hi * 100), 2);
+  return buffer + 2;
+}
 
 // It is slightly faster to return a pointer to the end than the size.
 template <typename Float>
@@ -2451,6 +2459,9 @@ auto write_hex(Float value, int precision, char* out, size_t n,
   char exp[8];
   return w.write(exp, int(write_hex_exp(exp, bin_exp) - exp));
 }
+
+template auto to_decimal(float value) noexcept -> dec_fp;
+template auto to_decimal(double value) noexcept -> dec_fp;
 
 template auto write(float value, char* buffer) noexcept -> char*;
 template auto write(double value, char* buffer) noexcept -> char*;

@@ -127,6 +127,32 @@ TEST(float_test, to_chars) {
   EXPECT_EQ(std::string(small, sizeof(small)), "1.?");
 }
 
+TEST(float_test, to_decimal) {
+  zmij::dec_fp dec = zmij::to_decimal(6.62607e-34f);
+  EXPECT_EQ(dec.sig, 66260700);
+  EXPECT_EQ(dec.exp, -41);
+  EXPECT_EQ(dec.negative, false);
+
+  dec = zmij::to_decimal(-1.5f);
+  EXPECT_EQ(dec.sig, 15000000);
+  EXPECT_EQ(dec.exp, -7);
+  EXPECT_EQ(dec.negative, true);
+
+  dec = zmij::to_decimal(-0.0f);
+  EXPECT_EQ(dec.sig, 0);
+  EXPECT_EQ(dec.exp, 0);
+  EXPECT_EQ(dec.negative, true);
+
+  uint32_t garlic = 0;
+  memcpy(&garlic, "🧄", 4);
+  uint32_t bits = 0x7F800000 | (garlic & 0x7FFFFF);
+  float garlic_nan = 0;
+  memcpy(&garlic_nan, &bits, sizeof(bits));
+  dec = zmij::to_decimal(garlic_nan);
+  EXPECT_EQ(dec.exp, zmij::non_finite_exp);
+  EXPECT_EQ(dec.sig, garlic & 0x7FFFFF);
+}
+
 TEST(float_test, to_chars_format) {
   char buffer[zmij::buffer_sizes<float>::fixed];
   auto result = zmij::to_chars(buffer, buffer + sizeof(buffer), 1.5f,
@@ -159,6 +185,19 @@ TEST(float_test, to_chars_format) {
                           zmij::chars_format::hex, -1);
   EXPECT_EQ(result.ec, std::errc());
   EXPECT_EQ(std::string(buffer, result.ptr), "1.8p+0");
+
+  // Format without precision writes the shortest round-tripping form, same as
+  // the double path (see double_test.to_chars_format for the %g rule).
+  auto shortest = [&](zmij::chars_format f, float value) {
+    auto r = zmij::to_chars(buffer, buffer + sizeof(buffer), value, f);
+    EXPECT_EQ(r.ec, std::errc());
+    return std::string(buffer, r.ptr);
+  };
+  EXPECT_EQ(shortest(zmij::chars_format::hex, 1.5f), "1.8p+0");
+  EXPECT_EQ(shortest(zmij::chars_format::scientific, 1.5f), "1.5e+00");
+  EXPECT_EQ(shortest(zmij::chars_format::fixed, 0.0001f), "0.0001");
+  EXPECT_EQ(shortest(zmij::chars_format::general, 100.0f), "1e+02");
+  EXPECT_EQ(shortest(zmij::chars_format::general, 1234567.0f), "1234567");
 }
 
 TEST(float_test, write_precision) {
@@ -418,16 +457,25 @@ TEST(double_test, to_chars_format) {
                 -std::numeric_limits<double>::quiet_NaN()),
             "-nan");
 
-  // Format without precision: `hex` gives the shortest form, other formats are
-  // not yet supported.
-  auto r = zmij::to_chars(buffer, buffer + sizeof(buffer), 1.5,
-                          zmij::chars_format::hex);
-  EXPECT_EQ(r.ec, std::errc());
-  EXPECT_EQ(std::string(buffer, r.ptr), "1.8p+0");
-  r = zmij::to_chars(buffer, buffer + sizeof(buffer), 1.5,
-                     zmij::chars_format::scientific);
-  EXPECT_EQ(r.ec, std::errc::not_supported);
-  EXPECT_EQ(r.ptr, buffer);  // nothing written
+  // Format without precision writes the shortest round-tripping form.
+  auto shortest = [&](zmij::chars_format f, double value) {
+    auto r = zmij::to_chars(buffer, buffer + sizeof(buffer), value, f);
+    EXPECT_EQ(r.ec, std::errc());
+    return std::string(buffer, r.ptr);
+  };
+  EXPECT_EQ(shortest(zmij::chars_format::hex, 1.5), "1.8p+0");
+  EXPECT_EQ(shortest(zmij::chars_format::scientific, 1.5), "1.5e+00");
+  EXPECT_EQ(shortest(zmij::chars_format::fixed, 1.5), "1.5");
+
+  // `general` without precision follows the printf %g rule with the precision
+  // set to the shortest significant-digit count, as the standard requires:
+  // fixed when the leading exponent is in [-4, num_sig), else scientific. Some
+  // libc++ builds instead apply %g's default precision of 6, so std::to_chars
+  // there disagrees, e.g. printing "100" and "1.234567e+06" for these cases.
+  EXPECT_EQ(shortest(zmij::chars_format::general, 100.0), "1e+02");
+  EXPECT_EQ(shortest(zmij::chars_format::general, 1234567.0), "1234567");
+  EXPECT_EQ(shortest(zmij::chars_format::general, 0.0001), "0.0001");
+  EXPECT_EQ(shortest(zmij::chars_format::general, 1.5), "1.5");
 
   // Output too small: truncated result, ptr == last, value_too_large.
   char small[8];
