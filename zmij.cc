@@ -1284,14 +1284,14 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
 #elif ZMIJ_USE_SIMD_X86 >= 20
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer + drop_leading_zero), digits);
 #else
-  digits >>= (drop_leading_zero * 8);
+  digits = digits >> (drop_leading_zero * sizeof(digits));
   memcpy(buffer, &digits, sizeof(digits));
 #endif
 }
 
 ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
                               bool drop_leading_zero, const data&) noexcept {
-  digits >>= (drop_leading_zero * 8);
+  digits = digits >> (drop_leading_zero * sizeof(digits));
   memcpy(buffer, &digits, sizeof(digits));
 }
 
