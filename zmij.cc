@@ -1282,13 +1282,10 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
                    _mm_shuffle_epi8(digits, shuffle));
 #elif ZMIJ_USE_SIMD_X86 >= 20
-  if (drop_leading_zero) digits = _mm_srli_si128(digits, 1);
-
-  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer), digits);
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer + drop_leading_zero), digits);
 #else
+  digits >>= (drop_leading_zero * 8);
   memcpy(buffer, &digits, sizeof(digits));
-  memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
-  return;
 #endif
 }
 
@@ -2012,7 +2009,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     buffer[bcd_size + has_extra_digit - 1] = last_digit;
     unsigned point_pos = layout.point_pos;
 #if ZMIJ_USE_SIMD_X86 >= 20
-    if (bcd_size == 16 && layout.shift_pos > layout.point_pos) {
+    if (bcd_size == 16) {
       const __m128i value = _mm_loadu_si128(
           reinterpret_cast<const __m128i*>(start + layout.point_pos));
 
@@ -2452,7 +2449,8 @@ auto write_hex(Float value, int precision, char* out, size_t n,
     do {
       w.write("0123456789abcdef"[uint64_t(bin_sig >> (width - 4))]);
       bin_sig = bin_sig << 4;
-    }
+      ++i;
+    } while (bin_sig != 0);
     w.write_zeros(precision - i);
   }
 
