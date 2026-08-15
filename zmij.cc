@@ -810,7 +810,7 @@ struct exp_float_shuffle_table {
 };
 
 constexpr auto fixed_entry_align() noexcept -> int {
-  if (ZMIJ_USE_SIMD_X86 >= 41) return 64;  // Align to a cache line.
+  if (ZMIJ_USE_SIMD_X86 >= 31) return 64;  // Align to a cache line.
   // Align entry to 32 bytes so indexing uses `lsl #5` not `umaddl`.
   return ZMIJ_AARCH64 && !ZMIJ_OPTIMIZE_SIZE ? 32 : 1;
 }
@@ -1192,8 +1192,8 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 
-  // SSE2 and SSE4.1 produce different byte ordering:
-#  if ZMIJ_USE_SIMD_X86 < 41
+  // SSE2 and SSSE3 produce different byte ordering:
+#  if ZMIJ_USE_SIMD_X86 < 31
   // Reshufle for correct.
   y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
 #  endif
@@ -1205,7 +1205,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   // is derived in parallel with the shuffle on the SSE4.1 path.
   uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
 
-  // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
+  // Trailing zeros are in the low bits for SSSE3, the high bits for SSE2.
 #  if ZMIJ_USE_SIMD_X86 >= 41
   int len = 16 - ctz(mask);
 #  else
@@ -1216,8 +1216,8 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
 #  endif
   return {_mm_or_si128(bcd, zeros), len};
 #else
-  const uint32_t hi = uint32_t(value / 100'000'000);
-  const uint32_t lo = uint32_t(value % 100'000'000);
+  uint32_t hi = uint32_t(value / 100'000'000);
+  uint32_t lo = uint32_t(value % 100'000'000);
   auto hi_bcd = to_bcd8(hi);
   if (lo == 0) return {{zeros, hi_bcd.bcd + zeros}, hi_bcd.len};
   auto lo_bcd = to_bcd8(lo);
@@ -2010,13 +2010,13 @@ auto write(Float value, char* buffer) noexcept -> char* {
     unsigned point_pos = layout.point_pos;
 #if ZMIJ_USE_SIMD_X86 >= 20
     if (bcd_size == 16) {
-      const __m128i value = _mm_loadu_si128(
-          reinterpret_cast<const __m128i*>(start + layout.point_pos));
+      __m128i value = _mm_loadu_si128(
+          reinterpret_cast<const __m128i*>(start + point_pos));
 
       _mm_storeu_si128(reinterpret_cast<__m128i*>(start + layout.shift_pos),
                        value);
     } else {
-      memmove(start + layout.shift_pos, start + layout.point_pos, bcd_size);
+      memmove(start + layout.shift_pos, start + point_pos, bcd_size);
     }
 #else
     memmove(start + layout.shift_pos, start + point_pos, bcd_size);
@@ -2374,10 +2374,8 @@ auto write_hex(Float value, char* buffer, bool prefix) noexcept -> char* {
   if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     zero = bin_sig == 0;
-    if (zero)
-      bin_exp = traits::exp_bias;  // This cancels to 0 below.
-    else
-      normalize<Float>(bin_sig, bin_exp);
+    if (zero) bin_exp = traits::exp_bias; // This cancels to 0 below.
+    else normalize<Float>(bin_sig, bin_exp);
   }
   bin_exp -= traits::exp_bias;
 
@@ -2412,10 +2410,8 @@ auto write_hex(Float value, int precision, char* out, size_t n,
   if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     zero = bin_sig == 0;
-    if (zero)
-      bin_exp = traits::exp_bias;  // This cancels to 0 below.
-    else
-      normalize<Float>(bin_sig, bin_exp);
+    if (zero) bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else normalize<Float>(bin_sig, bin_exp);
   }
   bin_exp -= traits::exp_bias;
 
