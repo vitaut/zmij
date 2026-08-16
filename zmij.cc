@@ -36,9 +36,17 @@
 static_assert(ZMIJ_USE_SIMD_X86 == 20 || ZMIJ_USE_SIMD_X86 == 31 ||
               ZMIJ_USE_SIMD_X86 == 41);
 #elif ZMIJ_USE_SIMD == 0
+// disable SIMD
 #  define ZMIJ_USE_SIMD_X86 0
-#elif defined(__SSE4_1__) || defined(__AVX__)
-// On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
+#elif defined(__AVX2__)
+// auto detect
+#  define ZMIJ_USE_SIMD_X86 52 // TODO
+#elif defined(__AVX__)
+// On MSVC there's no way to check for SSE4.1 specifically so check AVX.
+#  define ZMIJ_USE_SIMD_X86 50
+#elif defined(__SSE4_2__)
+#  define ZMIJ_USE_SIMD_X86 42
+#elif defined(__SSE4_1__)
 #  define ZMIJ_USE_SIMD_X86 41
 #elif defined(__SSSE3__)
 #  define ZMIJ_USE_SIMD_X86 31
