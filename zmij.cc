@@ -1010,11 +1010,8 @@ struct data {
 
   // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
   // shift left by 1 (drops the leading '0' of a 16-digit significand).
-  alignas(16) unsigned char shift_shuffle[17] = {
-      // drop_leading_zero = 0
-      0, 1, 2, 3, 4, 5, 6, 7, 8,
-      // drop_leading_zero = 1
-      9, 10, 11, 12, 13, 14, 15, 0};
+  unsigned char shift_shuffle[17] = {
+      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0x80};
 };
 alignas(64) constexpr data static_data;
 
