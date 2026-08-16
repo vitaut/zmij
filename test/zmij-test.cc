@@ -686,7 +686,7 @@ TEST(double_test, write_big_no_point) {
   char buf[32], ref[32];
   for (double value : {1.0, 2.5, 9.5, 12.5, 0.5, 1e300, 5e-324}) {
     for (int precision : {0, 1, 2}) {
-      size_t len = zmij::detail::write_big(value, precision, buf, sizeof(buf),
+      size_t len = zmij::detail::write_big(buf, sizeof(buf), value, precision,
                                            zmij::format::scientific);
       snprintf(ref, sizeof(ref), "%.*e", precision, value);
       EXPECT_EQ(std::string(buf, len), std::string(ref))
@@ -703,7 +703,7 @@ TEST(double_test, write_big_reports_true_length) {
   const size_t expected = 36;
 
   char buf[64];
-  size_t full = zmij::detail::write_big(1.5, 30, buf, sizeof(buf),
+  size_t full = zmij::detail::write_big(buf, sizeof(buf), 1.5, 30,
                                         zmij::format::scientific);
   EXPECT_EQ(full, expected);  // fit exactly, no truncation
 
@@ -712,7 +712,7 @@ TEST(double_test, write_big_reports_true_length) {
   char small[8];
   memset(small, '?', sizeof(small));
   size_t needed =
-      zmij::detail::write_big(1.5, 30, small, 5, zmij::format::scientific);
+      zmij::detail::write_big(small, 5, 1.5, 30, zmij::format::scientific);
   EXPECT_EQ(std::string(small, 5), "1.500");  // first 5 chars only
   EXPECT_EQ(small[5], '?');                   // no overrun past the capacity
   EXPECT_EQ(needed, expected);                // true length, > capacity

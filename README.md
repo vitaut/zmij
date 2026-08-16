@@ -3,7 +3,7 @@
 [![CI](https://github.com/vitaut/zmij/actions/workflows/ci.yml/badge.svg)](
 https://github.com/vitaut/zmij/actions/workflows/ci.yml)
 
-A fast double-to-string conversion library with implementations in C and C++
+A fast floating-point-to-string conversion library for C and C++
 
 ## Features
 

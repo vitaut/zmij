@@ -945,8 +945,8 @@ TEST(zmij_impl_test, shortest_big_double) {
                     std::numeric_limits<double>::denorm_min()};
   for (double v : edges) {
     char fast[64], big[64];
-    EXPECT_EQ(std::string(big, zmij::detail::write_big(v, big, sizeof(big))),
-              std::string(fast, zmij::detail::write(v, fast)))
+    EXPECT_EQ(std::string(big, zmij::detail::write_big(big, sizeof(big), v)),
+              std::string(fast, zmij::detail::write(fast, v)))
         << v;
   }
 }
@@ -964,7 +964,7 @@ TEST(zmij_impl_test, write_big_allocation_failure) {
   char buf[64];
 
   zmij::fail_malloc = true;
-  EXPECT_EQ(zmij::detail::write_big(value, 30, buf, sizeof(buf),
+  EXPECT_EQ(zmij::detail::write_big(buf, sizeof(buf), value, 30,
                                     zmij::format::scientific),
             0u);
   EXPECT_EQ(zmij::write_scientific(buf, sizeof(buf), value, 30), nullptr);

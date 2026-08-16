@@ -1930,7 +1930,7 @@ auto write_big_exp(char* buffer, int dec_exp) noexcept -> char* {
 
 // It is slightly faster to return a pointer to the end than the size.
 template <typename Float>
-auto write(Float value, char* buffer) noexcept -> char* {
+auto write(char* buffer, Float value) noexcept -> char* {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);  // binary exponent
@@ -2042,7 +2042,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
 }
 
 template <typename Float>
-auto write_big(Float value, char* out, size_t n) noexcept -> size_t {
+auto write_big(char* out, size_t n, Float value) noexcept -> size_t {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto raw_exp = traits::get_exp(bits);
@@ -2147,7 +2147,7 @@ auto write_big(Float value, char* out, size_t n) noexcept -> size_t {
 }
 
 template <typename Float>
-auto write_big(Float value, int precision, char* out, size_t n,
+auto write_big(char* out, size_t n, Float value, int precision,
                format fmt) noexcept -> size_t {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
@@ -2186,7 +2186,7 @@ auto write_big(Float value, int precision, char* out, size_t n,
 }
 
 template <typename Float>
-auto write_scientific(Float value, int precision, char* buffer) noexcept
+auto write_scientific(char* buffer, Float value, int precision) noexcept
     -> char* {
   assert(precision >= 1 && precision <= 18);
   using traits = float_traits<Float>;
@@ -2215,7 +2215,7 @@ auto write_scientific(Float value, int precision, char* buffer) noexcept
 }
 
 template <typename Float>
-auto write_general(Float value, int precision, char* buffer) noexcept -> char* {
+auto write_general(char* buffer, Float value, int precision) noexcept -> char* {
   assert(precision >= 1 && precision <= 18);
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
@@ -2267,7 +2267,7 @@ auto write_general(Float value, int precision, char* buffer) noexcept -> char* {
 }
 
 template <typename Float>
-auto write_fixed(Float value, int precision, char* buffer) noexcept -> char* {
+auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
   assert(precision >= 0 && precision <= 18);
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
@@ -2353,7 +2353,7 @@ auto write_fixed(Float value, int precision, char* buffer) noexcept -> char* {
 }
 
 template <typename Float>
-auto write_hex(Float value, char* buffer, bool prefix) noexcept -> char* {
+auto write_hex(char* buffer, Float value, bool prefix) noexcept -> char* {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);
@@ -2388,7 +2388,7 @@ auto write_hex(Float value, char* buffer, bool prefix) noexcept -> char* {
 }
 
 template <typename Float>
-auto write_hex(Float value, int precision, char* out, size_t n,
+auto write_hex(char* out, size_t n, Float value, int precision,
                bool prefix) noexcept -> size_t {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
@@ -2449,42 +2449,42 @@ auto write_hex(Float value, int precision, char* out, size_t n,
 template auto to_decimal(float value) noexcept -> dec_fp;
 template auto to_decimal(double value) noexcept -> dec_fp;
 
-template auto write(float value, char* buffer) noexcept -> char*;
-template auto write(double value, char* buffer) noexcept -> char*;
+template auto write(char* buffer, float value) noexcept -> char*;
+template auto write(char* buffer, double value) noexcept -> char*;
 
-template auto write_big(double value, int precision, char* out, size_t n,
+template auto write_big(char* out, size_t n, double value, int precision,
                         format fmt) noexcept -> size_t;
 
-template auto write_scientific(float value, int precision,
-                               char* buffer) noexcept -> char*;
-template auto write_scientific(double value, int precision,
-                               char* buffer) noexcept -> char*;
+template auto write_scientific(char* buffer, float value,
+                               int precision) noexcept -> char*;
+template auto write_scientific(char* buffer, double value,
+                               int precision) noexcept -> char*;
 
-template auto write_general(float value, int precision, char* buffer) noexcept
+template auto write_general(char* buffer, float value, int precision) noexcept
     -> char*;
-template auto write_general(double value, int precision, char* buffer) noexcept
-    -> char*;
-
-template auto write_fixed(float value, int precision, char* buffer) noexcept
-    -> char*;
-template auto write_fixed(double value, int precision, char* buffer) noexcept
+template auto write_general(char* buffer, double value, int precision) noexcept
     -> char*;
 
-template auto write_hex(double value, char* buffer, bool prefix) noexcept
+template auto write_fixed(char* buffer, float value, int precision) noexcept
     -> char*;
-template auto write_hex(double value, int precision, char* out, size_t n,
+template auto write_fixed(char* buffer, double value, int precision) noexcept
+    -> char*;
+
+template auto write_hex(char* buffer, double value, bool prefix) noexcept
+    -> char*;
+template auto write_hex(char* out, size_t n, double value, int precision,
                         bool prefix) noexcept -> size_t;
 
 // long double instantiations, only needed when it differs from double; else
 // the public wrappers forward long double to the double path.
 #if LDBL_MANT_DIG != DBL_MANT_DIG
-template auto write_big(long double value, char* out, size_t n) noexcept
+template auto write_big(char* out, size_t n, long double value) noexcept
     -> size_t;
-template auto write_big(long double value, int precision, char* out, size_t n,
+template auto write_big(char* out, size_t n, long double value, int precision,
                         format fmt) noexcept -> size_t;
-template auto write_hex(long double value, char* buffer, bool prefix) noexcept
+template auto write_hex(char* buffer, long double value, bool prefix) noexcept
     -> char*;
-template auto write_hex(long double value, int precision, char* out, size_t n,
+template auto write_hex(char* out, size_t n, long double value, int precision,
                         bool prefix) noexcept -> size_t;
 #endif
 
