@@ -33,6 +33,10 @@
 
 #ifdef ZMIJ_USE_SIMD_X86
 // Use the provided definition.
+static_assert(ZMIJ_USE_SIMD_X86 == 20 || ZMIJ_USE_SIMD_X86 == 31 ||
+              ZMIJ_USE_SIMD_X86 == 41);
+#elif ZMIJ_USE_SIMD == 0
+#  define ZMIJ_USE_SIMD_X86 0
 #elif defined(__SSE4_1__) || defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
 #  define ZMIJ_USE_SIMD_X86 41
@@ -44,9 +48,7 @@
 #else
 #  define ZMIJ_USE_SIMD_X86 0
 #endif
-#if ZMIJ_USE_SIMD_X86
-static_assert(ZMIJ_USE_SIMD_X86 == 0 || ZMIJ_USE_SIMD_X86 == 20 ||
-              ZMIJ_USE_SIMD_X86 == 31 || ZMIJ_USE_SIMD_X86 == 41);
+#if ZMIJ_USE_SIMD_X86 >= 20
 #  include <immintrin.h>
 #endif
 
@@ -786,6 +788,13 @@ struct exp_float_shuffle_table {
 
       unsigned char* out = &data[idx * 16];
       for (int i = 0; i < 16; ++i) out[i] = 0x80;  // shuffle high bit: output 0
+      // Source bytes [0..7] are the BCD bytes.
+      // Source bytes [8..11] are "e±NNN".
+      // Source byte 12 is the rounded digit.
+      // Source byte 13 is '.'.
+      static_assert(exp_pos == 8);
+      static_assert(last_digit_pos == 12);
+      static_assert(point_pos == 13);
       unsigned char leading_digit_pos = has_extra_digit ? 7 : 6;
       unsigned char length = 0;
       if (has_last_digit) {
@@ -824,8 +833,8 @@ struct fixed_layout_table {
       traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 1;
 
   struct alignas(fixed_entry_align()) entry {
-#if ZMIJ_USE_SIMD_X86 >= 41
-    // pshufb table mapping BCD bytes to their output slots; the decimal-point
+#if ZMIJ_USE_SIMD_X86 >= 31
+    // pshufb (SSSE3) table mapping BCD bytes to their output slots; the decimal-point
     // slot (if any) holds a zero-marker (high bit set). Indexed by extra_digit.
     // Read via aligned load (_mm_load_si128), so must be 16-byte aligned.
     alignas(16) unsigned char shuffle[2][16];
@@ -854,7 +863,7 @@ struct fixed_layout_table {
       e.point_pos = dec_exp >= 0 ? 1 + dec_exp : 1;
       e.shift_pos = e.point_pos + (dec_exp >= 0);
 
-#if ZMIJ_USE_SIMD_X86 >= 41
+#if ZMIJ_USE_SIMD_X86 >= 31
       constexpr int bcd_size = 16;
       for (int extra = 0; extra < 2; ++extra) {
         int len = bcd_size + extra - 1;
@@ -978,16 +987,16 @@ struct data {
 #  if ZMIJ_USE_SIMD_X86 >= 41
   uint128 neg100 = splat32(::neg100);
   uint128 neg10 = splat16((1 << 8) - 10);
-  uint128 bswap = uint128{pack8(7, 6, 5, 4, 3, 2, 1, 0),
-                          pack8(15, 14, 13, 12, 11, 10, 9, 8)};
 #  else
   uint128 hundred = splat32(100);
   uint128 moddiv10 = splat16(10 * (1 << 8) - 1);
-#    if ZMIJ_USE_SIMD_X86 >= 31
+#  endif
+
+#  if ZMIJ_USE_SIMD_X86 >= 31
   uint128 bswap = uint128{pack8(7, 6, 5, 4, 3, 2, 1, 0),
                           pack8(15, 14, 13, 12, 11, 10, 9, 8)};
-#    endif                          
 #  endif
+
   uint128 div10k = splat64(div10k_sig);
   uint128 neg10k = splat64(::neg10k);
   uint128 zeros = splat64(::zeros);
@@ -1001,8 +1010,11 @@ struct data {
 
   // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
   // shift left by 1 (drops the leading '0' of a 16-digit significand).
-  unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
-                                     9, 10, 11, 12, 13, 14, 15, 0};
+  alignas(16) unsigned char shift_shuffle[17] = {
+      // drop_leading_zero = 0
+      0, 1, 2, 3, 4, 5, 6, 7, 8,
+      // drop_leading_zero = 1
+      9, 10, 11, 12, 13, 14, 15, 0};
 };
 alignas(64) constexpr data static_data;
 
@@ -1090,7 +1102,6 @@ struct bcd_result {
 auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
   const auto* d = &static_data;
   ZMIJ_ASM(("" : "+r"(d)));  // Load constants from memory.
-
 #if ZMIJ_USE_SIMD_ARM
   uint64_t abcd_efgh_64 =
       abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
@@ -1192,9 +1203,9 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
       x, _mm_mul_epu32(neg10k,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 
-  // SSE2 and SSSE3 produce different byte ordering:
-#  if ZMIJ_USE_SIMD_X86 < 31
-  // Reshufle for correct.
+  // The SSE2/SSSE3 BCD implementation requires the lane normalization.
+  // SSE4.1 uses a different representation and must not get this shuffle.
+#  if ZMIJ_USE_SIMD_X86 < 41
   y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
 #  endif
 
@@ -1205,14 +1216,14 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   // is derived in parallel with the shuffle on the SSE4.1 path.
   uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
 
-  // Trailing zeros are in the low bits for SSSE3, the high bits for SSE2.
+  // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2/SSSE3.
 #  if ZMIJ_USE_SIMD_X86 >= 41
   int len = 16 - ctz(mask);
 #  else
   int len = 64 - clz(mask);
 #  endif
 #  if ZMIJ_USE_SIMD_X86 >= 31
-  bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));
+  bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap))); // SSSE3
 #  endif
   return {_mm_or_si128(bcd, zeros), len};
 #else
@@ -1229,26 +1240,19 @@ template <>
 ZMIJ_INLINE auto to_digits<32>(uint64_t value,
                                [[ZMIJ_MAYBE_UNUSED]] const data& d) noexcept
     -> dec_digits<32> {
-#if ZMIJ_USE_SIMD_X86 >= 41
+#if ZMIJ_USE_SIMD_X86 >= 31
   // Inline to_bcd8's SSE4.1 body so we can return the unshuffled xmm too;
   // the exponential-notation path uses it to skip the bswap-via-gpr.
   uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
   __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
+#if ZMIJ_USE_SIMD_X86 >= 41
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
+#else 
+  // SSE2/SSSE3 to_bcd_4x4() produces the reverse byte order.
+  int len = unshuffled_bcd ? 8 - clz(unshuffled_bcd) / 8 : 0;
+#endif
   return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
-#elif ZMIJ_USE_SIMD_X86 >= 31
-  // SSSE3 uses the SSE2 BCD arithmetic, but keeps the unshuffled
-  // representation in XMM so pshufb can do the final formatting.
-  //
-  // to_bcd8() already gives us the correctly ordered 8-digit BCD.
-  // Reverse that ordering to reconstruct the representation expected
-  // by write_exp_float_simd().
-  auto result = to_bcd8(value);
-  uint64_t unshuffled_bcd = bswap64(result.bcd);
-  __m128i unshuffled =
-      _mm_cvtsi64_si128(static_cast<long long>(unshuffled_bcd));
-  return {unshuffled, result.bcd + zeros, result.len};
 #elif ZMIJ_USE_SIMD_ARM
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
   // the exponential-notation path uses it to skip the simd->gpr->bswap->simd
@@ -2008,19 +2012,7 @@ auto write(Float value, char* buffer) noexcept -> char* {
     write_digits(buffer, dig.digits, !has_extra_digit, *d);
     buffer[bcd_size + has_extra_digit - 1] = last_digit;
     unsigned point_pos = layout.point_pos;
-#if ZMIJ_USE_SIMD_X86 >= 20
-    if (bcd_size == 16) {
-      __m128i value = _mm_loadu_si128(
-          reinterpret_cast<const __m128i*>(start + point_pos));
-
-      _mm_storeu_si128(reinterpret_cast<__m128i*>(start + layout.shift_pos),
-                       value);
-    } else {
-      memmove(start + layout.shift_pos, start + point_pos, bcd_size);
-    }
-#else
     memmove(start + layout.shift_pos, start + point_pos, bcd_size);
-#endif
     start[point_pos] = '.';
     return buffer + layout.end_pos[num_digits + has_extra_digit - 1];
   }
