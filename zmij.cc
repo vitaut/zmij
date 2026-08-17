@@ -234,105 +234,8 @@ ZMIJ_INLINE auto select(uint64_t condition, int64_t true_value,
   return false_value;
 }
 
-struct uint128 {
-  uint64_t lo;
-  uint64_t hi;
-
-  uint128() = default;
-  constexpr uint128(uint64_t hi, uint64_t lo) noexcept : lo(lo), hi(hi) {}
-  constexpr uint128(uint64_t lo) noexcept : lo(lo), hi(0) {}
-
-  explicit constexpr operator uint64_t() const noexcept { return lo; }
-
-  constexpr auto operator+(uint128 rhs) const noexcept -> uint128 {
-    uint64_t s = lo + rhs.lo;
-    return {hi + rhs.hi + (s < lo), s};
-  }
-  constexpr auto operator-(uint128 rhs) const noexcept -> uint128 {
-    uint64_t d = lo - rhs.lo;
-    return {hi - rhs.hi - (d > lo), d};
-  }
-  constexpr auto operator%(uint32_t d) const noexcept -> uint64_t {
-    uint64_t m = (UINT64_MAX % d + 1) % d;  // 2**64 mod d, fits in 32 bits
-    return ((hi % d) * m + lo % d) % d;
-  }
-  constexpr auto operator&(uint128 rhs) const noexcept -> uint128 {
-    return {hi & rhs.hi, lo & rhs.lo};
-  }
-  constexpr auto operator|(uint128 rhs) const noexcept -> uint128 {
-    return {hi | rhs.hi, lo | rhs.lo};
-  }
-  constexpr auto operator^(uint128 rhs) const noexcept -> uint128 {
-    return {hi ^ rhs.hi, lo ^ rhs.lo};
-  }
-  constexpr auto operator<<(int s) const noexcept -> uint128 {
-    if (s == 0) return *this;
-    if (s < 64) return {hi << s | lo >> (64 - s), lo << s};
-    if (s < 128) return {lo << (s - 64), 0};
-    return {0, 0};
-  }
-  constexpr auto operator>>(int s) const noexcept -> uint128 {
-    if (s == 0) return *this;
-    if (s < 64) return {hi >> s, lo >> s | hi << (64 - s)};
-    if (s < 128) return {0, hi >> (s - 64)};
-    return {0, 0};
-  }
-
-  constexpr auto operator==(uint128 rhs) const noexcept -> bool {
-    return hi == rhs.hi && lo == rhs.lo;
-  }
-  constexpr auto operator!=(uint128 rhs) const noexcept -> bool {
-    return hi != rhs.hi || lo != rhs.lo;
-  }
-  constexpr auto operator<(uint128 rhs) const noexcept -> bool {
-    return hi != rhs.hi ? hi < rhs.hi : lo < rhs.lo;
-  }
-  constexpr auto operator>(uint128 rhs) const noexcept -> bool {
-    return rhs < *this;
-  }
-  constexpr auto operator<=(uint128 rhs) const noexcept -> bool {
-    return !(rhs < *this);
-  }
-  constexpr auto operator>=(uint128 rhs) const noexcept -> bool {
-    return !(*this < rhs);
-  }
-
-  auto operator++() noexcept -> uint128& {
-    if (++lo == 0) ++hi;
-    return *this;
-  }
-};
-
-#ifdef ZMIJ_USE_INT128
-// Use the provided definition.
-#elif defined(__SIZEOF_INT128__)
-#  define ZMIJ_USE_INT128 1
-#else
-#  define ZMIJ_USE_INT128 0
-#endif
-
-#if ZMIJ_USE_INT128
-using uint128_t = unsigned __int128;
-#else
-using uint128_t = uint128;
-#endif  // ZMIJ_USE_INT128
-
-// Divides x by 10 in place and returns the remainder.
-ZMIJ_INLINE auto divmod10(uint128_t& x) noexcept -> uint64_t {
-#if ZMIJ_USE_INT128
-  uint64_t r = uint64_t(x % 10);
-  x /= 10;
-  return r;
-#else
-  auto div = [](uint64_t& w, uint64_t rem) -> uint64_t {
-    uint64_t hi = rem << 32 | w >> 32;
-    uint64_t lo = (hi % 10) << 32 | uint32_t(w);
-    w = (hi / 10) << 32 | (lo / 10);
-    return lo % 10;
-  };
-  return div(x.lo, div(x.hi, 0));
-#endif
-}
+using zmij::detail::uint128;
+using zmij::detail::uint128_t;
 
 #if ZMIJ_USE_INT128 && defined(__APPLE__)
 constexpr bool use_umul128_hi64 = true;  // Use umul128_hi64 for division.
@@ -1903,14 +1806,14 @@ namespace zmij {
 namespace detail {
 
 template <typename Float>
-auto to_decimal(Float value) noexcept -> dec_fp {
+auto to_decimal(Float value) noexcept -> dec_fp<> {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);  // binary exponent
   auto bin_sig = traits::get_sig(bits);  // binary significand
   auto negative = traits::is_negative(bits);
   if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
-    if (bin_exp != 0) return {bin_sig, non_finite_exp, negative};
+    if (bin_exp != 0) return {bin_sig, nonfinite_exp, negative};
     if (bin_sig == 0) return {0, 0, negative};
     bin_exp = 1;
     bin_sig |= traits::implicit_bit;
@@ -2047,18 +1950,16 @@ auto write(char* buffer, Float value) noexcept -> char* {
 }
 
 template <typename Float>
-auto write_big(char* out, size_t n, Float value) noexcept -> size_t {
+auto to_decimal_big(Float value) noexcept -> dec_fp<uint128_t> {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto raw_exp = traits::get_exp(bits);
   auto bin_sig = traits::get_sig(bits);
-
-  writer w = {out, out + n, 0};
-  if (traits::is_negative(bits)) w.write('-');
+  bool negative = traits::is_negative(bits);
 
   if (!traits::is_normal(raw_exp)) [[ZMIJ_UNLIKELY]] {
-    if (raw_exp != 0) return w.write(bin_sig != 0 ? "nan" : "inf", 3);
-    if (bin_sig == 0) return w.write('0');
+    if (raw_exp != 0) return {bin_sig, nonfinite_exp, negative};
+    if (bin_sig == 0) return {0, 0, negative};
     raw_exp = 1;
     bin_sig = bin_sig | traits::implicit_bit;
   }
@@ -2135,14 +2036,27 @@ auto write_big(char* out, size_t n, Float value) noexcept -> size_t {
   uint128_t dec_sig = trim_down || trim_up
                           ? integral - last_digit + trim_up * 10
                           : integral + round_up;
+  return {dec_sig, dec_exp, negative};
+}
+
+template <typename Float>
+auto write_big(char* out, size_t n, Float value) noexcept -> size_t {
+  using traits = float_traits<Float>;
+  dec_fp<uint128_t> dec = to_decimal_big(value);
+
+  writer w = {out, out + n, 0};
+  if (dec.negative) w.write('-');
+  if (dec.exp == nonfinite_exp)
+    return w.write(dec.sig != uint128_t(0) ? "nan" : "inf", 3);
+  if (dec.sig == uint128_t(0)) return w.write('0');
 
   // Convert the significand to digits, msb first, and drop trailing zeros.
   char digits[40];
   char* start = digits + sizeof(digits);
-  for (uint128_t x = dec_sig; x != uint128_t(0);)
+  for (uint128_t x = dec.sig; x != uint128_t(0);)
     *--start = char('0' + divmod10(x));
   int num_digits = int(digits + sizeof(digits) - start);
-  int lead_exp = dec_exp + num_digits - 1;
+  int lead_exp = dec.exp + num_digits - 1;
   while (num_digits > 1 && start[num_digits - 1] == '0') --num_digits;
 
   bool fixed = lead_exp >= traits::min_fixed_dec_exp &&
@@ -2451,8 +2365,8 @@ auto write_hex(char* out, size_t n, Float value, int precision,
   return w.write(exp, int(write_hex_exp(exp, bin_exp) - exp));
 }
 
-template auto to_decimal(float value) noexcept -> dec_fp;
-template auto to_decimal(double value) noexcept -> dec_fp;
+template auto to_decimal(float value) noexcept -> dec_fp<>;
+template auto to_decimal(double value) noexcept -> dec_fp<>;
 
 template auto write(char* buffer, float value) noexcept -> char*;
 template auto write(char* buffer, double value) noexcept -> char*;
@@ -2483,6 +2397,7 @@ template auto write_hex(char* out, size_t n, double value, int precision,
 // long double instantiations, only needed when it differs from double; else
 // the public wrappers forward long double to the double path.
 #if LDBL_MANT_DIG != DBL_MANT_DIG
+template auto to_decimal_big(long double value) noexcept -> dec_fp<uint128_t>;
 template auto write_big(char* out, size_t n, long double value) noexcept
     -> size_t;
 template auto write_big(char* out, size_t n, long double value, int precision,
