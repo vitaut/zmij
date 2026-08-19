@@ -26,7 +26,7 @@ if (NOT ZMIJ_USE_SIMD)
   target_compile_definitions(zmij PRIVATE "ZMIJ_USE_SIMD=0")
 endif ()
 add_executable(example example.cc)
-target_link_libraries(example zmij)
+target_link_libraries(example PRIVATE zmij)
 
 set(CMAKE_CTEST_ARGUMENTS "--output-on-failure")
 enable_testing()

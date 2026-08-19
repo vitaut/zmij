@@ -17,7 +17,8 @@ function (add_zmij_api_test name)
   add_executable(${name} zmij-test.cc)
   target_compile_features(${name} PRIVATE ${ZMIJ_STANDARD})
   target_include_directories(${name} PRIVATE ${PROJECT_SOURCE_DIR})
-  target_link_libraries(${name} dragonbox gtest fmt)
+  # Link against the zmij library and test helpers.
+  target_link_libraries(${name} PRIVATE dragonbox gtest fmt zmij)
   add_test(NAME ${name} COMMAND ${name})
 endfunction ()
 
@@ -59,7 +60,7 @@ set(ZMIJ_CHECK_STANDARD cxx_std_20)
 
 add_executable(float-check float-check.cc)
 target_compile_features(float-check PRIVATE ${ZMIJ_CHECK_STANDARD})
-target_link_libraries(float-check fmt dragonbox zmij)
+target_link_libraries(float-check PRIVATE fmt dragonbox zmij)
 
 include(FetchContent)
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
@@ -95,11 +96,11 @@ endif ()
 if (TARGET benchmark::benchmark)
   add_executable(dtoa-benchmark benchmark.cc dtoa-benchmark.cc)
   target_compile_features(dtoa-benchmark PRIVATE cxx_std_20)
-  target_link_libraries(dtoa-benchmark fmt dragonbox zmij benchmark::benchmark)
+  target_link_libraries(dtoa-benchmark PRIVATE fmt dragonbox zmij benchmark::benchmark)
 
   add_executable(ftoa-benchmark benchmark.cc ftoa-benchmark.cc)
   target_compile_features(ftoa-benchmark PRIVATE cxx_std_20)
-  target_link_libraries(ftoa-benchmark fmt dragonbox zmij benchmark::benchmark)
+  target_link_libraries(ftoa-benchmark PRIVATE fmt dragonbox zmij benchmark::benchmark)
 else ()
   message(STATUS
     "Google Benchmark unavailable; skipping benchmark target")
