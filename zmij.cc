@@ -40,7 +40,7 @@ static_assert(ZMIJ_USE_SIMD_X86 == 20 || ZMIJ_USE_SIMD_X86 == 31 ||
 #  define ZMIJ_USE_SIMD_X86 0
 #elif defined(__AVX2__)
 // auto detect
-#  define ZMIJ_USE_SIMD_X86 52 // TODO
+#  define ZMIJ_USE_SIMD_X86 52  // TODO
 #elif defined(__AVX__)
 // On MSVC there's no way to check for SSE4.1 specifically so check AVX.
 #  define ZMIJ_USE_SIMD_X86 50
@@ -700,7 +700,9 @@ struct exp_float_shuffle_table {
       unsigned char* out = &data[idx * 16];
       for (int i = 0; i < 16; ++i) out[i] = 0x80;  // shuffle high bit: output 0
       static_assert(exp_pos == 8, "Source bytes [0..7] are the BCD bytes");
-      static_assert(last_digit_pos == 12, "Source bytes [8..11] are e±NNN; Source byte 12 is the rounded digit");
+      static_assert(last_digit_pos == 12,
+                    "Source bytes [8..11] are e±NNN; Source byte 12 is the "
+                    "rounded digit");
       static_assert(point_pos == 13, "Source byte 13 is the decimal point");
       unsigned char leading_digit_pos = has_extra_digit ? 7 : 6;
       unsigned char length = 0;
@@ -741,9 +743,10 @@ struct fixed_layout_table {
 
   struct alignas(fixed_entry_align()) entry {
 #if ZMIJ_USE_SIMD_X86 >= 31
-    // pshufb (SSSE3) table mapping BCD bytes to their output slots; the decimal-point
-    // slot (if any) holds a zero-marker (high bit set). Indexed by extra_digit.
-    // Read via aligned load (_mm_load_si128), so must be 16-byte aligned.
+    // pshufb (SSSE3) table mapping BCD bytes to their output slots; the
+    // decimal-point slot (if any) holds a zero-marker (high bit set). Indexed
+    // by extra_digit. Read via aligned load (_mm_load_si128), so must be
+    // 16-byte aligned.
     alignas(16) unsigned char shuffle[2][16];
 #endif
     // Byte offset past leading "0.00..." before first significant digit.
@@ -917,8 +920,8 @@ struct data {
 
   // Shuffle indices for SIMD digit shift. Offset 0 = identity, offset 1 =
   // shift left by 1 (drops the leading '0' of a 16-digit significand).
-  unsigned char shift_shuffle[17] = {
-      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 0x80};
+  unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
+                                     9, 10, 11, 12, 13, 14, 15, 0};
 };
 alignas(64) constexpr data static_data;
 
@@ -1120,14 +1123,15 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   // is derived in parallel with the shuffle on the SSE4.1 path.
   uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
 
-  // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2/SSSE3.
+  // Trailing zeros are in the low bits for SSE4.1, the high bits for
+  // SSE2/SSSE3.
 #  if ZMIJ_USE_SIMD_X86 >= 41
   int len = 16 - ctz(mask);
 #  else
   int len = 64 - clz(mask);
 #  endif
 #  if ZMIJ_USE_SIMD_X86 >= 31
-  bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap))); // SSSE3
+  bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));  // SSSE3
 #  endif
   return {_mm_or_si128(bcd, zeros), len};
 #else
@@ -1150,12 +1154,12 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
   __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
-#if ZMIJ_USE_SIMD_X86 >= 41
+#  if ZMIJ_USE_SIMD_X86 >= 41
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
-#else 
+#  else
   // SSE2/SSSE3 to_bcd_4x4() produces the reverse byte order.
   int len = unshuffled_bcd ? 8 - clz(unshuffled_bcd) / 8 : 0;
-#endif
+#  endif
   return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
 #elif ZMIJ_USE_SIMD_ARM
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
@@ -1190,7 +1194,8 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
                    _mm_shuffle_epi8(digits, shuffle));
 #elif ZMIJ_USE_SIMD_X86 >= 20
-  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer + drop_leading_zero), digits);
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer + drop_leading_zero),
+                   digits);
 #else
   digits = digits >> (drop_leading_zero * sizeof(digits));
   memcpy(buffer, &digits, sizeof(digits));
@@ -1224,9 +1229,9 @@ ZMIJ_INLINE auto reverse_bcd(__m128i bcd, const data& d) noexcept -> __m128i {
 #endif
 
 ZMIJ_INLINE auto write_scientific_simd(char* buffer, const dec_digits<32>& dig,
-                                      int last_digit, bool has_last_digit,
-                                      bool has_extra_digit, uint64_t exp_data,
-                                      const data& d) noexcept -> char* {
+                                       int last_digit, bool has_last_digit,
+                                       bool has_extra_digit, uint64_t exp_data,
+                                       const data& d) noexcept -> char* {
   // Packed for insertion into lane 1: byte 0 of `tail` lands at register
   // byte exp_pos (8), so the exp string fills exp_pos..exp_pos+3; the prefix
   // shifts place '0'+last_digit at last_digit_pos (12), '.' at point_pos (13).
@@ -1252,7 +1257,7 @@ ZMIJ_INLINE auto write_scientific_simd(char* buffer, const dec_digits<32>& dig,
 }
 
 ZMIJ_INLINE auto write_scientific_simd(char*, const dec_digits<64>&, int, bool,
-                                      bool, uint64_t, const data&) noexcept
+                                       bool, uint64_t, const data&) noexcept
     -> char* {
   return nullptr;
 }
@@ -1801,8 +1806,7 @@ namespace zmij {
 
 namespace detail {
 
-template <typename Float>
-auto to_decimal(Float value) noexcept -> dec_fp<> {
+template <typename Float> auto to_decimal(Float value) noexcept -> dec_fp<> {
   using traits = float_traits<Float>;
   auto bits = traits::to_bits(value);
   auto bin_exp = traits::get_exp(bits);  // binary exponent
@@ -1923,7 +1927,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   if (traits::num_bits == 32 && exp_float_shuffle_table::enable) {
     uint64_t exp_data = d->exp_strings.data[dec_exp + exp_string_table::offset];
     return write_scientific_simd(buffer, dig, dec.last_digit, has_last_digit,
-                                has_extra_digit, exp_data, *d);
+                                 has_extra_digit, exp_data, *d);
   }
 
   buffer += has_extra_digit;
@@ -2281,8 +2285,10 @@ auto write_hex(char* buffer, Float value, bool prefix) noexcept -> char* {
   if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     zero = bin_sig == 0;
-    if (zero) bin_exp = traits::exp_bias; // This cancels to 0 below.
-    else normalize<Float>(bin_sig, bin_exp);
+    if (zero)
+      bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else
+      normalize<Float>(bin_sig, bin_exp);
   }
   bin_exp -= traits::exp_bias;
 
@@ -2317,8 +2323,10 @@ auto write_hex(char* out, size_t n, Float value, int precision,
   if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     zero = bin_sig == 0;
-    if (zero) bin_exp = traits::exp_bias;  // This cancels to 0 below.
-    else normalize<Float>(bin_sig, bin_exp);
+    if (zero)
+      bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else
+      normalize<Float>(bin_sig, bin_exp);
   }
   bin_exp -= traits::exp_bias;
 
