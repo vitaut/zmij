@@ -699,13 +699,9 @@ struct exp_float_shuffle_table {
 
       unsigned char* out = &data[idx * 16];
       for (int i = 0; i < 16; ++i) out[i] = 0x80;  // shuffle high bit: output 0
-      // Source bytes [0..7] are the BCD bytes.
-      // Source bytes [8..11] are "e±NNN".
-      // Source byte 12 is the rounded digit.
-      // Source byte 13 is '.'.
-      static_assert(exp_pos == 8);
-      static_assert(last_digit_pos == 12);
-      static_assert(point_pos == 13);
+      static_assert(exp_pos == 8, "Source bytes [0..7] are the BCD bytes");
+      static_assert(last_digit_pos == 12, "Source bytes [8..11] are e±NNN; Source byte 12 is the rounded digit");
+      static_assert(point_pos == 13, "Source byte 13 is the decimal point");
       unsigned char leading_digit_pos = has_extra_digit ? 7 : 6;
       unsigned char length = 0;
       if (has_last_digit) {
