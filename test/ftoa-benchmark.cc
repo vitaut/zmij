@@ -5,7 +5,7 @@
 
 #include "benchmark.h"
 #include "dragonbox/dragonbox_to_chars.h"
-#include "zmij.h"
+#include "../zmij.h"
 
 auto ftoa_zmij(float value, char* buffer) -> char* {
   using result = decltype(zmij::write(buffer, zmij::float_buffer_size, value));

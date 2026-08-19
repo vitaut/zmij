@@ -5,7 +5,7 @@
 
 #include "benchmark.h"
 #include "dragonbox/dragonbox_to_chars.h"
-#include "zmij.h"
+#include "../zmij.h"
 
 namespace zmij {
 int dtoa(...);
