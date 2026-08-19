@@ -1,3 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+project(zmij CXX C)
+
 add_subdirectory(gtest)
 
 add_library(dragonbox dragonbox/dragonbox_to_chars.cpp)
@@ -28,11 +31,11 @@ add_zmij_test(zmij-test)
 
 include(CheckCXXCompilerFlag)
 if (ZMIJ_USE_SIMD)
-  check_cxx_compiler_flag(-msse4.1 ZMIJ_HAS_SSE4_1)
-  if (ZMIJ_HAS_SSE4_1)
+  check_cxx_compiler_flag(-msse4.1 ZMIJ_USE_SIMD_X86)
+  if (ZMIJ_USE_SIMD_X86 == 41)
     add_zmij_test(zmij-sse4-test)
     target_compile_options(zmij-sse4-test PRIVATE -msse4.1)
-    target_compile_definitions(zmij-sse4-test PRIVATE ZMIJ_USE_SSE4_1=1)
+    target_compile_definitions(zmij-sse4-test PRIVATE ZMIJ_USE_SIMD_X86=41)
   endif ()
 endif ()
 
