@@ -1,0 +1,5 @@
+name = "zmij-verify"
+
+[[require]]
+name = "mathlib"
+scope = "leanprover-community"
