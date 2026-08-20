@@ -17,8 +17,8 @@
 
 #ifdef ZMIJ_USE_SIMD
 // Use the provided definition.
-#elif defined(_MSC_VER)
-#  define ZMIJ_USE_SIMD 0
+//#elif defined(_MSC_VER)
+//#  define ZMIJ_USE_SIMD 0
 #else
 #  define ZMIJ_USE_SIMD 1
 #endif
