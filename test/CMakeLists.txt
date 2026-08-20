@@ -52,9 +52,13 @@ target_compile_definitions(zmij-no-builtins-test PRIVATE ZMIJ_NO_BUILTINS=1)
 add_zmij_test(zmij-optimize-size-test)
 target_compile_definitions(zmij-optimize-size-test PRIVATE ZMIJ_OPTIMIZE_SIZE=1)
 
-add_zmij_api_test(zmij-c-test)
-target_compile_definitions(zmij-c-test PRIVATE ZMIJ_C=1)
-target_sources(zmij-c-test PRIVATE ../zmij.c)
+if (MSVC)
+  message(STATUS "Skipping zmij-c-test on MSVC due to C compiler limitations with complex initializers")
+else ()
+  add_zmij_api_test(zmij-c-test)
+  target_compile_definitions(zmij-c-test PRIVATE ZMIJ_C=1)
+  target_sources(zmij-c-test PRIVATE ../zmij.c)
+endif ()
 
 set(ZMIJ_CHECK_STANDARD cxx_std_20)
 
