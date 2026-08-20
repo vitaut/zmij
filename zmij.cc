@@ -16,7 +16,11 @@
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional_t
 
-#ifndef ZMIJ_USE_SIMD
+#ifdef ZMIJ_USE_SIMD
+// Use the provided definition.
+#elif defined(_MSC_VER)
+#  define ZMIJ_USE_SIMD 0
+#else
 #  define ZMIJ_USE_SIMD 1
 #endif
 

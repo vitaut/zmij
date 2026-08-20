@@ -15,7 +15,7 @@
 #include <stdint.h>   // uint64_t
 #include <string.h>   // memcpy
 
-#ifndef ZMIJ_USE_SIMD
+#ifdef ZMIJ_USE_SIMD
 // Use the provided definition.
 #elif defined(_MSC_VER)
 #  define ZMIJ_USE_SIMD 0
