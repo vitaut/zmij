@@ -1894,8 +1894,8 @@ static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value,
   uint64_t mask =
       (uint64_t)_mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
-  int len = ZMIJ_USE_SSE4_1 ? (mask == 0 ? 0 : 16 - ctz(mask))
-                            : (mask == 0 ? 0 : 64 - clz(mask));
+  int len = (ZMIJ_USE_SIMD_X86 >= 41) ? (mask == 0 ? 0 : 16 - ctz(mask))
+                                      : (mask == 0 ? 0 : 64 - clz(mask));
 #  if ZMIJ_USE_SIMD_X86 >= 41
   bcd = _mm_shuffle_epi8(bcd,
                          _mm_load_si128((const __m128i*)&d->bswap));  // SSSE3
