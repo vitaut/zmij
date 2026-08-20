@@ -587,7 +587,7 @@ typedef struct {
 
 ZMIJ_ALIGNAS(64)
 static const zmij_data static_data = {
-    (uint64_t)1e15,
+    1000000000000000ULL,  // Instead of (uint64_t)1e15
     ((uint64_t)1 << 63) + 6,
 #if ZMIJ_USE_SIMD_ARM
     0xabcc77118461cefd,
