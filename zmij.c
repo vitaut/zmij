@@ -1776,7 +1776,7 @@ static ZMIJ_MAYBE_UNUSED ZMIJ_INLINE int ctz(uint64_t x) {
 // number of trailing-zero-trimmed bytes.
 static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
   (void)d;  // Unused on the scalar path.
-  if (!ZMIJ_USE_SIMD_X86 && !ZMIJ_USE_NEON) {
+  if (!ZMIJ_USE_SIMD_X86 && !ZMIJ_USE_SIMD_ARM) {
     // An optimization from Xiang JunBo.
     // Three steps BCD. Base 10000 -> base 100 -> base 10.
     // div and mod are evaluated simultaneously as, e.g.
@@ -1913,7 +1913,7 @@ static ZMIJ_INLINE void write_digits_double(char* buffer,
                                             bool drop_leading_zero,
                                             const zmij_data* d) {
   (void)d;  // Unused on the scalar path.
-  if (!ZMIJ_USE_SIMD_ARM && !ZMIJ_USE_SIMD_X86 >= 41) {
+  if (!ZMIJ_USE_SIMD_ARM || (ZMIJ_USE_SIMD_X86 < 41)) {
     memcpy(buffer, &digits, sizeof(digits));
     memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
     return;

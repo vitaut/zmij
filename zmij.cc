@@ -673,7 +673,7 @@ struct exp_string_table {
 // byte is past the string and ignored by the caller.
 struct exp_float_shuffle_table {
   static constexpr bool enable =
-      (ZMIJ_USE_SIMD_X86 >= 31 || ZMIJ_USE_SIMD_ARM) &&
+      ((ZMIJ_USE_SIMD_X86 >= 31) || ZMIJ_USE_SIMD_ARM) &&
       exp_string_table::enable;
   static constexpr unsigned char exp_pos = 8;
   static constexpr unsigned char last_digit_pos = 12;
