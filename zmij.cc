@@ -678,8 +678,11 @@ struct exp_string_table {
 // byte is past the string and ignored by the caller.
 struct exp_float_shuffle_table {
   static constexpr bool enable =
-      ((ZMIJ_USE_SIMD_X86 >= 31) || ZMIJ_USE_SIMD_ARM) &&
+#if ZMIJ_USE_SIMD_X86 >= 31 || ZMIJ_USE_SIMD_ARM
       exp_string_table::enable;
+#else
+      false;
+#endif
   static constexpr unsigned char exp_pos = 8;
   static constexpr unsigned char last_digit_pos = 12;
   static constexpr unsigned char point_pos = 13;
@@ -733,9 +736,12 @@ struct exp_float_shuffle_table {
 };
 
 constexpr auto fixed_entry_align() noexcept -> int {
-  if (ZMIJ_USE_SIMD_X86 >= 31) return 64;  // Align to a cache line.
+#if ZMIJ_USE_SIMD_X86 >= 31
+  return 64;  // Align to a cache line.
+#else
   // Align entry to 32 bytes so indexing uses `lsl #5` not `umaddl`.
   return ZMIJ_AARCH64 && !ZMIJ_OPTIMIZE_SIZE ? 32 : 1;
+#endif
 }
 
 // Per-decimal-exponent buffer layout for branchless fixed-notation output.
