@@ -17,13 +17,15 @@
 
 #ifdef ZMIJ_USE_SIMD
 // Use the provided definition.
-//#elif defined(_MSC_VER)
-//#  define ZMIJ_USE_SIMD 0
+// #elif defined(_MSC_VER)
+// #  define ZMIJ_USE_SIMD 0
 #else
 #  define ZMIJ_USE_SIMD 1
 #endif
 
-#ifdef ZMIJ_USE_SIMD_ARM
+#if ZMIJ_USE_SIMD == 0
+// disable SIMD
+#elif defined(ZMIJ_USE_SIMD_ARM)
 // Use the provided definition.
 #elif defined(__ARM_NEON) || defined(_M_ARM64)
 #  define ZMIJ_USE_SIMD_ARM ZMIJ_USE_SIMD
@@ -36,8 +38,7 @@
 
 #if ZMIJ_USE_SIMD == 0
 // disable SIMD
-#  define ZMIJ_USE_SIMD_X86 0
-#elif ZMIJ_USE_SIMD_X86
+#elif defined(ZMIJ_USE_SIMD_X86)
 // Use the provided definition.
 static_assert(ZMIJ_USE_SIMD_X86 == 20 || ZMIJ_USE_SIMD_X86 == 31 ||
               ZMIJ_USE_SIMD_X86 == 41);
