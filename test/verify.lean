@@ -1,6 +1,8 @@
-import Mathlib
+import Mathlib.Tactic
+import Mathlib.Data.Rat.Floor
+import Mathlib.Data.Nat.Log
 
--- The range check below evaluates 2^1074 and enumerates 2046 exponents in the
+-- The finite checks below evaluate 2^1074 and enumerate 2046 exponents in the
 -- kernel, so raise the elaborator's exponentiation and recursion guards.
 set_option maxRecDepth 100000
 set_option exponentiation.threshold 5000
@@ -23,7 +25,7 @@ def Roundtrips (f : ℕ) (e : ℤ) (r : ℚ) : Prop :=
 -- excluding powers of 2.
 def Regular (f : ℕ) (e : ℤ) : Prop :=
   2 ^ 52 < f ∧ f < 2 ^ 53 ∧
-    -1074 ≤ e ∧ e ≤ 971
+   -1074 ≤ e ∧ e ≤ 971
 
 -- Binary exponent of 10^k used to normalize its 128-bit significand.
 def power10Exponent (k : ℤ) : ℤ :=
@@ -189,14 +191,14 @@ theorem margin_lower (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) (he0 : e ≠ 0) 
   rw [zpow_add₀ (by norm_num : (10 : ℚ) ≠ 0) k 324,
       zpow_add₀ (by norm_num : (2 : ℚ) ≠ 0) e 1074] at hcert
 
-  have hfactor_pos : (0 : ℚ) < 2 ^ (1074 : ℤ) * 10 ^ (324 : ℤ) := by positivity
+  have hpos : (0 : ℚ) < 2 ^ (1074 : ℤ) * 10 ^ (324 : ℤ) := by positivity
   have hc : ((2 : ℚ) ^ 62 + 1) * 10 ^ k ≤ 2 ^ 62 * 2 ^ e := by
     have hscaled :
         (2 ^ (1074 : ℤ) * 10 ^ (324 : ℤ)) * (((2 : ℚ) ^ (62 : ℤ) + 1) * 10 ^ k)
           ≤ (2 ^ (1074 : ℤ) * 10 ^ (324 : ℤ)) *
               ((2 : ℚ) ^ (62 : ℤ) * 2 ^ e) := by
       simpa only [mul_assoc, mul_comm, mul_left_comm] using hcert
-    exact_mod_cast le_of_mul_le_mul_left hscaled hfactor_pos
+    exact_mod_cast le_of_mul_le_mul_left hscaled hpos
 
    -- Normalize the bound by 2^62·10^k.
   have hp : (0 : ℚ) < 10 ^ k := by positivity
@@ -205,6 +207,110 @@ theorem margin_lower (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) (he0 : e ≠ 0) 
       = ((2 ^ 62 + 1) * 10 ^ k) / 2 ^ 62 := by field_simp
     _ ≤ (2 ^ 62 * 2 ^ e) / 2 ^ 62 := by gcongr
     _ = 2 ^ e := by field_simp
+
+-- Integer form of 2^e / 10^k < 10, equivalently 2^e < 10^(k+1),
+-- with exponents shifted to be nonnegative.
+def marginUpperHolds (e : ℤ) : Bool :=
+  let k := decimalExponent e
+  decide (2 ^ (e + 1074).toNat * 10 ^ 324 <
+    2 ^ 1074 * 10 ^ (k + 325).toNat)
+
+theorem margin_upper_all :
+    ∀ e ∈ Finset.Icc (-1074 : ℤ) 971, marginUpperHolds e = true := by decide
+
+-- 2^e / 10^k is strictly below 10 across the whole exponent range.
+theorem margin_upper (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
+    (2 : ℚ) ^ e * (10 ^ decimalExponent e)⁻¹ < 10 := by
+  have hb : 0 ≤ e + 1074 := by omega
+
+  have hmz := margin_upper_all e (by simpa [Finset.mem_Icc] using he)
+  simp only [marginUpperHolds, decide_eq_true_eq] at hmz
+
+  set k := decimalExponent e
+  have hk : 0 ≤ k + 325 := by
+    show 0 ≤ decimalExponent e + 325; unfold decimalExponent; omega
+
+  -- Cast the finite certificate to ℚ and expose the common factor.
+  have hcert :
+      (2 : ℚ) ^ (e + 1074).toNat * 10 ^ (324 : ℕ)
+        < 2 ^ (1074 : ℕ) * 10 ^ (k + 325).toNat := by
+    exact_mod_cast hmz
+  simp only [← zpow_natCast, Int.toNat_of_nonneg hk, Int.toNat_of_nonneg hb,
+    Nat.cast_ofNat] at hcert
+  rw [show k + 325 = (k + 1) + 324 by ring,
+      zpow_add₀ (by norm_num : (2 : ℚ) ≠ 0) e 1074,
+      zpow_add₀ (by norm_num : (10 : ℚ) ≠ 0) (k + 1) 324] at hcert
+
+  have hpos : (0 : ℚ) < 2 ^ (1074 : ℤ) * 10 ^ (324 : ℤ) := by positivity
+  have hpow : (2 : ℚ) ^ e < 10 ^ (k + 1) := by
+    have hscaled :
+        (2 ^ (1074 : ℤ) * 10 ^ (324 : ℤ)) * (2 : ℚ) ^ e
+          < (2 ^ (1074 : ℤ) * 10 ^ (324 : ℤ)) * 10 ^ (k + 1) := by
+      simpa only [mul_assoc, mul_comm, mul_left_comm] using hcert
+    exact lt_of_mul_lt_mul_left hscaled (le_of_lt hpos)
+
+  have hp : (0 : ℚ) < 10 ^ k := by positivity
+  rw [← div_eq_mul_inv, div_lt_iff₀ hp]
+  calc (2 : ℚ) ^ e < 10 ^ (k + 1) := hpow
+    _ = 10 * 10 ^ k := by rw [zpow_add₀ (by norm_num : (10 : ℚ) ≠ 0) k 1]; ring
+
+-- halfUlp stays below 5·2^60 because u = 2^e/10^k < 10.
+theorem half_ulp_lt (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
+    power10Significand (-decimalExponent e) / 2 ^ 64
+        / 2 ^ (4 - decimalShift e) < 5 * 2 ^ 60 := by
+  set k := decimalExponent e
+  set sh := decimalShift e with hshdef
+  set pe := power10Exponent (-k)
+
+  have hsh : sh < 4 := by
+    rw [hshdef]
+    unfold decimalShift decimalExponent
+    omega
+
+  -- Collapse the nested floor divisions and clear the denominator.
+  rw [Nat.div_div_eq_div_mul, ← pow_add, Nat.div_lt_iff_lt_mul (by positivity),
+    show 5 * 2 ^ 60 * 2 ^ (64 + (4 - sh)) = 5 * 2 ^ (128 - sh) from by
+      rw [mul_assoc, ← pow_add]
+      congr 2
+      omega]
+
+  -- Bound p10 by its exact real value, then use u < 10.
+  have hp10_le :
+      (power10Significand (-k) : ℚ) ≤ 10 ^ (-k) * 2 ^ (128 - pe) :=
+    (power10_significand_bounds (-k)).1
+
+  have hp10_real_lt :
+      (10 : ℚ) ^ (-k) * 2 ^ (128 - pe) < 5 * 2 ^ (128 - sh) := by
+    have halign := aligned_pow e he
+    have h2 : (2 : ℚ) ^ (128 - pe) = 2 ^ e * 2 ^ ((127 : ℤ) - sh) := by
+      have hcancel :
+          (2 : ℚ) ^ (sh + 1) * 2 ^ (128 - pe) =
+            2 ^ (sh + 1) * (2 ^ e * 2 ^ ((127 : ℤ) - sh)) := by
+        rw [halign, ← zpow_natCast (2 : ℚ) (sh + 1),
+          ← zpow_add₀ (by norm_num : (2 : ℚ) ≠ 0),
+          ← zpow_add₀ (by norm_num : (2 : ℚ) ≠ 0)]
+        congr 1
+        push_cast
+        ring
+      exact mul_left_cancel₀ (by positivity) hcancel
+
+    have hrhs :
+        (5 : ℚ) * 2 ^ (128 - sh) = 10 * 2 ^ ((127 : ℤ) - sh) := by
+      rw [show ((127 : ℤ) - sh) = ((127 - sh : ℕ) : ℤ) from by omega,
+        zpow_natCast, show (128 - sh) = (127 - sh) + 1 from by omega, pow_succ]
+      ring
+
+    rw [h2, hrhs, zpow_neg]
+    have hmargin := margin_upper e he
+    have hpos : (0 : ℚ) < 2 ^ ((127 : ℤ) - sh) := by positivity
+    nlinarith [hmargin, hpos]
+
+  have hp10_lt :
+      (power10Significand (-k) : ℚ) < ((5 * 2 ^ (128 - sh) : ℕ) : ℚ) := by
+    push_cast
+    linarith [hp10_le, hp10_real_lt]
+
+  exact_mod_cast hp10_lt
 
 -- decOne rounds the fixed-point significand sig / 2^64 to the nearest integer,
 -- so its error is at most 1/2.
@@ -405,7 +511,7 @@ theorem scaled_value_error_bound (f : ℕ) (e : ℤ) (hr : Regular f e) :
 -- exact value. For e ≠ 0, combine round_bound and scaled_value_error_bound to
 -- get a distance below 1/2 + 2⁻⁶³, then use margin_lower. For e = 0, we have
 -- decOne = f = x exactly.
-theorem dec_one_distance
+theorem dec_one_error_bound
     (f : ℕ) (e : ℤ)
     (h : Regular f e) :
     let c := toDecimalCandidates f e
@@ -456,9 +562,170 @@ theorem dec_one_distance
       exact margin_lower e ⟨elo, ehi⟩ he0
     linarith [key, huge]
 
+-- Separation property for the multiple-of-ten candidates. Scaling the
+-- half-ULP bound |T - x| ≤ u/2 by s = 2^(1-e)·10^k gives
+-- |2f - T·s| ≤ 1, since x·s = 2f and (u/2)·s = 1 exactly. The rounding
+-- certificates must therefore place the corresponding candidate within 1
+-- of the exact scaled value, with equality allowed only when f is even.
+--
+-- This requires a separation argument beyond the magnitude and guard-bit
+-- bounds proved elsewhere.
+theorem dec_ten_separation_core (f : ℕ) (e : ℤ) (h : Regular f e) :
+    let c := toDecimalCandidates f e
+    let ten : ℕ := sigHi f e - sigHi f e % 10
+    let s : ℚ := 2 ^ (1 - e) * 10 ^ c.k
+    (c.roundD0 = true →
+        if f % 2 = 0 then |2 * (f : ℚ) - (ten : ℚ) * s| ≤ 1
+        else |2 * (f : ℚ) - (ten : ℚ) * s| < 1) ∧
+      (c.roundU0 = true →
+        if f % 2 = 0 then |2 * (f : ℚ) - ((ten : ℚ) + 10) * s| ≤ 1
+        else |2 * (f : ℚ) - ((ten : ℚ) + 10) * s| < 1) := by
+  sorry
+
+-- Convert the scaled separation bounds for the multiple-of-ten candidates
+-- to half-ULP error bounds.
+theorem dec_ten_error_bound (f : ℕ) (e : ℤ) (h : Regular f e) :
+    let c := toDecimalCandidates f e
+    let x := value f e * (10 ^ c.k)⁻¹
+    let u := ulp e * (10 ^ c.k)⁻¹
+    let ten : ℕ := sigHi f e - sigHi f e % 10
+    (c.roundD0 = true →
+        if f % 2 = 0 then
+          |(ten : ℚ) - x| ≤ u / 2
+        else
+          |(ten : ℚ) - x| < u / 2) ∧
+      (c.roundU0 = true →
+        if f % 2 = 0 then
+          |((ten : ℚ) + 10) - x| ≤ u / 2
+        else
+          |((ten : ℚ) + 10) - x| < u / 2) := by
+  obtain ⟨hd0_core, hu0_core⟩ := dec_ten_separation_core f e h
+  set c := toDecimalCandidates f e
+  set x : ℚ := value f e * (10 ^ c.k)⁻¹ with hxdef
+  set u : ℚ := ulp e * (10 ^ c.k)⁻¹ with hudef
+  set ten : ℕ := sigHi f e - sigHi f e % 10
+  set s : ℚ := 2 ^ (1 - e) * 10 ^ c.k with hsdef
+
+  show _ ∧ _
+
+  have hs : (0 : ℚ) < s := by
+    rw [hsdef]
+    positivity
+
+  -- Shared scaling identity: 2^e · (10^k)⁻¹ · s = 2.
+  have hscale : (2 : ℚ) ^ e * (10 ^ c.k)⁻¹ * s = 2 := by
+    rw [hsdef]
+    calc
+      (2 : ℚ) ^ e * (10 ^ c.k)⁻¹ * (2 ^ (1 - e) * 10 ^ c.k) =
+          (2 ^ e * 2 ^ (1 - e)) * ((10 ^ c.k)⁻¹ * 10 ^ c.k) := by
+        ring
+      _ = 2 := by
+        rw [← zpow_add₀ (by norm_num : (2 : ℚ) ≠ 0),
+          show e + (1 - e) = 1 by ring, zpow_one,
+          inv_mul_cancel₀ (by positivity)]
+        ring
+
+  have hx_s : x * s = 2 * (f : ℚ) := by
+    rw [hxdef]
+    simp only [value]
+    calc
+      (f : ℚ) * 2 ^ e * (10 ^ c.k)⁻¹ * s =
+          (f : ℚ) * (2 ^ e * (10 ^ c.k)⁻¹ * s) := by
+        ring
+      _ = 2 * (f : ℚ) := by
+        rw [hscale]
+        ring
+
+  have hu_s : u / 2 * s = 1 := by
+    rw [hudef]
+    simp only [ulp]
+    calc
+      (2 : ℚ) ^ e * (10 ^ c.k)⁻¹ / 2 * s =
+          (2 ^ e * (10 ^ c.k)⁻¹ * s) / 2 := by
+        ring
+      _ = 1 := by
+        rw [hscale]
+        norm_num
+
+  -- Scaling bridge: |T - x|·s = |2f - T·s|.
+  have bridge (T : ℚ) : |T - x| * s = |2 * (f : ℚ) - T * s| := by
+    rw [abs_sub_comm (2 * (f : ℚ)) (T * s), ← hx_s, ← sub_mul,
+      abs_mul, abs_of_pos hs]
+
+  -- Undo the positive scaling to recover the half-ULP bound.
+  have unscale (T : ℚ)
+      (hcore :
+        if f % 2 = 0 then
+          |2 * (f : ℚ) - T * s| ≤ 1
+        else
+          |2 * (f : ℚ) - T * s| < 1) :
+      if f % 2 = 0 then
+        |T - x| ≤ u / 2
+      else
+        |T - x| < u / 2 := by
+    split_ifs at hcore ⊢
+    · exact le_of_mul_le_mul_right (by rw [bridge, hu_s]; exact hcore) hs
+    · exact lt_of_mul_lt_mul_right (by rw [bridge, hu_s]; exact hcore) hs.le
+
+  exact ⟨
+    fun hd0 => unscale ten (hd0_core hd0),
+    fun hu0 => unscale (ten + 10) (hu0_core hu0)
+  ⟩
+
+-- roundD0 (round down to a multiple of 10) and roundU0 (round up to a multiple
+-- of 10) are mutually exclusive: halfUlp < 5·2^60, while both firing would
+-- imply halfUlp ≥ 5·2^60.
+theorem roundD0_not_roundU0
+    (f : ℕ) (e : ℤ) (h : Regular f e)
+    (hd0 : (toDecimalCandidates f e).roundD0 = true) :
+    (toDecimalCandidates f e).roundU0 = false := by
+  set c := toDecimalCandidates f e
+  -- Keep 2^60 as an opaque unit P so the integer comparisons stay linear.
+  set P : ℕ := 2 ^ 60
+  set hi := sigHi f e
+  set lo := sigLo f e
+  set k := decimalExponent e
+  set sh := decimalShift e
+  set p10 := power10Significand (-k)
+  set cc := hi % 10 * P + lo / 2 ^ 4
+  set hlf := p10 / 2 ^ 64 / 2 ^ (4 - sh)
+  
+  have hhalf : hlf < 5 * P := half_ulp_lt e h.2.2
+  have hroundD0_def : c.roundD0 =
+      if hlf = cc then decide (f % 2 = 0) else decide (cc < hlf) := rfl
+  have hroundU0_def : c.roundU0 =
+      if cc + hlf + 1 = 10 * P then decide (f % 2 = 0)
+      else if k = 0 ∧ cc + hlf = 10 * P then decide (f % 2 = 0)
+      else decide (10 * P ≤ cc + hlf) := rfl
+
+  -- Clear the definitions so the remaining integer reasoning is linear.
+  clear_value cc hlf k P
+
+  -- roundD0 implies cc ≤ halfUlp.
+  have hcc_le : cc ≤ hlf := by
+    rw [hroundD0_def] at hd0
+    split at hd0
+    · omega
+    · rw [decide_eq_true_eq] at hd0; omega
+
+  -- roundU0 implies 10·P ≤ cc + halfUlp + 1.
+  have hge : c.roundU0 = true → 10 * P ≤ cc + hlf + 1 := by
+    intro ht
+    rw [hroundU0_def] at ht
+    split at ht
+    · omega
+    · split at ht
+      · omega
+      · rw [decide_eq_true_eq] at ht; omega
+
+  -- If both fire, then 10·P ≤ cc + hlf + 1 ≤ 2·hlf + 1 < 10·P.
+  rcases Bool.dichotomy c.roundU0 with hb | hb
+  · exact hb
+  · exact absurd (hge hb) (by omega)
+
 -- The decimal significand produced by yy is within half a scaled ULP
 -- of the exact value, with equality allowed only when f is even.
-theorem decimal_significand_distance
+theorem decimal_significand_error_bound
     (f : ℕ) (e : ℤ)
     (h : Regular f e) :
     let (d, k) := toDecimal f e
@@ -472,10 +739,11 @@ theorem decimal_significand_distance
 
   rw [show toDecimal f e =
     (if c.roundD0 || c.roundU0 then c.decTen else c.decOne, c.k) from rfl]
+  simp only [zpow_neg]
 
-  -- Match the goal's exact inverse notation to prevent type mismatch.
   let x := value f e * (10 ^ c.k)⁻¹
   let u := ulp e * (10 ^ c.k)⁻¹
+  let ten := sigHi f e - sigHi f e % 10
 
   let InRange (dec : ℕ) : Prop :=
     if f % 2 = 0 then
@@ -484,15 +752,26 @@ theorem decimal_significand_distance
       |dec - x| < u / 2
 
   have hone : InRange c.decOne := by
-    have hs := dec_one_distance f e h
+    have hs := dec_one_error_bound f e h
     simp only [InRange, c, x, u]
     split_ifs <;> linarith [hs]
-  have hten_d0 (hd0 : c.roundD0 = true) : InRange c.decTen := sorry
-  have hten_u0 (hu0 : c.roundU0 = true) : InRange c.decTen := sorry
+
+  have hdecTen :
+      c.decTen = ten + (if c.roundU0 then 10 else 0) := rfl
+
+  have hten_d0 (hd0 : c.roundD0 = true) : InRange c.decTen := by
+    -- roundD0 puts `ten` in range and excludes roundU0.
+    rw [hdecTen, roundD0_not_roundU0 f e h hd0]
+    simpa [InRange] using (dec_ten_error_bound f e h).1 hd0
+
+  have hten_u0 (hu0 : c.roundU0 = true) : InRange c.decTen := by
+    -- roundU0 puts `ten + 10` in range.
+    rw [hdecTen, hu0]
+    simpa [InRange] using (dec_ten_error_bound f e h).2 hu0
 
   cases hd0 : c.roundD0 <;>
     cases hu0 : c.roundU0 <;>
-    simp_all [InRange, x, u, zpow_neg]
+    simp_all [InRange, x, u]
 
 -- The decimal representation produced by yy round-trips to the original value.
 theorem yy_roundtrips
@@ -516,7 +795,7 @@ theorem yy_roundtrips
       (ulp e * 10 ^ (-k) / 2) * 10 ^ k = ulp e / 2 := by
     rw [div_mul_eq_mul_div, mul_assoc, hcancel, mul_one]
 
-  have hdist := decimal_significand_distance f e h
+  have hdist := decimal_significand_error_bound f e h
 
   simp only [Roundtrips]
   split_ifs with heven <;>
