@@ -4,13 +4,13 @@
 // Distributed under the MIT license (see LICENSE).
 
 #ifndef ZMIJ_C
-#  include "zmij.h"
+#  include "../zmij.h"
 
-#  include "zmij-to-chars.h"
+#  include "../zmij-to-chars.h"
 #  define ZMIJ_C 0
 #else
 extern "C" {
-#  include "zmij-c.h"
+#  include "../zmij-c.h"
 }
 
 namespace zmij {

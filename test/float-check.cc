@@ -15,7 +15,7 @@
 
 #include "dragonbox/dragonbox_to_chars.h"
 #include "fmt/format.h"
-#include "zmij.h"
+#include "../zmij.h"
 
 auto main() -> int {
   unsigned num_threads = std::thread::hardware_concurrency();
