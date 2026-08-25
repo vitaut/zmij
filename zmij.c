@@ -433,20 +433,20 @@ static ZMIJ_MAYBE_UNUSED inline const char* digits2(size_t value) {
 enum {
   div10k_exp = 40,
 };
-static const uint32_t div10k_sig = (uint32_t)((1ull << div10k_exp) / 10000 + 1);
-static const uint32_t neg10k = (uint32_t)((1ull << 32) - 10000);
+#define div10k_sig ((uint32_t)((1ull << div10k_exp) / 10000 + 1))
+#define neg10k_lit ((uint32_t)((1ull << 32) - 10000))
 enum {
   div100_exp = 19,
 };
-static const uint32_t div100_sig = (1 << div100_exp) / 100 + 1;
-static const uint32_t neg100 = (1 << 16) - 100;
+#define div100_sig ((1 << div100_exp) / 100 + 1)
+#define neg100 ((1 << 16) - 100)
 enum {
   div10_exp = 10,
 };
-static const uint32_t div10_sig = (1 << div10_exp) / 10 + 1;
-static const uint32_t neg10 = (1 << 8) - 10;
+#define div10_sig ((1 << div10_exp) / 10 + 1)
+#define neg10 ((1 << 8) - 10)
 
-static const uint64_t zeros = 0x0101010101010101u * '0';
+#define zeros ((uint64_t)(0x0101010101010101u * '0'))
 
 static inline void write8(char* buffer, uint64_t value) {
   memcpy(buffer, &value, 8);
@@ -601,7 +601,7 @@ static const zmij_data static_data = {
     ZMIJ_SPLAT16(10 * (1 << 8) - 1),
 #  endif  // ZMIJ_USE_SSE4_1
     ZMIJ_SPLAT64(div10k_sig),
-    ZMIJ_SPLAT64(neg10k),
+    ZMIJ_SPLAT64(neg10k_lit),
     ZMIJ_SPLAT64(zeros),
 #endif    // ZMIJ_USE_SSE
     // .exp_shifts =
@@ -1780,7 +1780,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
     // where the division on the RHS is implemented by the multiply + shift
     // trick and the fractional bits are masked away.
     uint64_t abcd_efgh =
-        abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+        abcdefgh + neg10k_lit * ((abcdefgh * div10k_sig) >> div10k_exp);
     uint64_t ab_cd_ef_gh =
         abcd_efgh +
         neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
@@ -1794,7 +1794,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
 
 #if ZMIJ_USE_NEON
   uint64_t abcd_efgh_64 =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+      abcdefgh + neg10k_lit * ((abcdefgh * div10k_sig) >> div10k_exp);
   int32x4_t abcd_efgh = vcombine_s32(
       vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
   uint8x16_t digits_128 = to_bcd_4x4(abcd_efgh, d);
@@ -1804,7 +1804,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
   return result;
 #elif ZMIJ_USE_SSE4_1
   uint64_t abcd_efgh =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+      abcdefgh + neg10k_lit * ((abcdefgh * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd =
       _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
