@@ -1003,13 +1003,16 @@ ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
       reinterpret_cast<const __m128i*>(d.shift_shuffle + drop_leading_zero));
   _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
                    _mm_shuffle_epi8(digits, shuffle));
+#elif ZMIJ_USE_SSE
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer + drop_leading_zero),
+                   digits);
 #endif
 }
 
 ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
                               bool drop_leading_zero, const data&) noexcept {
+  digits = digits >> (drop_leading_zero * sizeof(digits));
   memcpy(buffer, &digits, sizeof(digits));
-  memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
 }
 
 ZMIJ_INLINE auto write_scientific_simd(char* buffer, const dec_digits<32>& dig,
@@ -1155,7 +1158,11 @@ ZMIJ_INLINE auto write_scientific_digits(char* buffer,
                                          dec_digits<64>::digits_type digits,
                                          unsigned lo, int num_digits,
                                          int dec_exp) noexcept -> char* {
+#if ZMIJ_USE_SSE || ZMIJ_USE_SSE4_1
+  _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer + 1), digits);
+#else
   memcpy(buffer + 1, &digits, 16);
+#endif
   memcpy(buffer + 17, digits2(lo), 2);
   buffer[0] = buffer[1];
   buffer[1] = '.';  // Overwritten by the exponent when num_digits is 1.
@@ -1694,7 +1701,8 @@ auto write(char* buffer, Float value) noexcept -> char* {
       auto& digits = reinterpret_cast<const __m128i&>(dig.digits);
       __m128i tbl = _mm_load_si128(m128ptr(&layout.shuffle[has_extra_digit]));
       __m128i out = _mm_shuffle_epi8(digits, tbl);
-      memcpy(buffer, &out, bcd_size);  // Store the assembled digits in one go.
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(buffer),
+                       out);  // Store the assembled digits in one go.
       // The point can push BCD[15] outside the vector to buffer[16], so write
       // it unconditionally (otherwise it's in-vector or overwritten below).
       buffer[bcd_size] = char(_mm_extract_epi8(digits, 15));
