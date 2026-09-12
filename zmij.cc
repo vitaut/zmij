@@ -143,12 +143,6 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 
 namespace {
 
-#ifdef __cpp_lib_is_constant_evaluated
-using std::is_constant_evaluated;
-#else
-constexpr auto is_constant_evaluated() -> bool { return false; }
-#endif
-
 #if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
 constexpr bool is_big_endian = true;
 #else
@@ -420,7 +414,7 @@ struct pow10_significand_table {
     // The caller passes -e - 1 as dec_exp, so ~dec_exp recovers e. Picking the
     // base so that e itself is the index lets both loads share sxtw addressing.
     const uint64_t* p = data + num_pow10s + dec_exp_min;
-    if (!is_constant_evaluated()) ZMIJ_ASM(("" : "+r"(p)));
+    if (!zmij::detail::is_constant_evaluated()) ZMIJ_ASM(("" : "+r"(p)));
     return {p[~dec_exp], p[~dec_exp + num_pow10s]};
   }
 };
