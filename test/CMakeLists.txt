@@ -18,10 +18,11 @@ function (add_zmij_api_test name)
   add_test(NAME ${name} COMMAND ${name})
 endfunction ()
 
-# Same as add_zmij_api_test but also runs the implementation-detail tests.
+# Same as add_zmij_api_test but also runs the implementation-detail and
+# integer-formatting tests.
 function (add_zmij_test name)
   add_zmij_api_test(${name})
-  target_sources(${name} PRIVATE zmij-impl-test.cc)
+  target_sources(${name} PRIVATE zmij-impl-test.cc zmij-itoa-test.cc)
 endfunction ()
 
 add_zmij_test(zmij-test)
@@ -57,6 +58,11 @@ set(ZMIJ_CHECK_STANDARD cxx_std_20)
 add_executable(float-check float-check.cc)
 target_compile_features(float-check PRIVATE ${ZMIJ_CHECK_STANDARD})
 target_link_libraries(float-check fmt dragonbox zmij)
+
+# Exhaustive 32-bit integer check; standalone like float-check, run manually.
+add_executable(int-check int-check.cc)
+target_compile_features(int-check PRIVATE ${ZMIJ_CHECK_STANDARD})
+target_link_libraries(int-check fmt zmij Threads::Threads)
 
 include(FetchContent)
 set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
@@ -97,6 +103,10 @@ if (TARGET benchmark::benchmark)
   add_executable(ftoa-benchmark benchmark.cc ftoa-benchmark.cc)
   target_compile_features(ftoa-benchmark PRIVATE cxx_std_20)
   target_link_libraries(ftoa-benchmark fmt dragonbox zmij benchmark::benchmark)
+
+  add_executable(itoa-benchmark itoa-benchmark.cc)
+  target_compile_features(itoa-benchmark PRIVATE cxx_std_20)
+  target_link_libraries(itoa-benchmark fmt zmij benchmark::benchmark)
 else ()
   message(STATUS
     "Google Benchmark unavailable; skipping benchmark target")

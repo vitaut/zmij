@@ -80,6 +80,18 @@ enum {
   long_double_buffer_size = 44,
 };
 
+// Minimum buffer sizes for the integer write functions. These exceed the
+// maximum digit counts because the implementation may store in wider blocks
+// past the last digit.
+enum {
+  uint32_buffer_size = 16,
+  int32_buffer_size = 17,
+  uint64_buffer_size = 20,
+  int64_buffer_size = 21,
+  uint128_buffer_size = 48,
+  int128_buffer_size = 49,
+};
+
 namespace detail {
 
 constexpr auto is_constant_evaluated() noexcept -> bool {
@@ -629,6 +641,23 @@ inline ZMIJ_CONSTEXPR20 auto copy_clamped(char* out, size_t n,
 
 }  // namespace detail
 
+// Integer formatting internals, implemented in zmij-int.cc. A separate
+// namespace so the integer implementation stays self-contained and its
+// helpers cannot collide with detail's in unity builds.
+namespace details_int {
+
+// Writes the decimal representation of an unsigned integer to out and returns
+// one past the last character. May write up to the type's buffer size (see
+// the *_buffer_size enum above) regardless of the number of digits.
+template <typename UInt>
+auto itoa(char* out, UInt value) noexcept -> char*;
+
+// Same for a signed integer, with a leading '-' for negative values.
+template <typename Int>
+auto itoa_signed(char* out, Int value) noexcept -> char*;
+
+}  // namespace details_int
+
 /// Converts `value` into the shortest correctly rounded decimal representation.
 /// Usage:
 ///   auto [sig, exp, negative] = to_decimal(6.62607015e-34);
@@ -709,6 +738,68 @@ inline auto write(char* out, size_t n, long double value) noexcept -> char* {
   if (LDBL_MANT_DIG == DBL_MANT_DIG) return write(out, n, double(value));
   return detail::clamp_end(out, detail::write_big(out, n, value), n);
 }
+
+/// Writes the decimal representation of `value` to `out` without a null
+/// terminator. Returns a pointer past the last character written; if the
+/// representation exceeds `n` characters, only the first `n` are written.
+inline auto write(char* out, size_t n, unsigned value) noexcept -> char* {
+  char buffer[uint32_buffer_size];
+  if (n >= sizeof(buffer)) return details_int::itoa(out, uint32_t(value));
+  return detail::copy_clamped(out, n, buffer,
+                              details_int::itoa(buffer, uint32_t(value)));
+}
+
+inline auto write(char* out, size_t n, int value) noexcept -> char* {
+  char buffer[int32_buffer_size];
+  if (n >= sizeof(buffer))
+    return details_int::itoa_signed(out, int32_t(value));
+  return detail::copy_clamped(
+      out, n, buffer, details_int::itoa_signed(buffer, int32_t(value)));
+}
+
+inline auto write(char* out, size_t n, unsigned long long value) noexcept
+    -> char* {
+  char buffer[uint64_buffer_size];
+  if (n >= sizeof(buffer)) return details_int::itoa(out, uint64_t(value));
+  return detail::copy_clamped(out, n, buffer,
+                              details_int::itoa(buffer, uint64_t(value)));
+}
+
+inline auto write(char* out, size_t n, long long value) noexcept -> char* {
+  char buffer[int64_buffer_size];
+  if (n >= sizeof(buffer))
+    return details_int::itoa_signed(out, int64_t(value));
+  return detail::copy_clamped(
+      out, n, buffer, details_int::itoa_signed(buffer, int64_t(value)));
+}
+
+inline auto write(char* out, size_t n, unsigned long value) noexcept -> char* {
+  if (sizeof(unsigned long) <= sizeof(uint32_t))
+    return write(out, n, static_cast<unsigned>(value));
+  return write(out, n, static_cast<unsigned long long>(value));
+}
+
+inline auto write(char* out, size_t n, long value) noexcept -> char* {
+  if (sizeof(long) <= sizeof(int32_t)) return write(out, n, int(value));
+  return write(out, n, static_cast<long long>(value));
+}
+
+#if ZMIJ_USE_INT128
+inline auto write(char* out, size_t n, unsigned __int128 value) noexcept
+    -> char* {
+  char buffer[uint128_buffer_size];
+  if (n >= sizeof(buffer)) return details_int::itoa(out, value);
+  return detail::copy_clamped(out, n, buffer,
+                              details_int::itoa(buffer, value));
+}
+
+inline auto write(char* out, size_t n, __int128 value) noexcept -> char* {
+  char buffer[int128_buffer_size];
+  if (n >= sizeof(buffer)) return details_int::itoa_signed(out, value);
+  return detail::copy_clamped(out, n, buffer,
+                              details_int::itoa_signed(buffer, value));
+}
+#endif  // ZMIJ_USE_INT128
 
 /// Writes `value` in scientific format with `precision` digits after the
 /// decimal point (e.g. 1.234e+05) to `out`, without a null terminator, like

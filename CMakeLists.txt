@@ -9,7 +9,7 @@ option(ZMIJ_USE_SIMD "Use SIMD instructions" ON)
 option(ZMIJ_TEST "Generate the test targets" ON)
 option(ZMIJ_EXAMPLE "Generate the example targets" ON)
 
-add_library(zmij zmij.cc zmij.h)
+add_library(zmij zmij.cc zmij-int.cc zmij.h)
 add_library(zmij::zmij ALIAS zmij)
 target_include_directories(
   zmij PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
