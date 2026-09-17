@@ -58,6 +58,33 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
 #  define ZMIJ_USE_SSE4_1 0
 #endif
 
+// ZMIJ_AMD64_LEVEL is the x86-64 microarchitecture level whose instructions
+// may be used.  Microarchitecture levels are given by -march parameters to
+// gcc and clang.
+// value  simd level       rough correspondence
+// 0      no x86 SIMD      (or a non-x86 target)
+// 1      -march=x86-64    (SSE2)
+// 2      -march=x86-64-v2 (SSE4.1)
+// 3      -march=x86-64-v3 (AVX2)
+// 4      -march=x86-64-v4 (AVX-512)
+// It is derived from the ZMIJ_USE_SSE* switches above, which remain
+// the way to configure it.
+#if !ZMIJ_USE_SSE
+#  define ZMIJ_AMD64_LEVEL 0
+#elif !ZMIJ_USE_SSE4_1
+#  define ZMIJ_AMD64_LEVEL 1
+#elif !(defined(__AVX__) && defined(__AVX2__) && defined(__BMI__) &&      \
+        defined(__BMI2__) && defined(__F16C__) && defined(__FMA__) &&      \
+        defined(__LZCNT__) && defined(__MOVBE__)) &&                       \
+    !(defined(_MSC_VER) && defined(__AVX2__))
+#  define ZMIJ_AMD64_LEVEL 2
+#elif defined(__AVX512F__) && defined(__AVX512BW__) && \
+    defined(__AVX512CD__) && defined(__AVX512DQ__) && defined(__AVX512VL__)
+#  define ZMIJ_AMD64_LEVEL 4
+#else
+#  define ZMIJ_AMD64_LEVEL 3
+#endif
+
 #ifdef __aarch64__
 #  define ZMIJ_AARCH64 1
 #else
@@ -495,7 +522,7 @@ static ZMIJ_INLINE char* write2(char* out, char a, char b) {
   return out + 2;
 }
 
-#if ZMIJ_USE_SSE && !ZMIJ_MSC_VER
+#if ZMIJ_AMD64_LEVEL && !ZMIJ_MSC_VER
 typedef __m128i m128i;
 #else
 typedef struct {
@@ -526,7 +553,7 @@ typedef int16x8_t int16x8_storage;
 // Per-decimal-exponent buffer layout for branchless fixed-notation output.
 // The SSE4.1 shuffle data lives in the same entry, so both are one aligned
 // lookup (matches the C++ fixed_layout_table::entry).
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_AMD64_LEVEL >= 2
 #  define ZMIJ_FIXED_ENTRY_ALIGN 64  // Align each entry to a cache line.
 #elif ZMIJ_AARCH64 && !ZMIJ_OPTIMIZE_SIZE
 // Align entry to 32 bytes so indexing uses `lsl #5` not `umaddl`.
@@ -536,7 +563,7 @@ typedef int16x8_t int16x8_storage;
 #endif
 
 typedef struct {
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_AMD64_LEVEL >= 2
   // pshufb table mapping BCD bytes to their output slots; the decimal-point
   // slot (if any) holds a zero-marker (high bit set). Indexed by extra_digit.
   // Read via aligned load (_mm_load_si128); the entry alignment keeps it
@@ -550,7 +577,7 @@ typedef struct {
   unsigned char point_pos;
   // Start position for shifting digits right by one to insert the point.
   unsigned char shift_pos;
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_AMD64_LEVEL >= 2
   // Buffer-relative position of the last_digit byte, indexed by
   // has_extra_digit. Only used for bcd_size == 16 (doubles).
   unsigned char last_digit_pos[2];
@@ -578,22 +605,22 @@ typedef struct {
   uint64_t hundred_million;
   int32x4_storage multipliers32;
   int16x8_storage multipliers16;
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_AMD64_LEVEL >= 1
   // Ordered so the values used to format floats fit in a single cache line.
   m128i div100;
   m128i div10;
-#  if ZMIJ_USE_SSE4_1
+#  if ZMIJ_AMD64_LEVEL >= 2
   m128i neg100;
   m128i neg10;
   m128i bswap;
 #  else
   m128i hundred;
   m128i moddiv10;
-#  endif  // ZMIJ_USE_SSE4_1
+#  endif  // ZMIJ_AMD64_LEVEL >= 2
   m128i div10k;
   m128i neg10k;
   m128i zeros_v;
-#endif    // ZMIJ_USE_SSE
+#endif    // ZMIJ_AMD64_LEVEL >= 1
   // A table of precomputed shifts for the new direct-scaling algorithm.
   // `data[raw_exp] = compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift`
   // where extra_shift = 6 and bin_exp = max(raw_exp, 1) - double_exp_offset.
@@ -618,7 +645,7 @@ typedef struct {
 
 // Expand to the SSE4.1-only fixed_layout_entry fields (plus a trailing comma
 // separating them from the following initializers), or to nothing.
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_AMD64_LEVEL >= 2
 #  define ZMIJ_FIXED_SSE(...) __VA_ARGS__,
 #else
 #  define ZMIJ_FIXED_SSE(...)
@@ -633,10 +660,10 @@ static const zmij_data static_data = {
     100000000,
     {div10k_sig, (int32_t)(0x10000 - 10000), div100_sig << 12, neg100},
     {0xce0, neg10, 0, 0, 0, 0, 0, 0},
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_AMD64_LEVEL >= 1
     ZMIJ_SPLAT32(div100_sig),
     ZMIJ_SPLAT16((1 << 16) / 10 + 1),
-#  if ZMIJ_USE_SSE4_1
+#  if ZMIJ_AMD64_LEVEL >= 2
     ZMIJ_SPLAT32(neg100),
     ZMIJ_SPLAT16((1 << 8) - 10),
     {ZMIJ_PACK8(15, 14, 13, 12, 11, 10, 9, 8),
@@ -644,12 +671,12 @@ static const zmij_data static_data = {
 #  else
     ZMIJ_SPLAT32(100),
     ZMIJ_SPLAT16(10 * (1 << 8) - 1),
-#  endif  // ZMIJ_USE_SSE4_1
+#  endif  // ZMIJ_AMD64_LEVEL >= 2
     ZMIJ_SPLAT64(div10k_sig),
     // neg10k and zeros, which cannot be named in a static initializer.
     ZMIJ_SPLAT64((uint32_t)((1ull << 32) - 10000)),
     ZMIJ_SPLAT64((uint64_t)(0x0101010101010101u * '0')),
-#endif    // ZMIJ_USE_SSE
+#endif    // ZMIJ_AMD64_LEVEL >= 1
     // .exp_shifts =
     {
         5, 5, 6, 4, 5, 6, 4, 5, 6, 4, 5, 6, 3, 4, 5, 6, 4, 5, 6, 4, 5, 6, 3, 4,
@@ -1741,7 +1768,7 @@ typedef struct {
 
 #if ZMIJ_USE_NEON
 typedef uint16x8_t digits_double_type;
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_AMD64_LEVEL >= 1
 typedef __m128i digits_double_type;
 #else
 typedef struct {
@@ -1803,13 +1830,13 @@ static ZMIJ_INLINE uint8x16_t to_unshuffled_digits(uint64_t value,
       vshll_n_u16(vreinterpret_u16_s32(efgh_abcd_mnop_ijkl_32), 0));
   return to_bcd_4x4(efgh_abcd_mnop_ijkl, d);
 }
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_AMD64_LEVEL >= 1
 // Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
 // Digits in each 32-bit lane will be in order for SSE2, reversed for SSE4.1.
 static ZMIJ_INLINE __m128i to_bcd_4x4(__m128i y, const zmij_data* d) {
   const __m128i div100 = _mm_load_si128((const __m128i*)&d->div100);
   const __m128i div10 = _mm_load_si128((const __m128i*)&d->div10);
-#  if ZMIJ_USE_SSE4_1
+#  if ZMIJ_AMD64_LEVEL >= 2
   const __m128i neg100 = _mm_load_si128((const __m128i*)&d->neg100);
   const __m128i neg10 = _mm_load_si128((const __m128i*)&d->neg10);
 
@@ -1827,9 +1854,9 @@ static ZMIJ_INLINE __m128i to_bcd_4x4(__m128i y, const zmij_data* d) {
   __m128i z = _mm_or_si128(_mm_slli_epi32(y_mod_100, 16), y_div_100);
   return _mm_sub_epi16(_mm_slli_epi16(z, 8),
                        _mm_mullo_epi16(moddiv10, _mm_mulhi_epu16(z, div10)));
-#  endif  // ZMIJ_USE_SSE4_1
+#  endif  // ZMIJ_AMD64_LEVEL >= 2
 }
-#endif    // ZMIJ_USE_SSE
+#endif    // ZMIJ_AMD64_LEVEL >= 1
 
 static ZMIJ_MAYBE_UNUSED ZMIJ_INLINE int ctz(uint64_t x) {
 #if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
@@ -1852,7 +1879,7 @@ static ZMIJ_MAYBE_UNUSED ZMIJ_INLINE int ctz(uint64_t x) {
 // number of trailing-zero-trimmed bytes.
 static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
   (void)d;  // Unused on the scalar path.
-  if (!ZMIJ_USE_SSE && !ZMIJ_USE_NEON) {
+  if (!ZMIJ_AMD64_LEVEL && !ZMIJ_USE_NEON) {
     // An optimization from Xiang JunBo.
     // Three steps BCD. Base 10000 -> base 100 -> base 10.
     // div and mod are evaluated simultaneously as, e.g.
@@ -1883,7 +1910,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
   uint64_t bcd = vget_lane_u64(vreinterpret_u64_u8(vrev64_u8(digits)), 0);
   bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
   return result;
-#elif ZMIJ_USE_SSE4_1
+#elif ZMIJ_AMD64_LEVEL >= 2
   uint64_t abcd_efgh =
       abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd =
@@ -1891,7 +1918,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   bcd_result result = {bswap64(unshuffled_bcd), len};
   return result;
-#elif ZMIJ_USE_SSE
+#elif ZMIJ_AMD64_LEVEL >= 1
   // Evaluate the 4-digit limbs and arrange them such that we get a result
   // which is in the correct order.
   uint64_t abcd_efgh =
@@ -1906,7 +1933,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
 #  endif
   bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
   return result;
-#endif  // ZMIJ_USE_SSE
+#endif  // ZMIJ_AMD64_LEVEL >= 1
 }
 
 // Converts a value (up to 8 decimal digits) to BCD representation.
@@ -1920,7 +1947,7 @@ static ZMIJ_INLINE dec_digits_float to_digits_float(uint64_t value,
 // Converts a value (up to 16 decimal digits) to BCD representation.
 static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value,
                                                       const zmij_data* d) {
-#if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
+#if !ZMIJ_USE_NEON && !ZMIJ_AMD64_LEVEL
   uint32_t hi = (uint32_t)(value / 100000000);
   uint32_t lo = (uint32_t)(value % 100000000);
   bcd_result hi_bcd = to_bcd8(hi, d);
@@ -1948,7 +1975,7 @@ static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value,
   result.num_digits =
       nonzero_mask == 0 ? 0 : 16 - (int)(clz(nonzero_mask) >> 2);
   return result;
-#else  // ZMIJ_USE_SSE
+#else  // ZMIJ_AMD64_LEVEL >= 1
   uint32_t hi = (uint32_t)(value / 100000000);
   uint32_t lo = (uint32_t)(value % 100000000);
 
@@ -1960,7 +1987,7 @@ static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value,
                        _mm_srli_epi64(_mm_mul_epu32(x, div10k), div10k_exp)));
 
   // Shuffle to ensure correctly ordered result from SSE2 path.
-  if (!ZMIJ_USE_SSE4_1) y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
+  if (ZMIJ_AMD64_LEVEL < 2) y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
 
   __m128i bcd = to_bcd_4x4(y, d);
   const __m128i zeros_v = _mm_load_si128((const __m128i*)&d->zeros_v);
@@ -1970,15 +1997,15 @@ static ZMIJ_INLINE dec_digits_double to_digits_double(uint64_t value,
   uint64_t mask =
       (uint64_t)_mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
-  int len = ZMIJ_USE_SSE4_1 ? (mask == 0 ? 0 : 16 - ctz(mask))
-                            : (mask == 0 ? 0 : 64 - clz(mask));
-#  if ZMIJ_USE_SSE4_1
+  int len = ZMIJ_AMD64_LEVEL >= 2 ? (mask == 0 ? 0 : 16 - ctz(mask))
+                                  : (mask == 0 ? 0 : 64 - clz(mask));
+#  if ZMIJ_AMD64_LEVEL >= 2
   bcd = _mm_shuffle_epi8(bcd,
                          _mm_load_si128((const __m128i*)&d->bswap));  // SSSE3
 #  endif
   dec_digits_double result = {_mm_or_si128(bcd, zeros_v), len};
   return result;
-#endif  // ZMIJ_USE_SSE
+#endif  // ZMIJ_AMD64_LEVEL >= 1
 }
 
 // Writes 16 BCD characters to `buffer`. When drop_leading_zero is set, shifts
@@ -1989,7 +2016,7 @@ static ZMIJ_INLINE void write_digits_double(char* buffer,
                                             bool drop_leading_zero,
                                             const zmij_data* d) {
   (void)d;  // Unused on the scalar path.
-  if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
+  if (!ZMIJ_USE_NEON && ZMIJ_AMD64_LEVEL < 2) {
     memcpy(buffer, &digits, sizeof(digits));
     memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
     return;
@@ -1998,7 +2025,7 @@ static ZMIJ_INLINE void write_digits_double(char* buffer,
   uint8x16_t shuffle = vld1q_u8(d->shift_shuffle + drop_leading_zero);
   uint8x16_t shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
   vst1q_u8((uint8_t*)buffer, shifted);
-#elif ZMIJ_USE_SSE4_1
+#elif ZMIJ_AMD64_LEVEL >= 2
   __m128i shuffle =
       _mm_loadu_si128((const __m128i*)(d->shift_shuffle + drop_leading_zero));
   _mm_storeu_si128((__m128i*)buffer, _mm_shuffle_epi8(digits, shuffle));
@@ -2924,7 +2951,7 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
     const fixed_layout_entry* layout =
         &fixed_layouts[dec_exp - min_fixed_dec_exp];
     buffer += layout->start_pos;
-#if ZMIJ_USE_SSE4_1
+#if ZMIJ_AMD64_LEVEL >= 2
     if (num_bits == 64) {
       __m128i digits = dig64.digits;
       __m128i tbl =
@@ -2938,7 +2965,7 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
       buffer[layout->last_digit_pos[extra_digit]] = last_digit_char;
       return buffer + layout->end_pos[num_digits + extra_digit - 1];
     }
-#endif  // ZMIJ_USE_SSE4_1
+#endif  // ZMIJ_AMD64_LEVEL >= 2
     if (num_bits == 64)
       write_digits_double(buffer, dig64.digits, !extra_digit, d);
     else
