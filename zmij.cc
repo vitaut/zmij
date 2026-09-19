@@ -493,8 +493,10 @@ struct float_shuffle_table {
   static constexpr unsigned char last_digit_pos = 12;
   static constexpr unsigned char point_pos = 13;
   static constexpr unsigned char zero_pos = 14;
-  // Variant index: (num_digits - 1) * 4 + has_last_digit * 2 + has_extra_digit.
-  static constexpr int num_variants = 32;
+  static constexpr int num_bcd_digits = 8;
+  // A rounded last digit makes the shuffle span the whole padded BCD, so those
+  // variants collapse: sig_index is num_bcd_digits rather than num_digits - 1.
+  static constexpr int num_variants = (num_bcd_digits + 1) * 2;
   static constexpr int sci_slot =
       traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 1;
   static constexpr int num_slots = sci_slot + 1;
@@ -512,8 +514,8 @@ struct float_shuffle_table {
                                 bool has_extra_digit) const noexcept -> entry {
     unsigned rel = unsigned(dec_exp - traits::min_fixed_dec_exp);
     unsigned slot = rel < unsigned(sci_slot) ? rel : unsigned(sci_slot);
-    int idx = int(slot) * num_variants + (num_digits - 1) * 4 +
-              has_last_digit * 2 + has_extra_digit;
+    int sig_index = has_last_digit ? num_bcd_digits : num_digits - 1;
+    int idx = int(slot) * num_variants + sig_index * 2 + has_extra_digit;
     return entry{&data[idx * 16], data[idx * 16 + 15]};
   }
 
@@ -529,9 +531,10 @@ struct float_shuffle_table {
       -> sig_shuffle {
     sig_shuffle s = {};
     int leading_pos = has_extra_digit ? 7 : 6;
-    // Always 8 BCD chars in the significand plus a last-digit char; for
-    // !has_extra_digit the leading '0' of the 8-digit padded BCD is shown.
-    s.len = (has_last_digit ? 8 : num_digits - 1) + has_extra_digit;
+    // Always the full padded BCD in the significand plus a last-digit char;
+    // for !has_extra_digit its leading '0' is shown.
+    s.len =
+        (has_last_digit ? num_bcd_digits : num_digits - 1) + has_extra_digit;
     if (s.len < 1) s.len = 1;
     for (int j = 0; j < s.len - has_last_digit; ++j) s.pos[j] = leading_pos - j;
     if (has_last_digit) s.pos[s.len - 1] = last_digit_pos;
@@ -541,7 +544,9 @@ struct float_shuffle_table {
   static ZMIJ_CONSTEXPR auto make() -> float_shuffle_table {
     float_shuffle_table t;
     for (int idx = 0; idx < num_variants && enable; ++idx) {
-      sig_shuffle s = make_sig_shuffle((idx >> 2) + 1, ((idx >> 1) & 1) != 0,
+      int sig_index = idx >> 1;
+      sig_shuffle s = make_sig_shuffle(sig_index + 1,
+                                       sig_index == num_bcd_digits,
                                        (idx & 1) != 0);
       for (int slot = 0; slot < num_slots; ++slot) {
         unsigned char* out = &t.data[(slot * num_variants + idx) * 16];
