@@ -219,6 +219,37 @@ TEST(zmij_impl_test, pow10_compute) {
   }
 }
 
+TEST(zmij_impl_test, umul128) {
+#if ZMIJ_USE_CONSTEXPR
+  constexpr auto max_product = umul128(UINT64_MAX, UINT64_MAX);
+  static_assert(uint64_t(max_product) == 1, "constexpr lower half");
+  static_assert(uint64_t(max_product >> 64) == UINT64_MAX - 1,
+                "constexpr upper half");
+#endif
+
+  struct product_case {
+    uint64_t x, y, hi, lo;
+  };
+  const product_case cases[] = {
+      {0, UINT64_MAX, 0, 0},
+      {1, UINT64_MAX, 0, UINT64_MAX},
+      {0xffffffff, 0xffffffff, 0, 0xfffffffe00000001},
+      {0x100000000, 0x100000000, 1, 0},
+      {0x100000001, 0x100000001, 1, 0x200000001},
+      {UINT64_MAX, 0x100000001, 0x100000000, 0xfffffffeffffffff},
+      {UINT64_MAX, 0x8000000000000000, 0x7fffffffffffffff,
+       0x8000000000000000},
+      {UINT64_MAX, UINT64_MAX, UINT64_MAX - 1, 1},
+  };
+  for (const auto& c : cases) {
+    // Volatile inputs exercise the runtime intrinsic, even in optimized tests.
+    volatile uint64_t x = c.x, y = c.y;
+    auto product = umul128(x, y);
+    EXPECT_EQ(uint64_t(product), c.lo) << "x=" << c.x << ", y=" << c.y;
+    EXPECT_EQ(uint64_t(product >> 64), c.hi) << "x=" << c.x << ", y=" << c.y;
+  }
+}
+
 TEST(zmij_impl_test, utilities) {
   EXPECT_EQ(clz(1), 63);
   EXPECT_EQ(clz(~0ull), 0);

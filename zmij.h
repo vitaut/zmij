@@ -30,6 +30,21 @@
 #  include <intrin.h>  // __lzcnt64/_umul128/__umulh
 #endif
 
+#if defined(__has_builtin) && !defined(ZMIJ_NO_BUILTINS)
+#  define ZMIJ_HAS_BUILTIN(x) __has_builtin(x)
+#else
+#  define ZMIJ_HAS_BUILTIN(x) 0
+#endif
+
+#if defined(__cpp_lib_is_constant_evaluated) || \
+    ZMIJ_HAS_BUILTIN(__builtin_is_constant_evaluated) || \
+    (defined(_MSC_VER) && _MSC_VER >= 1925 && !defined(__clang__) && \
+     !defined(__CUDACC__))
+#  define ZMIJ_HAS_IS_CONSTANT_EVALUATED 1
+#else
+#  define ZMIJ_HAS_IS_CONSTANT_EVALUATED 0
+#endif
+
 #ifdef __cpp_lib_is_constant_evaluated
 #  define ZMIJ_CONSTEXPR20 constexpr
 #else
@@ -85,6 +100,8 @@ namespace detail {
 constexpr auto is_constant_evaluated() noexcept -> bool {
 #ifdef __cpp_lib_is_constant_evaluated
   return std::is_constant_evaluated();
+#elif ZMIJ_HAS_IS_CONSTANT_EVALUATED
+  return __builtin_is_constant_evaluated();
 #else
   return false;
 #endif
@@ -177,8 +194,8 @@ inline ZMIJ_CONSTEXPR auto umul128(uint64_t x, uint64_t y) noexcept
 #if ZMIJ_USE_INT128
   return uint128_t(x) * y;
 #else
-#  ifdef __cpp_lib_is_constant_evaluated
-  if (!std::is_constant_evaluated()) {
+#  if ZMIJ_HAS_IS_CONSTANT_EVALUATED
+  if (!is_constant_evaluated()) {
 #    if defined(_M_AMD64)
     uint64_t hi = 0;
     uint64_t lo = _umul128(x, y, &hi);
