@@ -78,11 +78,6 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #  define ZMIJ_MSC_VER 0
 #endif
 
-#if defined(__has_builtin) && !defined(ZMIJ_NO_BUILTINS)
-#  define ZMIJ_HAS_BUILTIN(x) __has_builtin(x)
-#else
-#  define ZMIJ_HAS_BUILTIN(x) 0
-#endif
 #ifdef __has_attribute
 #  define ZMIJ_HAS_ATTRIBUTE(x) __has_attribute(x)
 #else
