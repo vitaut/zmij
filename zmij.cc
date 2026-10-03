@@ -5,6 +5,7 @@
 // the Boost Software License, Version 1.0.
 
 #include "zmij.h"
+#include "zmij-shared.h"
 
 #include <assert.h>  // assert
 #include <float.h>   // DBL_MANT_DIG, LDBL_MANT_DIG
@@ -16,54 +17,10 @@
 #include <limits>       // std::numeric_limits
 #include <type_traits>  // std::conditional
 
-#ifndef ZMIJ_USE_SIMD
-#  define ZMIJ_USE_SIMD 1
-#endif
-
-#ifdef ZMIJ_USE_NEON
-// Use the provided definition.
-#elif defined(__ARM_NEON) || defined(_M_ARM64)
-#  define ZMIJ_USE_NEON ZMIJ_USE_SIMD
-#else
-#  define ZMIJ_USE_NEON 0
-#endif
-#if ZMIJ_USE_NEON
-#  include <arm_neon.h>
-#endif
-
-#ifdef ZMIJ_USE_SSE
-// Use the provided definition.
-#elif defined(__SSE2__)
-#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)
-#  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
-#else
-#  define ZMIJ_USE_SSE 0
-#endif
-#if ZMIJ_USE_SSE
-#  include <immintrin.h>
-#endif
-
-#ifdef ZMIJ_USE_SSE4_1
-// Use the provided definition.
-static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
-#elif defined(__SSE4_1__) || defined(__AVX__)
-// On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
-#  define ZMIJ_USE_SSE4_1 ZMIJ_USE_SSE
-#else
-#  define ZMIJ_USE_SSE4_1 0
-#endif
-
 #ifdef __aarch64__
 #  define ZMIJ_AARCH64 1
 #else
 #  define ZMIJ_AARCH64 0
-#endif
-
-#ifdef __x86_64__
-#  define ZMIJ_X86_64 1
-#else
-#  define ZMIJ_X86_64 0
 #endif
 
 #ifdef __clang__
@@ -72,63 +29,8 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE);
 #  define ZMIJ_CLANG 0
 #endif
 
-#ifdef _MSC_VER
-#  define ZMIJ_MSC_VER _MSC_VER
-#else
-#  define ZMIJ_MSC_VER 0
-#endif
-
-#if defined(__has_builtin) && !defined(ZMIJ_NO_BUILTINS)
-#  define ZMIJ_HAS_BUILTIN(x) __has_builtin(x)
-#else
-#  define ZMIJ_HAS_BUILTIN(x) 0
-#endif
-#ifdef __has_attribute
-#  define ZMIJ_HAS_ATTRIBUTE(x) __has_attribute(x)
-#else
-#  define ZMIJ_HAS_ATTRIBUTE(x) 0
-#endif
-#ifdef __has_cpp_attribute
-#  define ZMIJ_HAS_CPP_ATTRIBUTE(x) __has_cpp_attribute(x)
-#else
-#  define ZMIJ_HAS_CPP_ATTRIBUTE(x) 0
-#endif
-
-#if ZMIJ_HAS_CPP_ATTRIBUTE(likely) && ZMIJ_HAS_CPP_ATTRIBUTE(unlikely)
-#  define ZMIJ_UNLIKELY unlikely
-#else
-#  define ZMIJ_UNLIKELY
-#endif
-
-#if ZMIJ_HAS_CPP_ATTRIBUTE(maybe_unused)
-#  define ZMIJ_MAYBE_UNUSED maybe_unused
-#else
-#  define ZMIJ_MAYBE_UNUSED
-#endif
-
-#ifdef ZMIJ_OPTIMIZE_SIZE
-// Use the provided definition.
-#elif defined(__OPTIMIZE_SIZE__)
-#  define ZMIJ_OPTIMIZE_SIZE 1
-#else
-#  define ZMIJ_OPTIMIZE_SIZE 0
-#endif
 #ifndef ZMIJ_USE_EXP_STRING_TABLE
 #  define ZMIJ_USE_EXP_STRING_TABLE ZMIJ_OPTIMIZE_SIZE == 0
-#endif
-
-#if ZMIJ_HAS_ATTRIBUTE(always_inline) && !ZMIJ_OPTIMIZE_SIZE
-#  define ZMIJ_INLINE __attribute__((always_inline)) inline
-#elif ZMIJ_MSC_VER
-#  define ZMIJ_INLINE __forceinline
-#else
-#  define ZMIJ_INLINE inline
-#endif
-
-#ifdef __GNUC__
-#  define ZMIJ_ASM(x) asm x
-#else
-#  define ZMIJ_ASM(x)
 #endif
 
 // Declares struct members that must live in memory on ARM64 but are encoded as
