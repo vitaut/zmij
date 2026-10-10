@@ -100,6 +100,17 @@
 // The following macros configure how zmij is built.  They don't affect the
 // public interfaces.
 
+#ifdef ZMIJ_USE_IS_CONSTANT_EVALUATED
+// Use the provided definition.
+#elif defined(__cpp_lib_is_constant_evaluated) ||                    \
+    ZMIJ_HAS_BUILTIN(__builtin_is_constant_evaluated) ||             \
+    (defined(_MSC_VER) && _MSC_VER >= 1925 && !defined(__clang__) && \
+     !defined(__CUDACC__) && !defined(ZMIJ_NO_BUILTINS))
+#  define ZMIJ_USE_IS_CONSTANT_EVALUATED 1
+#else
+#  define ZMIJ_USE_IS_CONSTANT_EVALUATED 0
+#endif
+
 #ifndef ZMIJ_USE_SIMD
 #  define ZMIJ_USE_SIMD 1
 #endif
@@ -220,6 +231,8 @@ namespace detail {
 constexpr auto is_constant_evaluated() noexcept -> bool {
 #ifdef __cpp_lib_is_constant_evaluated
   return std::is_constant_evaluated();
+#elif ZMIJ_USE_IS_CONSTANT_EVALUATED
+  return __builtin_is_constant_evaluated();
 #else
   return false;
 #endif
@@ -312,8 +325,8 @@ inline ZMIJ_CONSTEXPR auto umul128(uint64_t x, uint64_t y) noexcept
 #if ZMIJ_USE_INT128
   return uint128_t(x) * y;
 #else
-#  ifdef __cpp_lib_is_constant_evaluated
-  if (!std::is_constant_evaluated()) {
+#  if ZMIJ_USE_IS_CONSTANT_EVALUATED
+  if (!is_constant_evaluated()) {
 #    if defined(_M_AMD64)
     uint64_t hi = 0;
     uint64_t lo = _umul128(x, y, &hi);
