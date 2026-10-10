@@ -2429,7 +2429,14 @@ static char* write_bigint_digits(bigint n, char* end) {
   char* p = end;
   uint32_t group = bigint_divmod_1e9(&n);
   while (n.num_limbs != 0) {  // Lower groups keep all 9 digits.
-    for (int k = 0; k < 9; ++k, group /= 10) *--p = (char)('0' + group % 10);
+    // Split off the leading digit and convert the other eight in parallel.
+    // Write all eight digits, including leading and trailing zeros.
+    p -= 9;
+    uint32_t hi = group / 100000000;
+    p[0] = (char)('0' + hi);
+    uint64_t digits =
+        to_digits_float(group - hi * 100000000, &static_data).digits;
+    memcpy(p + 1, &digits, 8);
     group = bigint_divmod_1e9(&n);
   }
   do {  // The most significant group drops its leading zeros.

@@ -286,6 +286,23 @@ TEST(zmij_impl_test, bigint) {
   EXPECT_EQ(to_string(b), "1208925819614629174706176");
 }
 
+TEST(zmij_impl_test, bigint_write_digits) {
+  // Cover group boundaries, zero padding, trailing zeros and multiple groups.
+  const uint64_t values[] = {0,          999999999,  1000000000,
+                            1099999999, 1100000000, 1123456780,
+                            1999999999, 1000000000000000001};
+  for (uint64_t value : values) {
+    fixed_bigint n(value);
+    char buffer[32];
+    memset(buffer, '#', sizeof(buffer));
+    char* end = buffer + sizeof(buffer) - 1;
+    char* start = write_digits(n, end);
+    EXPECT_EQ(std::string(start, end), std::to_string(value));
+    EXPECT_EQ(start[-1], '#');
+    EXPECT_EQ(*end, '#');
+  }
+}
+
 TEST(zmij_impl_test, shr_round_even) {
   // Divides a 128-bit value by 2**bits, rounding ties to even.
   auto rshift = [](uint128_t value, int bits) {
