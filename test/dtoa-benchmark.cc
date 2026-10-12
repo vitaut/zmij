@@ -11,6 +11,7 @@ namespace zmij {
 int dtoa(...);
 int to_string(...);
 int write(...);
+int write_scientific(...);
 }  // namespace zmij
 
 auto dtoa_zmij(double value, char* buffer) -> char* {
@@ -31,6 +32,24 @@ auto dtoa_zmij(double value, char* buffer) -> char* {
 }
 
 REGISTER_DTOA(zmij);
+
+// Historical sources used by abtest.py may not have the precision API.
+template <typename Float> static auto register_scientific() -> int {
+  if constexpr (std::is_same_v<decltype(zmij::write_scientific(
+                                  static_cast<char*>(nullptr), size_t(0),
+                                  Float(), 0)),
+                              char*>) {
+    return register_precision_method_(
+        "zmij/scientific", [](double value, char* buffer, int precision) -> char* {
+          // Includes room for the sign and exponent at precision 100.
+          return zmij::write_scientific(buffer, 128, Float(value), precision);
+        },
+        {6, 17, 18, 30, 50, 100});
+  }
+  return 0;
+}
+
+static int scientific_registered = register_scientific<double>();
 
 auto dtoa_dragonbox(double value, char* buffer) -> char* {
   return jkj::dragonbox::to_chars(value, buffer,

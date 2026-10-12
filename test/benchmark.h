@@ -23,6 +23,10 @@ inline auto register_method_(const std::string& name,
   return 0;
 }
 
+auto register_precision_method_(const std::string& name,
+                                auto (*fn)(double, char*, int)->char*,
+                                const std::vector<int>& precisions) -> int;
+
 #define REGISTER_DTOA(f) \
   static int register_dtoa_##f = register_method_<double>(#f, dtoa_##f)
 

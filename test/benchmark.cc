@@ -110,14 +110,15 @@ static void run_to_chars(benchmark::State& state,
                              benchmark::Counter::kInvert);
 }
 
-template <typename T>
+template <typename T, typename... Args>
 static void run_to_chars_mixed(benchmark::State& state,
-                               auto (*to_chars)(T, char*)->char*) {
+                               auto (*to_chars)(T, char*, Args...)->char*,
+                               Args... args) {
   const auto& pool = get_mixed_pool<T>();
   char buffer[256];
   for (auto _ : state) {
     for (T x : pool) {
-      char* end = to_chars(x, buffer);
+      char* end = to_chars(x, buffer, args...);
       benchmark::DoNotOptimize(end);
       benchmark::ClobberMemory();
     }
@@ -139,14 +140,16 @@ static const double canada_numbers[] = {
 #include "canada.h"
 };
 
-static void run_to_chars_canada(benchmark::State& state,
-                                auto (*to_chars)(double, char*)->char*) {
+template <typename... Args>
+static void run_to_chars_canada(
+    benchmark::State& state, auto (*to_chars)(double, char*, Args...)->char*,
+    Args... args) {
   constexpr size_t canada_numbers_count =
       sizeof(canada_numbers) / sizeof(canada_numbers[0]);
   char buffer[256];
   for (auto _ : state) {
     for (size_t i = 0; i < canada_numbers_count; ++i) {
-      char* end = to_chars(canada_numbers[i], buffer);
+      char* end = to_chars(canada_numbers[i], buffer, args...);
       benchmark::DoNotOptimize(end);
       benchmark::ClobberMemory();
     }
@@ -186,13 +189,15 @@ static const std::vector<double>& get_fixed_range_numbers() {
   return v;
 }
 
-static void run_to_chars_fixed_range(benchmark::State& state,
-                                     auto (*to_chars)(double, char*)->char*) {
+template <typename... Args>
+static void run_to_chars_fixed_range(
+    benchmark::State& state, auto (*to_chars)(double, char*, Args...)->char*,
+    Args... args) {
   const auto& nums = get_fixed_range_numbers();
   char buffer[256];
   for (auto _ : state) {
     for (double x : nums) {
-      char* end = to_chars(x, buffer);
+      char* end = to_chars(x, buffer, args...);
       benchmark::DoNotOptimize(end);
       benchmark::ClobberMemory();
     }
@@ -204,6 +209,23 @@ static void run_to_chars_fixed_range(benchmark::State& state,
       benchmark::Counter(static_cast<double>(nums.size()),
                          benchmark::Counter::kIsIterationInvariantRate |
                              benchmark::Counter::kInvert);
+}
+
+auto register_precision_method_(const std::string& name,
+                                auto (*fn)(double, char*, int)->char*,
+                                const std::vector<int>& precisions) -> int {
+  auto register_case = [&](const char* suffix, auto run) {
+    auto* b = benchmark::RegisterBenchmark(
+        (name + suffix).c_str(), [=](benchmark::State& state) {
+          run(state, fn, int(state.range(0)));
+        });
+    b->ArgName("precision");
+    for (int precision : precisions) b->Arg(precision);
+  };
+  register_case("", run_to_chars_mixed<double, int>);
+  register_case("/canada", run_to_chars_canada<int>);
+  register_case("/fixed_range", run_to_chars_fixed_range<int>);
+  return 0;
 }
 
 // Formats a counter value with 2 fractional digits, applying SI auto-scaling
@@ -276,10 +298,10 @@ template <typename T> static void register_all(bool per_digit) {
                                  m.to_chars);
     if constexpr (std::is_same_v<T, double>) {
       auto canada_name = m.name + "/canada";
-      benchmark::RegisterBenchmark(canada_name.c_str(), run_to_chars_canada,
+      benchmark::RegisterBenchmark(canada_name.c_str(), run_to_chars_canada<>,
                                    m.to_chars);
       auto fr_name = m.name + "/fixed_range";
-      benchmark::RegisterBenchmark(fr_name.c_str(), run_to_chars_fixed_range,
+      benchmark::RegisterBenchmark(fr_name.c_str(), run_to_chars_fixed_range<>,
                                    m.to_chars);
     }
   }
