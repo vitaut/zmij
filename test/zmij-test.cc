@@ -925,7 +925,7 @@ TEST(long_double_test, to_chars) {
         << "value=" << double(value);
   }
 
-  if (LDBL_MANT_DIG != DBL_MANT_DIG) {
+  if (!ZMIJ_LDBL_AS_DOUBLE) {
     // An extended value drives write_big (shortest) not the double path.
     long double extended = 1.0L + 0x1p-63L;
     auto r = zmij::to_chars(buf, buf + sizeof(buf), extended);
@@ -995,7 +995,7 @@ TEST(long_double_test, to_chars_format) {
   EXPECT_EQ(shortest(zmij::chars_format::general, 100.0L), "1e+02");
   EXPECT_EQ(shortest(zmij::chars_format::general, 1234567.0L), "1234567");
 
-  if (LDBL_MANT_DIG != DBL_MANT_DIG) {
+  if (!ZMIJ_LDBL_AS_DOUBLE) {
     // An extended value drives to_decimal_big; each format must round-trip.
     long double extended = 1.0L + 0x1p-63L;
     for (zmij::chars_format f :
@@ -1033,7 +1033,7 @@ static int count_sig_digits(const std::string& s) {
 // as double, so it drives write_big (shortest) rather than the double fast
 // path.
 TEST(long_double_test, write_shortest) {
-  if (LDBL_MANT_DIG == DBL_MANT_DIG)
+  if (ZMIJ_LDBL_AS_DOUBLE)
     GTEST_SKIP() << "long double is double; no extended path";
   auto check = [](long double value) {
     char buf[zmij::long_double_buffer_size + 1];

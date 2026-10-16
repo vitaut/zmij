@@ -2161,7 +2161,7 @@ template auto write_hex(char* out, size_t n, double value, int precision,
 
 // long double instantiations, only needed when it differs from double; else
 // the public wrappers forward long double to the double path.
-#if LDBL_MANT_DIG != DBL_MANT_DIG
+#if !ZMIJ_LDBL_AS_DOUBLE
 template auto to_decimal_big(long double value) noexcept -> dec_fp<uint128_t>;
 template auto write_big(char* out, size_t n, long double value) noexcept
     -> size_t;

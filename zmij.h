@@ -38,6 +38,13 @@
 #else
 #  define ZMIJ_HAS_BUILTIN(x) 0
 #endif
+// IBM double-double (the ppc64le default) is not IEEE 754, so format it through
+// the double path, the same as when long double is double.
+#if LDBL_MANT_DIG == DBL_MANT_DIG || defined(__LONG_DOUBLE_IBM128__)
+#  define ZMIJ_LDBL_AS_DOUBLE 1
+#else
+#  define ZMIJ_LDBL_AS_DOUBLE 0
+#endif
 #ifdef __has_attribute
 #  define ZMIJ_HAS_ATTRIBUTE(x) __has_attribute(x)
 #else
@@ -699,7 +706,7 @@ auto write_hex(char* out, size_t n, Float value, int precision,
 
 // When long double == double it has no explicit instantiations, so forward the
 // long double detail writers to their double counterparts.
-#if LDBL_MANT_DIG == DBL_MANT_DIG
+#if ZMIJ_LDBL_AS_DOUBLE
 // There is no write_big for double, so route shortest through write.
 template <>
 inline auto write_big(char* out, size_t n, long double value) noexcept
@@ -724,7 +731,7 @@ inline auto write_hex(char* out, size_t n, long double value, int precision,
                       bool prefix) noexcept -> size_t {
   return write_hex(out, n, double(value), precision, prefix);
 }
-#endif  // LDBL_MANT_DIG == DBL_MANT_DIG
+#endif  // ZMIJ_LDBL_AS_DOUBLE
 
 // Returns the past-the-end pointer after writing min(size, n) chars to `out`.
 inline auto clamp_end(char* out, size_t size, size_t n) noexcept -> char* {
@@ -763,7 +770,7 @@ inline auto to_decimal(double value) noexcept -> dec_fp<> {
 }
 inline auto to_decimal(long double value) noexcept
     -> dec_fp<detail::uint128_t> {
-#if LDBL_MANT_DIG == DBL_MANT_DIG
+#if ZMIJ_LDBL_AS_DOUBLE
   dec_fp<> dec = detail::to_decimal(double(value));
   return {dec.sig, dec.exp, dec.negative};
 #else
@@ -829,7 +836,7 @@ inline ZMIJ_CONSTEXPR20 auto write(char* out, size_t n, float value) noexcept
 }
 
 inline auto write(char* out, size_t n, long double value) noexcept -> char* {
-  if (LDBL_MANT_DIG == DBL_MANT_DIG) return write(out, n, double(value));
+  if (ZMIJ_LDBL_AS_DOUBLE) return write(out, n, double(value));
   return detail::clamp_end(out, detail::write_big(out, n, value), n);
 }
 
