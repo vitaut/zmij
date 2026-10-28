@@ -1043,8 +1043,10 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     // pow10 * bin_sig reduces to a single shift and we can extract
     // the integral and fractional parts directly.
     unsigned char frac_shift = exp_shift + traits::num_sig_bits;
-    uint64_t fractional =
-        pow10.hi << frac_shift | pow10.lo >> (64 - frac_shift);
+    uint64_t fractional = pow10.hi << frac_shift;
+    // For float, pow10.hi alone gives fractional 40+ bits, enough for all
+    // powers of two.
+    if (num_bits == 64) fractional |= pow10.lo >> (64 - frac_shift);
 
     uint64_t half_ulp = pow10.hi >> (1 - exp_shift);
     // The value is 2**(num_sig_bits + 1) half ulps.
@@ -1054,8 +1056,10 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     integral += round_up;
 
     int digit = int(umul128_add_hi64(fractional, 10, (uint64_t(1) << 63) - 1));
-    int lo =
-        int(umul128_add_hi64(fractional - (half_ulp >> 1), 10, ~uint64_t(0)));
+    // ceil(y * 10 / 2**64) for y = fractional - half_ulp / 2: y * 10 is a
+    // multiple of 2**64 only for y = 0 or 2**63, which no power of two hits,
+    // so we can round up always.
+    int lo = int(umul128_hi64(fractional - (half_ulp >> 1), 10)) + 1;
     if (digit < lo) digit = lo;
     return {integral, dec_exp, digit, (round_up + round_down) == 0};
   }
