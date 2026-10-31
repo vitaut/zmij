@@ -27,7 +27,6 @@
 // 256-bit paths for the u128 body chunks.
 #ifdef ZMIJ_USE_AVX2
 // Use the provided definition.
-static_assert(!ZMIJ_USE_AVX2 || ZMIJ_USE_SSE4_1, "AVX2 requires SSE4.1");
 #elif defined(__AVX2__)
 #  define ZMIJ_USE_AVX2 ZMIJ_USE_SSE4_1
 #else
