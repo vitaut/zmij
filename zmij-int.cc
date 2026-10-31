@@ -20,8 +20,7 @@
 
 #if ZMIJ_USE_NEON
 #  include <arm_neon.h>
-#endif
-#if ZMIJ_USE_SSE
+#elif ZMIJ_USE_SSE
 #  include <immintrin.h>
 #endif
 
@@ -35,10 +34,9 @@ static_assert(!ZMIJ_USE_AVX2 || ZMIJ_USE_SSE4_1, "AVX2 requires SSE4.1");
 #  define ZMIJ_USE_AVX2 0
 #endif
 
-// Fused multiply-add, for the float-reciprocal digit kernels. This is
-// a microarchitecture level 3 feature, and usually comes paired with AVX2.
-// MSVC has no __FMA__, but /arch:AVX2 implies FMA there; clang-cl defines
-// __FMA__ when FMA is on, so it takes the first branch.
+// Fused multiply-add, for the float-reciprocal digit kernels. MSVC has no
+// __FMA__, but /arch:AVX2 implies FMA there; clang-cl defines __FMA__ when
+// FMA is on, so it takes the first branch.
 #ifdef ZMIJ_USE_FMA
 // Use the provided definition.
 static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
@@ -73,11 +71,9 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 namespace zmij {
 namespace {
 
-// Copy that bypasses the fortified memcpy, whose per-copy check is a runtime
-// computation whenever the destination offset isn't constant - as in
-// write_unsigned, where the digit count decides where the last digits land,
-// costing a call plus clamp branches on every conversion. Callers provide the
-// documented *_buffer_size, which covers every copy.
+// Copies without the fortified memcpy's runtime check, which costs a call and
+// clamp branches whenever the destination offset isn't constant. Callers
+// provide the documented *_buffer_size, which covers every copy.
 ZMIJ_INLINE void copy_bytes(void* dst, const void* src, size_t n) noexcept {
 #if ZMIJ_HAS_BUILTIN(__builtin_memcpy)
   __builtin_memcpy(dst, src, n);
@@ -169,13 +165,12 @@ constexpr uint32_t neg10 = (1 << 8) - 10;
 constexpr uint64_t zeros = 0x0101010101010101u * '0';
 
 // The u64 kernels' 4-digit group - the 16 + 4 peel's tail, the lane chain's
-// head and the scalar kernel's top group - as two pairs from one
-// product instead of a divide, a multiply and a subtract: n * (5243 << 13),
-// the /100 reciprocal 5243 / 2^19 scaled to a 32-bit fraction, has n / 100
-// above bit 32 and the remainder's pair under the fraction's top 7 bits. With
-// n < 10000 the fraction for remainder r lies in [r/100, r/100 + 0.0023), so
-// 128 buckets of width 1/128 never mix two remainders (checked exhaustively);
-// the two lookups no longer depend on each other.
+// head and the scalar kernel's top group - as two pairs from one product:
+// n * (5243 << 13), the /100 reciprocal 5243 / 2^19 scaled to a 32-bit
+// fraction, has n / 100 above bit 32 and the remainder's pair under the
+// fraction's top 7 bits. With n < 10000 the fraction for remainder r lies in
+// [r/100, r/100 + 0.0023), so 128 buckets of width 1/128 never mix two
+// remainders (checked exhaustively), and the two lookups are independent.
 constexpr uint32_t frac_tail_mul = 5243u << 13;
 // The digits of n mod 100 for n < 10000, indexed by bits 25..31 of the
 // 32-bit fraction of n * frac_tail_mul. 256 bytes.
@@ -231,7 +226,7 @@ struct head4_tables {
   }
 
   // top4_table::write from the one product head * mul4[c]. Storing the two
-  // pairs separately beat merging them into a word by 0.05..0.17 ns on x86.
+  // pairs separately measured slightly faster on x86 than one merged store.
   ZMIJ_INLINE void write(char* out, uint64_t head, uint64_t c,
                          const frac100_table& frac100) const noexcept {
     uint64_t t = head * mul4[c];
@@ -266,10 +261,10 @@ struct u64_lane_tables {
 // count_digits tables. The index is the RAW output of the leading-zero
 // instruction so no fixup is ever emitted: with LZCNT (or ARM's clz) that is
 // clz(n | 1) itself, while on x64 without it clz lowers to bsr ^ 63, so
-// indexing by clz(n | 1) ^ 63 cancels back into the plain bsr result. The
-// entries are computed rather than spelled out: for MSB position b the estimate
-// is the digit count of 2^(b+1) - 1 and the correction threshold is
-// 10^(estimate-1) (0 for the one-digit rows, so the correction never fires).
+// indexing by clz(n | 1) ^ 63 cancels back into the plain bsr result. For MSB
+// position b the estimate is the digit count of 2^(b+1) - 1 and the correction
+// threshold is 10^(estimate-1) (0 for the one-digit rows, so the correction
+// never fires).
 #if defined(__LZCNT__) || (ZMIJ_MSC_VER && defined(__AVX2__)) || !ZMIJ_X86_64
 #  define ZMIJ_COUNT_DIGITS_BSR \
     0  // hardware returns the leading-zero count as-is
@@ -753,9 +748,8 @@ ZMIJ_INLINE auto write_body(char* out, uint64_t value, uint64_t len,
   return out + len;
 }
 
-// No narrow 32-bit kernel on NEON (the SSE4.1 SWAR-pack diet measured
-// exact instruction-count and time parity with this route on the M5); the
-// 32-bit entry forwards to the 16-digit body.
+// The 32-bit entry forwards to the 16-digit body: a NEON port of the SSE4.1
+// narrow kernel measured no faster.
 ZMIJ_INLINE auto write_body10(char* out, uint32_t value, uint64_t len,
                               const data& d) noexcept -> char* {
   return write_body(out, uint64_t(value), len, d);
@@ -838,8 +832,8 @@ ZMIJ_INLINE auto write_body10(char* out, uint32_t value, uint64_t len,
 
 #  if ZMIJ_USE_AVX2
 // Broadcasts the 64-bit splat pattern of a data constant straight from
-// memory. Reading eight bytes is enough for all, doing it this way
-// measured faster than expanding the constants to 32 bytes.
+// memory: eight bytes cover every constant, and this is faster than expanding
+// the constants to 32 bytes.
 ZMIJ_INLINE auto bcastq256(const void* p) noexcept -> __m256i {
   int64_t v;
   copy_bytes(&v, p, sizeof v);
@@ -878,8 +872,8 @@ ZMIJ_INLINE auto to_ascii16x2_256(uint64_t a, uint64_t b,
 }
 
 // Writes 32 ASCII digits: mid (16 digits) at out[0,16) then low at out[16,32),
-// both zero-padded. Left inlinable under AVX2: the write_top8 u128 tail
-// benefits (gcc gains ~1-2.5%, clang unchanged).
+// both zero-padded. Left inlinable under AVX2, which speeds up the write_top8
+// u128 tail slightly on gcc.
 static void write_body32_pad(char* out, uint64_t mid, uint64_t low,
                              const data& d) noexcept {
   __m256i ascii_bcd =
@@ -944,9 +938,8 @@ ZMIJ_INLINE auto write_body(char* out, uint64_t value, uint64_t len,
                             const data& d) noexcept -> char* {
   // Scale by 10^(16 - len) so the MSD lands in the top digit of the field:
   // the kernel's output is left-aligned in the register and the XMM stores
-  // directly - no GPR extraction and no 128-bit shift. The kernel now waits
-  // on the digit count and the scale multiply, but the returned length does
-  // not.
+  // directly - no GPR extraction and no 128-bit shift. The kernel waits on
+  // the digit count and the scale multiply, but the returned length does not.
   uint64_t scaled = value * d.scale10[16 - len];
   _mm_storeu_si128(reinterpret_cast<__m128i*>(out), to_ascii16(scaled, d));
   return out + len;
@@ -1023,10 +1016,9 @@ ZMIJ_INLINE auto write_top8(char* out, uint32_t top, uint64_t len,
 // 16); two peels leave 33-39 (top <=7 + mid 16 + low 16). The two interior
 // chunks are fixed-width; only the top trims leading zeros.
 //
-// gcc and clang need some handholding. ZMIJ_NOINLINE here on SSE2 and on
-// NEON's write_body32_pad, with ZMIJ_LIKELY in write_signed, turned out to be
-// the best compromise with neither compiler regressing >10% on some
-// benchmarks.
+// ZMIJ_NOINLINE here on SSE2 and on NEON's write_body32_pad, with ZMIJ_LIKELY
+// in write_signed, is a compromise between gcc and clang; the alternatives
+// regressed one of them by over 10% on some benchmarks.
 #  if ZMIJ_USE_SSE && !ZMIJ_USE_SSE4_1
 ZMIJ_NOINLINE
 #  else
@@ -1181,11 +1173,10 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
 #elif ZMIJ_USE_SSE || ZMIJ_USE_NEON
   // We peel off the last four digits and always write them at the end,
   // but if the number is below 1e16 we don't move them around but instead
-  // fill them into the SIMD kernel. This benchmarked fastest out of
-  // the variations that I tried.
+  // fill them into the SIMD kernel, which measured fastest.
   // NEON spells out the umulh so the /1e4 reciprocal loads from static_data
-  // like max16 and frac_mul: materializing the three measured ~a cycle per
-  // call slower on the M5. Elsewhere the compiler picks its own sequence.
+  // like max16 and frac_mul, which beats materializing them by about a cycle
+  // per call on the M5. Elsewhere the compiler picks its own sequence.
   uint64_t high =
       ZMIJ_USE_NEON ? umul128_hi64(v, d->div10k_sig64) >> 11 : v / 10000;
   uint64_t big = v > d->max16;
