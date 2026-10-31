@@ -49,12 +49,9 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 #  define ZMIJ_USE_FMA 0
 #endif
 
-// The u64 kernel (see write_unsigned): the 20-digit grid as five 4-digit
-// groups from two 128-bit products, two group chains running side by side in
-// the two 64-bit lanes of an XMM register. It needs SSE4.1 and a 64x64->128
-// multiply; other configurations, NEON included, keep the 16 + 4 peel. The top
-// group comes from a 7380-byte string table, or under ZMIJ_OPTIMIZE_SIZE from
-// one product and two small tables.
+// The u64 kernel in write_unsigned: the 20-digit grid as five 4-digit groups,
+// two group chains running side by side in the two 64-bit lanes of an XMM
+// register. Other configurations, NEON included, keep the 16 + 4 peel.
 #define ZMIJ_USE_U64_LANE_CHAIN (ZMIJ_USE_SSE4_1 && ZMIJ_USE_INT128)
 
 #if ZMIJ_HAS_ATTRIBUTE(noinline)
@@ -178,11 +175,7 @@ constexpr uint64_t zeros = 0x0101010101010101u * '0';
 // above bit 32 and the remainder's pair under the fraction's top 7 bits. With
 // n < 10000 the fraction for remainder r lies in [r/100, r/100 + 0.0023), so
 // 128 buckets of width 1/128 never mix two remainders (checked exhaustively);
-// the two lookups no longer depend on each other. For the head, mul4[c] =
-// 10^(20-c) * (5243 << 13) folds the left-alignment to four digits into the
-// same multiply: the aligned head's quotient, 10..99, indexes a pair table,
-// and the four bytes store at out with the body's 16-byte store at out + hlen
-// covering whatever is surplus.
+// the two lookups no longer depend on each other.
 constexpr uint32_t frac_tail_mul = 5243u << 13;
 // The digits of n mod 100 for n < 10000, indexed by bits 25..31 of the
 // 32-bit fraction of n * frac_tail_mul. 256 bytes.
@@ -199,8 +192,7 @@ constexpr auto make_frac100() -> frac100_table {
   return t;
 }
 // The u64 head as a table: for g in [0, 1845), its digits without leading
-// zeros, left-aligned in four bytes. What follows the digits is dead, the
-// body store covers it. 7380 bytes.
+// zeros, left-aligned in four bytes. 7380 bytes.
 struct top4_table {
   char e[1845][4] = {};
   constexpr top4_table() {
@@ -238,11 +230,8 @@ struct head4_tables {
     }
   }
 
-  // top4_table::write from one product: head * mul4[c] has the aligned head's
-  // /100 quotient above bit 32 - indexing the pair table - and the
-  // remainder's pair under the fraction's top 7 bits (frac100). Storing the
-  // two pairs separately beat merging them into a word by 0.05..0.17 ns on
-  // x86.
+  // top4_table::write from the one product head * mul4[c]. Storing the two
+  // pairs separately beat merging them into a word by 0.05..0.17 ns on x86.
   ZMIJ_INLINE void write(char* out, uint64_t head, uint64_t c,
                          const frac100_table& frac100) const noexcept {
     uint64_t t = head * mul4[c];
@@ -391,10 +380,9 @@ struct data {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
-  // NEON's scalar-constant head, exactly 80 bytes: it occupies the dead rows
-  // 0..9 of the fused count_digits table that follows (see inc_lt1e16_rows),
-  // and staying under byte 80 keeps every pair inside ldp immediate range.
-  // mul_const and neg1e8 are adjacent for one ldp in to_reversed_digits.
+  // NEON's scalar-constant head, exactly 80 bytes to fill the dead rows 0..9
+  // of the count table that follows (see inc_lt1e16_rows). mul_const and
+  // neg1e8 are adjacent for one ldp in to_reversed_digits.
   ZMIJ_NEON_CONST uint64_t mul_const = 0xabcc77118461cefd;
   // (1 << 32) - 1e8: one madd packs a value's base-1e8 divmod as
   // remainder | quotient << 32 (see to_reversed_digits).
@@ -507,11 +495,10 @@ struct data {
 #endif    // ZMIJ_USE_SSE4_1
 
 #if ZMIJ_USE_NEON
-  // Post-shuffle bias for signed 32-bit values, row-selected by neg: negatives
-  // get '-' on byte 0 (which holds a padded BCD leading zero after the widened
-  // shuffle window) and '0' on the digits. Two 16-byte rows rather than a
-  // 17-byte sliding pair so the row address is neg << 4 off the base and the
-  // struct offset folds into the load's scaled immediate.
+  // write_signed's post-shuffle bias, row-selected by neg: '0' on every byte
+  // but byte 0 of the negative row, which gets '-'. Two 16-byte rows rather
+  // than a 17-byte sliding pair so the row address is neg << 4 off the base
+  // and the struct offset folds into the load's scaled immediate.
   alignas(32) unsigned char sign_bias[2][16] = {
       {'0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
        '0', '0'},
@@ -660,9 +647,7 @@ ZMIJ_INLINE auto count_digits_lt_1e16(uint64_t n, const data& d) noexcept
   assert(n < uint64_t(1e16));
   uint64_t i = count_digits_tables::index_of(n);
 #if ZMIJ_USE_NEON
-  // Entry at byte offset i * 8 off the data pointer itself: i >= 10 always
-  // (n < 2^54), and data's scalar head occupies rows 0..9's space, so the
-  // load is one scaled register-offset ldr with no address add.
+  // Row i is at byte offset i * 8 of `data` itself (see inc_lt1e16_rows).
   static_assert(offsetof(data, inc_rows) == 10 * sizeof(uint64_t),
                 "scalar head must end exactly at the count table's row 10");
   uint64_t inc;
@@ -916,9 +901,7 @@ ZMIJ_INLINE auto write_body_head16_pad(char* out, uint64_t head, uint64_t hlen,
     -> char* {
   __m256i ascii_bcd =
       to_ascii16x2_256(head, tail, d);  // lane0=head, lane1=tail
-  // lane0 (head): sliding window at offset lz = 16 - hlen; lane1 (tail): the
-  // fixed reversal at offset 0. Both come from the one mixed_align_shuffle
-  // array.
+  // loadu2 takes the high lane (tail) first, then the low lane (head).
   __m256i mask =
       _mm256_loadu2_m128i(m128ptr(d.mixed_align_shuffle),
                           m128ptr(d.mixed_align_shuffle + (16 - hlen)));
@@ -1003,7 +986,7 @@ void write_body32_pad(char* out, uint64_t mid, uint64_t low,
 #endif
 
 #if ZMIJ_USE_FMA
-// The u128 highest block: top < 1e7 (<= 7 digits, so < 2^24 and exact in f32).
+// The u128 highest block: top < 1e7, at most 7 digits.
 // Four base-100 blocks via the FP reciprocals - no scalar divide - then each
 // block split to two digits by one SWAR /10 (the same mul/shift the scalar
 // paths use), left-trimmed to `len` significant digits and stored. No LUT, no
@@ -1095,9 +1078,6 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
   if (lo.quot < d->ten16) {  // 19-32 digits: top (<=16) + low
     uint64_t q = uint64_t(lo.quot);
 #    if ZMIJ_USE_AVX2
-    // Fuse the trimmed head (q) and the fixed low chunk into one 256-bit pass,
-    // then store the two lanes at out and out + len(q) (offset concatenation,
-    // no lane-crossing shuffle).
     return write_body_head16_pad(out, q, count_digits_lt_1e16(q, *d), lo.rem,
                                  *d);
 #    else
@@ -1203,11 +1183,9 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   // but if the number is below 1e16 we don't move them around but instead
   // fill them into the SIMD kernel. This benchmarked fastest out of
   // the variations that I tried.
-  // On NEON the big constants (the /1e4 umulh reciprocal, the 1e16 - 1
-  // threshold and the tail's /100 pair) load from static_data ldp pairs;
-  // letting the compiler materialize them costs seven mov/movk and, measured
-  // on the M5, ~a cycle per call. Elsewhere the compiler picks its own
-  // sequence for / 10000.
+  // NEON spells out the umulh so the /1e4 reciprocal loads from static_data
+  // like max16 and frac_mul: materializing the three measured ~a cycle per
+  // call slower on the M5. Elsewhere the compiler picks its own sequence.
   uint64_t high =
       ZMIJ_USE_NEON ? umul128_hi64(v, d->div10k_sig64) >> 11 : v / 10000;
   uint64_t big = v > d->max16;
