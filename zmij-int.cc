@@ -111,10 +111,9 @@ inline auto bswap64(uint64_t x) noexcept -> uint64_t {
   return __lzcnt64(x);
 #elif defined(_M_AMD64) || defined(_M_ARM64)
   unsigned long idx;
-  _BitScanReverse64(&idx, x);  // Fallback to the BSR instruction.
+  _BitScanReverse64(&idx, x);
   return 63 - idx;
 #elif ZMIJ_MSC_VER
-  // Fallback to the 32-bit BSR instruction.
   unsigned long idx;
   if (_BitScanReverse(&idx, uint32_t(x >> 32))) return 31 - idx;
   _BitScanReverse(&idx, uint32_t(x));
@@ -201,7 +200,7 @@ struct top4_table {
   // Writes the u64 value's top four digits at out, left-aligned: the caller's
   // body store covers whatever of the four is surplus, all four when the head
   // is empty. `head` is the digits above the low 16, at most 1844, and `c` the
-  // value's total digit count. One load from the table, one store.
+  // value's total digit count.
   ZMIJ_INLINE void write(char* out, uint64_t head, uint64_t,
                          const frac100_table&) const noexcept {
     copy_bytes(out, e[head], 4);
@@ -266,8 +265,7 @@ struct u64_lane_tables {
 // threshold is 10^(estimate-1) (0 for the one-digit rows, so the correction
 // never fires).
 #if defined(__LZCNT__) || (ZMIJ_MSC_VER && defined(__AVX2__)) || !ZMIJ_X86_64
-#  define ZMIJ_COUNT_DIGITS_BSR \
-    0  // hardware returns the leading-zero count as-is
+#  define ZMIJ_COUNT_DIGITS_BSR 0  // clz used as-is
 #else
 #  define ZMIJ_COUNT_DIGITS_BSR 1  // clz evaluated via bsr ^ 63
 #endif
@@ -445,7 +443,7 @@ struct data {
   // digits LSD-first (byte b holds digit 15 - b), so reading 16 bytes at
   // offset 16 - len, len in [1, 16], reverses them while dropping the 16 - len
   // leading zeros, and the 0x80 run zeroes the positions past the last digit.
-  // Offset 0 is a pure reversal. SSE2 left-aligns by the scale10 pre-scale.
+  // Offset 0 is a pure reversal.
   alignas(32) unsigned char revalign_shuffle[32] = {
       15,   14,   13,   12,   11,   10,   9,    8,    7,    6,    5,
       4,    3,    2,    1,    0,    0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
@@ -605,8 +603,7 @@ ZMIJ_INLINE auto to_bcd8_split(uint32_t abcdefgh, uint32_t abcd) noexcept
   const auto* d = &static_data;
   ZMIJ_ASM(("" : "+r"(d)));  // Load constants from memory.
 
-  // Evaluate the 4-digit limbs and arrange them such that we get a result which
-  // is in the correct order.
+  // efgh << 32 | abcd, so the BCD bytes come out most significant first.
   uint64_t abcd_efgh =
       (uint64_t(abcdefgh) << 32) - uint64_t((10000ull << 32) - 1) * abcd;
   __m128i v = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d);
@@ -766,8 +763,6 @@ ZMIJ_INLINE void write_body16_pad(char* out, uint64_t value,
 }
 
 #elif ZMIJ_USE_SSE4_1
-
-// Mirrors the NEON implementation
 
 // Builds the 16 ASCII digits from the two 8-digit lanes (hi = value / 1e8,
 // lo = value % 1e8) and applies shuffle.
@@ -982,8 +977,7 @@ void write_body32_pad(char* out, uint64_t mid, uint64_t low,
 // The u128 highest block: top < 1e7, at most 7 digits.
 // Four base-100 blocks via the FP reciprocals - no scalar divide - then each
 // block split to two digits by one SWAR /10 (the same mul/shift the scalar
-// paths use), left-trimmed to `len` significant digits and stored. No LUT, no
-// memcpy, one store.
+// paths use), left-trimmed to `len` significant digits and stored.
 ZMIJ_INLINE auto write_top8(char* out, uint32_t top, uint64_t len,
                             const data& d) noexcept -> char* {
   // top < 1e7 < 2^24, so top and every floor(top / 10^k) are exact in f32 and
