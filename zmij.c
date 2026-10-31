@@ -120,7 +120,7 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE,
 #endif
 
 #ifdef __GNUC__
-#  define ZMIJ_ASM(x) asm x
+#  define ZMIJ_ASM(x) __asm__ x
 #else
 #  define ZMIJ_ASM(x) ((void)0)
 #endif
