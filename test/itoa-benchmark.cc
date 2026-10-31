@@ -68,10 +68,9 @@ template <typename T> auto log_uniform_data() -> std::vector<T> {
   std::vector<T> data;
   wide_uint lo = 0, hi = 9;
   for (;;) {
-    wide_uint span = hi - lo + 1;  // 0 only for the full wide_uint range
+    wide_uint span = hi - lo + 1;
     for (size_t i = 0; i != samples_per_digit_count; ++i) {
-      wide_uint bits = random_bits<wide_uint>(gen);
-      T value = T(lo + (span != 0 ? bits % span : bits));
+      T value = T(lo + random_bits<wide_uint>(gen) % span);
       if (is_signed && (gen() & 1) != 0) value = T(0) - value;
       data.push_back(value);
     }
@@ -208,40 +207,25 @@ template <int order> auto twitter_markov_data() -> std::vector<uint64_t> {
   static_assert(order >= 0 && order <= 2);
   constexpr int num_states = 21;  // digit counts 1..20, indexed directly
   constexpr int n = int(sizeof(twitter_digit_counts));
-  std::vector<uint32_t> c0(num_states, 0);
-  std::vector<uint32_t> c1(num_states * num_states, 0);
-  std::vector<uint32_t> c2(num_states * num_states * num_states, 0);
+  auto context = [](int a, int b) {
+    return (order > 1 ? a * num_states : 0) + (order > 0 ? b : 0);
+  };
+  std::vector<std::vector<int>> successors(num_states * num_states);
   for (int i = 0; i < n; ++i) {
-    int a = twitter_digit_counts[i];
-    int b = twitter_digit_counts[(i + 1) % n];
-    int c = twitter_digit_counts[(i + 2) % n];
-    ++c0[a];
-    ++c1[a * num_states + b];
-    ++c2[(a * num_states + b) * num_states + c];
+    int a = twitter_digit_counts[i], b = twitter_digit_counts[(i + 1) % n];
+    successors[context(a, b)].push_back(twitter_digit_counts[(i + 2) % n]);
   }
+  // Sorting makes each stream depend only on the transition counts.
+  for (auto& s : successors) std::sort(s.begin(), s.end());
   uint64_t pow10[20] = {1};
   for (int i = 1; i < 20; ++i) pow10[i] = pow10[i - 1] * 10;
 
   std::mt19937_64 gen(2108);
-  auto pick = [&gen](const uint32_t* row, uint32_t total) {
-    uint64_t r = gen() % total;
-    for (int s = 0;; ++s) {
-      if (r < row[s]) return s;
-      r -= row[s];
-    }
-  };
   std::vector<uint64_t> data(json_array_size);
   int a = twitter_digit_counts[0], b = twitter_digit_counts[1];
   for (auto& value : data) {
-    int d;
-    if constexpr (order == 0) {
-      d = pick(c0.data(), uint32_t(n));
-    } else if constexpr (order == 1) {
-      d = pick(&c1[b * num_states], c0[b]);
-    } else {
-      d = pick(&c2[(a * num_states + b) * num_states],
-               c1[a * num_states + b]);
-    }
+    const auto& next = successors[context(a, b)];
+    int d = next[gen() % next.size()];
     a = b;
     b = d;
     uint64_t lo = d == 1 ? 0 : pow10[d - 1];
@@ -273,20 +257,16 @@ struct zmij_writer32 {
 // front (count_digits), since it fills back-to-front within [out, out + n).
 struct fmt_writer {
   template <typename T> auto operator()(char* out, T value) const -> char* {
+    auto abs_value = static_cast<fmt::detail::uint32_or_64_or_128_t<T>>(value);
     if constexpr (T(-1) < T(0)) {
-      auto abs_value =
-          static_cast<fmt::detail::uint32_or_64_or_128_t<T>>(value);
       *out = '-';
       if (value < 0) {
         ++out;
         abs_value = 0 - abs_value;
       }
-      return (*this)(out, abs_value);
-    } else {
-      int num_digits = fmt::detail::count_digits(value);
-      fmt::detail::format_decimal(out, value, num_digits);
-      return out + num_digits;
     }
+    return fmt::detail::format_decimal(out, abs_value,
+                                       fmt::detail::count_digits(abs_value));
   }
 };
 
