@@ -34,7 +34,7 @@ static_assert(!ZMIJ_USE_AVX2 || ZMIJ_USE_SSE4_1, "AVX2 requires SSE4.1");
 #  define ZMIJ_USE_AVX2 0
 #endif
 
-// Fused multiply-add, for the float-reciprocal digit kernels. MSVC has no
+// Fused multiply-add, for write_top8's float-reciprocal kernel. MSVC has no
 // __FMA__, but /arch:AVX2 implies FMA there; clang-cl defines __FMA__ when
 // FMA is on, so it takes the first branch.
 #ifdef ZMIJ_USE_FMA
@@ -206,12 +206,12 @@ struct u64_lane_tables {
 };
 
 // count_digits tables. The index is the RAW output of the leading-zero
-// instruction so no fixup is ever emitted: with LZCNT (or ARM's clz) that is
-// clz(n | 1) itself, while on x64 without it clz lowers to bsr ^ 63, so
-// indexing by clz(n | 1) ^ 63 cancels back into the plain bsr result. For MSB
-// position b the estimate is the digit count of 2^(b+1) - 1 and the correction
-// threshold is 10^(estimate-1) (0 for the one-digit rows, so the correction
-// never fires).
+// instruction, so GCC and Clang emit no fixup on x86-64 and ARM: with LZCNT
+// (or ARM's clz) that is clz(n | 1) itself, while on x64 without it clz
+// lowers to bsr ^ 63, so indexing by clz(n | 1) ^ 63 cancels back into the
+// plain bsr result. For MSB position b the estimate is the digit count of
+// 2^(b+1) - 1 and the correction threshold is 10^(estimate-1) (0 for the
+// one-digit rows, so the correction never fires).
 #if defined(__LZCNT__) || (ZMIJ_MSC_VER && defined(__AVX2__)) || !ZMIJ_X86_64
 #  define ZMIJ_COUNT_DIGITS_BSR 0  // clz used as-is
 #else
@@ -222,9 +222,8 @@ struct count_digits_tables {
 #if !ZMIJ_USE_NEON
   // Fused form valid only for n < 1e16 (< 2^54): each entry is
   // (estimate << 54) - threshold, so a single 64-bit add + `>> 54` yields the
-  // digit count, the power-of-10 compare folded into the add's carry. First
-  // member; on NEON the equivalent rows live at the front of `data` instead
-  // (see inc_lt1e16_rows).
+  // digit count, the power-of-10 compare folded into the add's carry. On NEON
+  // the equivalent rows live at the front of `data` (see inc_lt1e16_rows).
   uint64_t inc_lt1e16[65] = {};
 #endif
   // Digit-count estimate of a 64-bit value by MSB position. Row 64 serves
@@ -252,7 +251,7 @@ struct count_digits_tables {
     // row 64 covers it, so no | 1 is needed.
     return unsigned(__builtin_clzg(n, 64));
 #elif ZMIJ_MSC_VER && ZMIJ_X86_64
-    return __lzcnt64(n);  // BSR == 0 on MSVC x64 implies AVX2, so lzcnt exists
+    return __lzcnt64(n);  // clang-cl only, where BSR == 0 implies lzcnt
 #else
     return clz(n | 1);
 #endif
@@ -346,7 +345,8 @@ struct data {
   inc_lt1e16_rows inc_rows;
 #endif
 #if ZMIJ_USE_SSE
-  // Ordered so the SIMD kernel constants fit in a single cache line.
+  // First in data, so static_data's alignas(64) gives these the 16-byte
+  // alignment that _mm_load_si128 needs.
   uint128 div100 = splat32(div100_sig);
   uint128 div10 = splat16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
@@ -428,9 +428,9 @@ struct data {
   alignas(32) unsigned char top8_shuffle[24] = {
       13,   12,   9,    8,    5,    4,    1,    0,    0x80, 0x80, 0x80, 0x80,
       0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
-  // Float constants for the reciprocal digit kernels, kept in the table so they
-  // load as disp(base) off the shared data pointer like the integer constants.
-  alignas(16) float top8_recip[4] = {1e0f, 1e-2f, 1e-4f, 1e-6f};  // write_top8
+  // Float constants for write_top8, kept in the table so they load as
+  // disp(base) off the shared data pointer like the integer constants.
+  alignas(16) float top8_recip[4] = {1e0f, 1e-2f, 1e-4f, 1e-6f};
   alignas(16) float hundred_ps[4] = {100.0f, 100.0f, 100.0f, 100.0f};
 #  endif  // ZMIJ_USE_FMA
 #endif    // ZMIJ_USE_SSE4_1
@@ -1034,8 +1034,8 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
 #  endif
 }
 
-// A u128 holds 20-39 digits. Values <= u64 delegate to the u64 path (realistic
-// data is overwhelmingly small, so this branch is well predicted).
+// Values above UINT64_MAX have 20-39 digits; the rest delegate to the u64 path
+// (realistic data is overwhelmingly small, so this branch is well predicted).
 ZMIJ_INLINE auto write_u128(char* out, uint128_t value) noexcept -> char* {
   if (value <= UINT64_MAX) [[ZMIJ_LIKELY]]
     return zmij::detail::write_unsigned(out, uint64_t(value));
