@@ -132,8 +132,8 @@ constexpr auto make_frac100() -> frac100_table {
   }
   return t;
 }
-// The u64 head as a table: for g in [0, 1845), its digits without leading
-// zeros, left-aligned in four bytes. 7380 bytes.
+// The u64 head as a table: for each head in [0, 1845), its digits without
+// leading zeros, left-aligned in four bytes. 7380 bytes.
 struct top4_table {
   char e[1845][4] = {};
   constexpr top4_table() {
@@ -303,6 +303,9 @@ struct inc_lt1e16_rows {
   }
 };
 
+// The kernels' constants and tables. Callers pin &static_data in a register
+// with an empty asm ("Load constants from memory."), so each read is a load at
+// a displacement off it rather than an immediate or a RIP-relative address.
 struct data {
   static constexpr auto splat64(uint64_t x) -> uint128 { return {x, x}; }
   static constexpr auto splat32(uint32_t x) -> uint128 {
@@ -427,8 +430,7 @@ struct data {
   alignas(32) unsigned char top8_shuffle[24] = {
       13,   12,   9,    8,    5,    4,    1,    0,    0x80, 0x80, 0x80, 0x80,
       0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
-  // Float constants for write_top8, kept in the table so they load as
-  // disp(base) off the shared data pointer like the integer constants.
+  // Float constants for write_top8.
   alignas(16) float top8_recip[4] = {1e0f, 1e-2f, 1e-4f, 1e-6f};
   alignas(16) float hundred_ps[4] = {100.0f, 100.0f, 100.0f, 100.0f};
 #  endif  // ZMIJ_USE_FMA
@@ -533,7 +535,8 @@ ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const data& d) noexcept -> __m128i {
 // chained divide.
 ZMIJ_INLINE auto to_bcd8_split(uint32_t abcdefgh, uint32_t abcd) noexcept
     -> uint64_t {
-  // SSE2 is the only SIMD tier that calls this outside the scalar u128 path.
+  // Only SSE2 runs this on a SIMD build (NEON and SSE4.1 reach it only from
+  // the never-taken scalar u128 branch), so only SSE2 needs a SIMD body.
   if (!ZMIJ_USE_SSE || ZMIJ_USE_SSE4_1) {
     // Three steps BCD. Base 10000 -> base 100 -> base 10, each step adding
     // neg * quotient so quotient and remainder land side by side.
@@ -570,9 +573,7 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
 
 // Number of decimal digits in n (1 for n == 0). Branchless: the MSB position
 // gives a log10 estimate via a small table, corrected by a single power-of-10
-// compare (the Kendall Willets technique, as used by fmt). The tables live in
-// `data`, so they load as disp(base) off the same pinned pointer as the other
-// constants rather than via their own RIP-relative address.
+// compare (the Kendall Willets technique, as used by fmt).
 ZMIJ_INLINE auto count_digits(uint64_t n, const data& d) noexcept -> uint64_t {
   uint64_t z = count_digits_tables::index_of(n);
   int t = d.cd_tables.estimate[z];
@@ -669,8 +670,6 @@ ZMIJ_INLINE auto to_reversed_digits(uint64_t value, const data& d)
   return to_bcd_4x4(mnop_ijkl_efgh_abcd, d);
 }
 
-// Build the 16-wide BCD of value in [0, 1e16), convert to ASCII, and
-// apply shuffle.
 ZMIJ_INLINE auto to_ascii16_and_shuffle(uint64_t value, uint8x16_t shuffle,
                                         const data& d) noexcept -> uint8x16_t {
   uint8x16_t ascii = vaddq_u8(to_reversed_digits(value, d), vdupq_n_u8('0'));
@@ -783,10 +782,9 @@ ZMIJ_INLINE auto bcastq256(const void* p) noexcept -> __m256i {
 }
 
 // 32 ASCII digits of two values in [0, 1e16): lane0 = a, lane1 = b. Same
-// sequence as the SSE4.1 to_ascii_4x4, but widened to two 128-bit lanes; the
-// '0' bias is added to z in parallel with the 10s mulhi/mullo chain. The lane
-// setup is picked to minimize setup time (remainders become available after
-// quotients). The caller shuffles accordingly.
+// sequence as the SSE4.1 to_ascii_4x4, but widened to two 128-bit lanes. The
+// lane setup is picked to minimize setup time (remainders become available
+// after quotients). The caller shuffles accordingly.
 ZMIJ_INLINE auto to_ascii16x2_256(uint64_t a, uint64_t b,
                                   const data& d) noexcept -> __m256i {
   uint32_t ah = uint32_t(a / 100'000'000), al = uint32_t(a % 100'000'000);
@@ -1128,7 +1126,7 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   uint64_t t = uint64_t(low4) * d->frac_mul;
   memcpy(p, digits2(t >> 32), 2);
   memcpy(p + 2, d->frac100.e[uint32_t(t) >> 25], 2);
-  // The trailing digits only count if they aren't redundant.
+  // The tail digits count only when big; otherwise the body already wrote them.
   return p + 4 * big;
 #else
   // u64: at most 20 digits -> three groups (top, mid 8, low 8). The top
@@ -1140,8 +1138,6 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   uint32_t top = uint32_t(v / uint64_t(1e16));  // <= 1844
   uint64_t lo = to_bcd8(uint32_t(v - q * 100'000'000ull)) + zeros;
   uint64_t mid = to_bcd8(uint32_t(q - top * 100'000'000ull)) + zeros;
-  // One product: top / 100 (at most 18) above bit 32, the remainder's
-  // pair under the fraction's top 7 bits.
   uint64_t t = uint64_t(top) * frac_tail_mul;
   memcpy(buf + 4, digits2(t >> 32), 2);
   memcpy(buf + 6, d->frac100.e[uint32_t(t) >> 25], 2);
@@ -1178,12 +1174,12 @@ ZMIJ_INLINE auto write_signed(char* out, Int value) noexcept -> char* {
     const auto* d = &static_data;
     ZMIJ_ASM(("" : "+r"(d)));  // Load constants from memory.
     uint64_t neg = value < 0;
-    uint64_t chars = count_digits(mag, *d) + neg;
-    uint8x16_t shuffle = vld1q_u8(d->revalign_shuffle + (16 - chars));
+    uint64_t len = count_digits(mag, *d) + neg;
+    uint8x16_t shuffle = vld1q_u8(d->revalign_shuffle + (16 - len));
     uint8x16_t bias = vld1q_u8(d->sign_bias[neg]);
     vst1q_u8(reinterpret_cast<uint8_t*>(out),
              vaddq_u8(vqtbl1q_u8(to_reversed_digits(mag, *d), shuffle), bias));
-    return out + chars;
+    return out + len;
   }
 #endif  // ZMIJ_USE_NEON
   *out = '-';
