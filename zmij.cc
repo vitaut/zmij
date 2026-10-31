@@ -51,49 +51,6 @@
 
 namespace {
 
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-constexpr bool is_big_endian = true;
-#else
-constexpr bool is_big_endian = false;
-#endif
-
-inline auto bswap64(uint64_t x) noexcept -> uint64_t {
-#if ZMIJ_HAS_BUILTIN(__builtin_bswap64)
-  return __builtin_bswap64(x);
-#elif ZMIJ_MSC_VER
-  return _byteswap_uint64(x);
-#else
-  return ((x & 0xff00000000000000) >> 56) | ((x & 0x00ff000000000000) >> 40) |
-         ((x & 0x0000ff0000000000) >> 24) | ((x & 0x000000ff00000000) >> +8) |
-         ((x & 0x00000000ff000000) << +8) | ((x & 0x0000000000ff0000) << 24) |
-         ((x & 0x000000000000ff00) << 40) | ((x & 0x00000000000000ff) << 56);
-#endif
-}
-
-inline auto clz(uint64_t x) noexcept -> int {
-  assert(x != 0);
-#if ZMIJ_HAS_BUILTIN(__builtin_clzll)
-  return __builtin_clzll(x);
-#elif defined(_M_AMD64) && defined(__AVX2__)
-  // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
-  return __lzcnt64(x);
-#elif defined(_M_AMD64) || defined(_M_ARM64)
-  unsigned long idx;
-  _BitScanReverse64(&idx, x);  // Fallback to the BSR instruction.
-  return 63 - idx;
-#elif ZMIJ_MSC_VER
-  // Fallback to the 32-bit BSR instruction.
-  unsigned long idx;
-  if (_BitScanReverse(&idx, uint32_t(x >> 32))) return 31 - idx;
-  _BitScanReverse(&idx, uint32_t(x));
-  return 63 - idx;
-#else
-  int n = 64;
-  for (; x > 0; x >>= 1) --n;
-  return n;
-#endif
-}
-
 inline auto ctz(uint64_t x) noexcept -> int {
   assert(x != 0);
 #if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
@@ -127,9 +84,12 @@ ZMIJ_INLINE auto select(uint64_t condition, int64_t true_value,
   return false_value;
 }
 
+using zmij::detail::bswap64;
+using zmij::detail::clz;
 using zmij::detail::compute_dec_exp;
 using zmij::detail::compute_exp_shift;
 using zmij::detail::float_traits;
+using zmij::detail::is_big_endian;
 using zmij::detail::uint128;
 using zmij::detail::uint128_t;
 using zmij::detail::umul128;
