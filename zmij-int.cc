@@ -70,17 +70,6 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 
 namespace {
 
-// Copies without the fortified memcpy's runtime check, which costs a call and
-// clamp branches whenever the destination offset isn't constant. Callers
-// provide the documented *_buffer_size, which covers every copy.
-ZMIJ_INLINE void copy_bytes(void* dst, const void* src, size_t n) noexcept {
-#if ZMIJ_HAS_BUILTIN(__builtin_memcpy)
-  __builtin_memcpy(dst, src, n);
-#else
-  memcpy(dst, src, n);  // MSVC: memcpy is an intrinsic and isn't fortified.
-#endif
-}
-
 using zmij::detail::bswap64;
 using zmij::detail::clz;
 using zmij::detail::is_big_endian;
@@ -162,7 +151,7 @@ struct top4_table {
   // value's total digit count.
   ZMIJ_INLINE void write(char* out, uint64_t head, uint64_t,
                          const frac100_table&) const noexcept {
-    copy_bytes(out, e[head], 4);
+    memcpy(out, e[head], 4);
   }
 };
 struct head4_tables {
@@ -188,8 +177,8 @@ struct head4_tables {
   ZMIJ_INLINE void write(char* out, uint64_t head, uint64_t c,
                          const frac100_table& frac100) const noexcept {
     uint64_t t = head * mul4[c];
-    copy_bytes(out, &pairs[t >> 32], 2);
-    copy_bytes(out + 2, frac100.e[uint32_t(t) >> 25], 2);
+    memcpy(out, &pairs[t >> 32], 2);
+    memcpy(out + 2, frac100.e[uint32_t(t) >> 25], 2);
   }
 };
 struct u64_lane_tables {
@@ -790,7 +779,7 @@ ZMIJ_INLINE auto write_body10(char* out, uint32_t value, uint64_t len,
 // the constants to 32 bytes.
 ZMIJ_INLINE auto bcastq256(const void* p) noexcept -> __m256i {
   int64_t v;
-  copy_bytes(&v, p, sizeof v);
+  memcpy(&v, p, sizeof v);
   return _mm256_set1_epi64x(v);
 }
 
@@ -910,7 +899,7 @@ ZMIJ_INLINE auto write_head7(char* out, uint32_t top, uint64_t len) noexcept
   uint64_t bcd = to_bcd8(top) + zeros;
   uint64_t sh = 8 * (8 - len);
   uint64_t aligned = is_big_endian ? bcd << sh : bcd >> sh;
-  copy_bytes(out, &aligned, 8);
+  memcpy(out, &aligned, 8);
   return out + len;
 }
 
@@ -991,16 +980,16 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
     // Digit groups end at buf + 40, so the read window buf + 40 - len starts
     // at buf + 8 at the lowest (len <= 32) and buf + 1 in the 33-39 case.
     char buf[64];
-    copy_bytes(buf + 24, &low_hi, 8);
-    copy_bytes(buf + 32, &low_lo, 8);
+    memcpy(buf + 24, &low_hi, 8);
+    memcpy(buf + 32, &low_lo, 8);
     if (!big) {  // 19-32 digits: top (<=16) + low 16
       uint64_t top = uint64_t(lo.quot);
       uint64_t top_hi = to_bcd8(uint32_t(top / 100'000'000ull)) + zeros;
       uint64_t top_lo = to_bcd8(uint32_t(top % 100'000'000ull)) + zeros;
-      copy_bytes(buf + 8, &top_hi, 8);
-      copy_bytes(buf + 16, &top_lo, 8);
+      memcpy(buf + 8, &top_hi, 8);
+      memcpy(buf + 16, &top_lo, 8);
       uint64_t len = 16 + count_digits(top, *d);
-      copy_bytes(out, buf + 40 - len, 32);
+      memcpy(out, buf + 40 - len, 32);
       return out + len;
     }
     // 33-39 digits: top (<=7) + mid 16 + low 16.
@@ -1011,11 +1000,11 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
     uint64_t top_8 = to_bcd8(top) + zeros;
     uint64_t mid_hi = to_bcd8(uint32_t(mid / 100'000'000ull)) + zeros;
     uint64_t mid_lo = to_bcd8(uint32_t(mid % 100'000'000ull)) + zeros;
-    copy_bytes(buf, &top_8, 8);
-    copy_bytes(buf + 8, &mid_hi, 8);
-    copy_bytes(buf + 16, &mid_lo, 8);
+    memcpy(buf, &top_8, 8);
+    memcpy(buf + 8, &mid_hi, 8);
+    memcpy(buf + 16, &mid_lo, 8);
     uint64_t len = 32 + count_digits(top, *d);
-    copy_bytes(out, buf + 40 - len, 40);
+    memcpy(out, buf + 40 - len, 40);
     return out + len;
   }
 #  if ZMIJ_USE_SSE || ZMIJ_USE_NEON
@@ -1083,7 +1072,7 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
     uint64_t len_hi = len < 2 ? 0 : len - 2;  // 0..8 significant high chars
     uint64_t sh = (8 * (8 - len_hi)) & 63;    // & 63: unused when len_hi == 0
     uint64_t hi_aligned = is_big_endian ? hi << sh : hi >> sh;
-    copy_bytes(out, &hi_aligned, 8);  // high digits at out[0, len_hi)
+    memcpy(out, &hi_aligned, 8);  // high digits at out[0, len_hi)
     const char* d2 = digits2(low2);
     out[len_hi] = d2[0];
     out[len - 1] = d2[1];  // if len == 1 overwrites d2[0]
@@ -1138,8 +1127,8 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   uint64_t body = big ? high : v;  // body < 1e16 either way
   char* p = write_body(out, body, count_digits_lt_1e16(body, *d), *d);
   uint64_t t = uint64_t(low4) * d->frac_mul;
-  copy_bytes(p, digits2(t >> 32), 2);
-  copy_bytes(p + 2, d->frac100.e[uint32_t(t) >> 25], 2);
+  memcpy(p, digits2(t >> 32), 2);
+  memcpy(p + 2, d->frac100.e[uint32_t(t) >> 25], 2);
   // The trailing digits only count if they aren't redundant.
   return p + 4 * big;
 #else
@@ -1155,12 +1144,12 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   // One product: top / 100 (at most 18) above bit 32, the remainder's
   // pair under the fraction's top 7 bits.
   uint64_t t = uint64_t(top) * frac_tail_mul;
-  copy_bytes(buf + 4, digits2(t >> 32), 2);
-  copy_bytes(buf + 6, d->frac100.e[uint32_t(t) >> 25], 2);
-  copy_bytes(buf + 8, &mid, 8);
-  copy_bytes(buf + 16, &lo, 8);
+  memcpy(buf + 4, digits2(t >> 32), 2);
+  memcpy(buf + 6, d->frac100.e[uint32_t(t) >> 25], 2);
+  memcpy(buf + 8, &mid, 8);
+  memcpy(buf + 16, &lo, 8);
   uint64_t len = count_digits(v, *d);
-  copy_bytes(out, buf + 24 - len, 20);
+  memcpy(out, buf + 24 - len, 20);
   return out + len;
 #endif  // ZMIJ_USE_U64_LANE_CHAIN
 }
