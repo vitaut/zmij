@@ -290,16 +290,11 @@ struct inc_lt1e16_rows {
   uint64_t rows[55] = {};
 
   constexpr inc_lt1e16_rows() {
-    uint64_t p10[20] = {1};  // 10^i, i in [0, 19]
-    for (int i = 1; i < 20; ++i) p10[i] = p10[i - 1] * 10;
-    for (int b = 0; b < 54; ++b) {  // n < 1e16 => MSB <= 53, index 63 - b >= 10
-      uint64_t max_val = (uint64_t(2) << b) - 1;
-      int t = 1;  // digit count of max_val
-      while (t < 20 && max_val >= p10[t]) ++t;
-      rows[63 - b - 10] = (uint64_t(t) << 54) - (t > 1 ? p10[t - 1] : 0);
+    count_digits_tables cd;
+    for (int i = 10; i <= 64; ++i) {
+      uint64_t t = cd.estimate[i];
+      rows[i - 10] = (t << 54) - cd.threshold[ZMIJ_OPTIMIZE_SIZE ? t : i];
     }
-    // Row 64: n == 0 under the defined-at-zero clz form (one digit).
-    rows[64 - 10] = uint64_t(1) << 54;
   }
 };
 
