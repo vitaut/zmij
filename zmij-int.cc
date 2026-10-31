@@ -378,15 +378,15 @@ struct data {
   // Scalar-constant head, exactly 80 bytes: it occupies the dead rows 0..9
   // of the fused count_digits table that follows (see inc_lt1e16_rows), and
   // staying under byte 80 keeps every pair inside ldp immediate range.
-  // mul_const and neg1e8 are adjacent for the itoa head's single ldp.
+  // mul_const and neg1e8 are adjacent for one ldp in to_reversed_digits.
   uint64_t mul_const = 0xabcc77118461cefd;
   // (1 << 32) - 1e8: one madd packs a value's base-1e8 divmod as
-  // remainder | quotient << 32 (see to_unshuffled_digits_itoa).
+  // remainder | quotient << 32 (see to_reversed_digits).
   uint64_t neg1e8 = (uint64_t(1) << 32) - 100000000;
-  // u64toa head constants, paired for one ldp: the full-range /1e4 umulh
+  // u64 path head constants, paired for one ldp: the full-range /1e4 umulh
   // reciprocal (post-shift 11, the compiler's own magic) and the 16-digit
   // threshold 1e16 - 1.
-  uint64_t u64toa_consts[2] = {0x346dc5d63886594b, 9999999999999999};
+  uint64_t u64_consts[2] = {0x346dc5d63886594b, 9999999999999999};
   int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
   int16x8 multipliers16 = {0xce0, neg10};
   uint64_t pad[2] = {};  // keeps the head at 80 bytes
@@ -448,7 +448,7 @@ struct data {
       0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
 #endif
 #if ZMIJ_USE_SSE4_1
-  // Like revalign_shuffle, but for itoa_body10's lane layout (lane0 = mid
+  // Like revalign_shuffle, but for write_body10's lane layout (lane0 = mid
   // 4 digits, lane1 = top 4, lane2 = bottom 2): indexing at 10 - len drops
   // the leading zeros and emits the ten digits MSB-first in one pshufb.
   alignas(32) unsigned char revalign_shuffle10[26] = {
@@ -456,7 +456,7 @@ struct data {
       8,    0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
       0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
 #  if ZMIJ_USE_AVX2
-  // Sliding reversal window for itoa_body_head16_pad's 256-bit head+tail pass.
+  // Sliding reversal window for write_body_head16_pad's 256-bit head+tail pass.
   // The base [7..0, 15..8] is the per-8-byte-half reversal to_ascii16x2_256
   // emits. Loading 16 bytes at offset lz = 16 - hlen gives the head lane
   // (reverse + drop lz leading zeros, 0x80 tail); offset 0 gives the fixed tail
@@ -469,7 +469,7 @@ struct data {
       0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
 #  endif  // ZMIJ_USE_AVX2
 #  if ZMIJ_USE_FMA
-  // Sliding gather+trim for itoa_top8. The base picks the 8 top-block
+  // Sliding gather+trim for write_top8. The base picks the 8 top-block
   // digits MSD-first from the four /10 lanes (each 32-bit lane holds
   // [units, tens] in its low 16 bits). Loading 16 bytes at offset (8 - len)
   // fuses the leading-zero trim into the same pshufb; 0x80 lanes past the
@@ -480,7 +480,7 @@ struct data {
       0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80};
   // Float constants for the reciprocal digit kernels, kept in the table so they
   // load as disp(base) off the shared data pointer like the integer constants.
-  alignas(16) float top8_recip[4] = {1e0f, 1e-2f, 1e-4f, 1e-6f};  // itoa_top8
+  alignas(16) float top8_recip[4] = {1e0f, 1e-2f, 1e-4f, 1e-6f};  // write_top8
   alignas(16) float hundred_ps[4] = {100.0f, 100.0f, 100.0f, 100.0f};
 #  endif  // ZMIJ_USE_FMA
 #endif    // ZMIJ_USE_SSE4_1
@@ -496,10 +496,10 @@ struct data {
        '0', '0'},
       {'-', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
        '0', '0'}};
-  // u128 wide-path constants: the 128-bit /1e16 reciprocal (hi, lo), the
+  // write_above_i64 constants: the 128-bit /1e16 reciprocal (hi, lo), the
   // second peel's 5^16 reciprocal (ceil(2^96 / 5^16)), and 1e16 itself --
-  // loaded instead of mov/movk-materialized (~15 instructions per wide
-  // call). Plain ldrs: the head's ldp range is fully occupied.
+  // loaded instead of mov/movk-materialized (~15 instructions per call).
+  // Plain ldrs: the head's ldp range is fully occupied.
   uint64_t u128_consts[4] = {0x39a5652fb1137856, 0xd30baf9a1e626a6d,
                              0x734aca5f6226f0b, 10000000000000000};
 #endif  // ZMIJ_USE_NEON
@@ -767,7 +767,7 @@ ZMIJ_INLINE auto divmod_1e16_narrow(
 // the low 8-digit group in lane 0. The BCD bytes then come out LSD-first
 // across the whole vector (byte b = digit 15 - b), matching
 // revalign_shuffle's descending windows.
-ZMIJ_INLINE auto to_unshuffled_digits_itoa(uint64_t value, const data& d)
+ZMIJ_INLINE auto to_reversed_digits(uint64_t value, const data& d)
     -> uint8x16_t {
   uint64_t abcdefgh = uint64_t(umul128(value, d.mul_const) >> 90);
   uint64_t packed = value + d.neg1e8 * abcdefgh;
@@ -791,8 +791,7 @@ ZMIJ_INLINE auto to_unshuffled_digits_itoa(uint64_t value, const data& d)
 // apply shuffle.
 ZMIJ_INLINE auto to_ascii16_and_shuffle(uint64_t value, uint8x16_t shuffle,
                                         const data& d) noexcept -> uint8x16_t {
-  uint8x16_t ascii =
-      vaddq_u8(to_unshuffled_digits_itoa(value, d), vdupq_n_u8('0'));
+  uint8x16_t ascii = vaddq_u8(to_reversed_digits(value, d), vdupq_n_u8('0'));
   return vqtbl1q_u8(ascii, shuffle);
 }
 
@@ -801,10 +800,10 @@ ZMIJ_INLINE auto to_ascii16_and_shuffle(uint64_t value, uint8x16_t shuffle,
 // `value`, which the caller supplies (it depends only on `value`, so it
 // computes in parallel with the BCD work; u32-range callers use the cheaper
 // fused 32-bit counter).
-// Mirrors the SSE4.1 itoa_body, folding the BCD reversal and leading-zero drop
+// Mirrors the SSE4.1 write_body, folding the BCD reversal and leading-zero drop
 // into one vqtbl1q_u8.
-ZMIJ_INLINE auto itoa_body(char* out, uint64_t value, uint64_t len,
-                           const data& d) noexcept -> char* {
+ZMIJ_INLINE auto write_body(char* out, uint64_t value, uint64_t len,
+                            const data& d) noexcept -> char* {
   uint64_t leading_zeroes = 16 - len;
   uint8x16_t shuffle = vld1q_u8(d.revalign_shuffle + leading_zeroes);
   vst1q_u8(reinterpret_cast<uint8_t*>(out),
@@ -815,16 +814,16 @@ ZMIJ_INLINE auto itoa_body(char* out, uint64_t value, uint64_t len,
 // No narrow 32-bit kernel on NEON (the SSE4.1 SWAR-pack diet measured
 // exact instruction-count and time parity with this route on the M5); the
 // 32-bit entry forwards to the 16-digit body.
-ZMIJ_INLINE auto itoa_body10(char* out, uint32_t value, uint64_t len,
-                             const data& d) noexcept -> char* {
-  return itoa_body(out, uint64_t(value), len, d);
+ZMIJ_INLINE auto write_body10(char* out, uint32_t value, uint64_t len,
+                              const data& d) noexcept -> char* {
+  return write_body(out, uint64_t(value), len, d);
 }
 
 // Writes exactly 16 ASCII digits of `value` in [0, 1e16) at `out`, zero-padded,
 // no length trim -- a mid/low 16-digit chunk of a u128. Offset 0 into
 // revalign_shuffle is a pure reversal (the analogue of the SSE4.1 bswap).
-ZMIJ_INLINE void itoa_body16_pad(char* out, uint64_t value,
-                                 const data& d) noexcept {
+ZMIJ_INLINE void write_body16_pad(char* out, uint64_t value,
+                                  const data& d) noexcept {
   uint8x16_t shuffle = vld1q_u8(d.revalign_shuffle);
   vst1q_u8(reinterpret_cast<uint8_t*>(out),
            to_ascii16_and_shuffle(value, shuffle, d));
@@ -856,10 +855,10 @@ ZMIJ_INLINE auto to_ascii16_and_shuffle(uint64_t value, const __m128i& shuffle,
 }
 
 // Unused where the u64 path is the lane chain and the u128 paths use
-// itoa_body_head16_pad / itoa_top8.
-[[ZMIJ_MAYBE_UNUSED]] ZMIJ_INLINE auto itoa_body(char* out, uint64_t value,
-                                                 uint64_t len,
-                                                 const data& d) noexcept
+// write_body_head16_pad / write_top8.
+[[ZMIJ_MAYBE_UNUSED]] ZMIJ_INLINE auto write_body(char* out, uint64_t value,
+                                                  uint64_t len,
+                                                  const data& d) noexcept
     -> char* {
   uint64_t leading_zeroes = 16 - len;
   __m128i shuffle = _mm_loadu_si128(
@@ -870,8 +869,8 @@ ZMIJ_INLINE auto to_ascii16_and_shuffle(uint64_t value, const __m128i& shuffle,
   return out + len;
 }
 
-ZMIJ_INLINE auto itoa_body10(char* out, uint32_t value, uint64_t len,
-                             const data& d) noexcept -> char* {
+ZMIJ_INLINE auto write_body10(char* out, uint32_t value, uint64_t len,
+                              const data& d) noexcept -> char* {
   __m128i shuffle = _mm_loadu_si128(m128ptr(d.revalign_shuffle10 + (10 - len)));
   uint32_t high8 = value / 100;
   uint32_t top4 = value / 1'000'000;
@@ -887,9 +886,8 @@ ZMIJ_INLINE auto itoa_body10(char* out, uint32_t value, uint64_t len,
 // Write value in [0, 1e16) as ASCII at out, zero-padded.
 // This is a mid/low 16-digit chunk of a u128. Unused under AVX2, which fuses
 // the padded chunks into 256-bit passes.
-[[ZMIJ_MAYBE_UNUSED]] ZMIJ_INLINE void itoa_body16_pad(char* out,
-                                                       uint64_t value,
-                                                       const data& d) noexcept {
+[[ZMIJ_MAYBE_UNUSED]] ZMIJ_INLINE void write_body16_pad(
+    char* out, uint64_t value, const data& d) noexcept {
   __m128i shuffle = _mm_load_si128(m128ptr(&d.bswap));
 
   __m128i ascii = to_ascii16_and_shuffle(value, shuffle, d);
@@ -938,10 +936,10 @@ ZMIJ_INLINE auto to_ascii16x2_256(uint64_t a, uint64_t b,
 }
 
 // Writes 32 ASCII digits: mid (16 digits) at out[0,16) then low at out[16,32),
-// both zero-padded. Left inlinable under AVX2: the itoa_top8 u128 tail
+// both zero-padded. Left inlinable under AVX2: the write_top8 u128 tail
 // benefits (gcc gains ~1-2.5%, clang unchanged).
-static void itoa_body32_pad(char* out, uint64_t mid, uint64_t low,
-                            const data& d) noexcept {
+static void write_body32_pad(char* out, uint64_t mid, uint64_t low,
+                             const data& d) noexcept {
   __m256i ascii_bcd =
       to_ascii16x2_256(mid, low, d);  // lane0 = mid, lane1 = low
   __m256i shuffle = _mm256_broadcastsi128_si256(
@@ -956,8 +954,8 @@ static void itoa_body32_pad(char* out, uint64_t mid, uint64_t low,
 // reverse+trim revalign shuffle, lane1 the plain reversal. The two 16-byte
 // lanes are stored to separate addresses (offset by hlen), so the digits
 // concatenate without any lane-crossing shuffle. Returns out + hlen + 16.
-ZMIJ_INLINE auto itoa_body_head16_pad(char* out, uint64_t head, uint64_t hlen,
-                                      uint64_t tail, const data& d) noexcept
+ZMIJ_INLINE auto write_body_head16_pad(char* out, uint64_t head, uint64_t hlen,
+                                       uint64_t tail, const data& d) noexcept
     -> char* {
   __m256i ascii_bcd =
       to_ascii16x2_256(head, tail, d);  // lane0=head, lane1=tail
@@ -994,16 +992,16 @@ ZMIJ_INLINE auto to_ascii16(uint64_t value, const data& d) noexcept -> __m128i {
 }
 
 // Writes value in [0, 1e16) as ASCII at dst, zero-padded.
-ZMIJ_INLINE void itoa_body16_pad(char* dst, uint64_t value,
-                                 const data& d) noexcept {
+ZMIJ_INLINE void write_body16_pad(char* dst, uint64_t value,
+                                  const data& d) noexcept {
   _mm_storeu_si128(reinterpret_cast<__m128i*>(dst), to_ascii16(value, d));
 }
 
 // Convert value in [0, 1e16) to ASCII digits, write left-aligned at out.
 // Returns the past-the-end pointer, out + len. `len` is the digit count of
 // `value`, which the caller supplies.
-ZMIJ_INLINE auto itoa_body(char* out, uint64_t value, uint64_t len,
-                           const data& d) noexcept -> char* {
+ZMIJ_INLINE auto write_body(char* out, uint64_t value, uint64_t len,
+                            const data& d) noexcept -> char* {
   // Scale by 10^(16 - len) so the MSD lands in the top digit of the field:
   // the kernel's output is left-aligned in the register and the XMM stores
   // directly -- no GPR extraction and no 128-bit shift. The kernel now waits
@@ -1020,7 +1018,7 @@ ZMIJ_INLINE auto itoa_body(char* out, uint64_t value, uint64_t len,
 // bytes past len. Cheaper than the 16-digit kernel, whose scaled form would
 // wait on the digit count at the end of the two-divmod u128 chain. Mirrors
 // the scalar u32 path's high-group store.
-ZMIJ_INLINE auto itoa_head7(char* out, uint32_t top, uint64_t len) noexcept
+ZMIJ_INLINE auto write_head7(char* out, uint32_t top, uint64_t len) noexcept
     -> char* {
   uint64_t bcd = to_bcd8(top) + zeros;
   uint64_t sh = 8 * (8 - len);
@@ -1040,10 +1038,10 @@ ZMIJ_NOINLINE
 #  else
 ZMIJ_INLINE
 #  endif
-void itoa_body32_pad(char* out, uint64_t mid, uint64_t low,
-                     const data& d) noexcept {
-  itoa_body16_pad(out, mid, d);
-  itoa_body16_pad(out + 16, low, d);
+void write_body32_pad(char* out, uint64_t mid, uint64_t low,
+                      const data& d) noexcept {
+  write_body16_pad(out, mid, d);
+  write_body16_pad(out + 16, low, d);
 }
 #endif
 
@@ -1053,8 +1051,8 @@ void itoa_body32_pad(char* out, uint64_t mid, uint64_t low,
 // block split to two digits by one SWAR /10 (the same mul/shift the scalar
 // paths use), left-trimmed to `len` significant digits and stored. No LUT, no
 // memcpy, one store.
-ZMIJ_INLINE auto itoa_top8(char* out, uint32_t top, uint64_t len,
-                           const data& d) noexcept -> char* {
+ZMIJ_INLINE auto write_top8(char* out, uint32_t top, uint64_t len,
+                            const data& d) noexcept -> char* {
   // top < 1e7 < 2^24, so top and every floor(top / 10^k) are exact in f32 and
   // the naive reciprocals truncate correctly -- no shift, no fold needed here.
   __m128 x = _mm_cvtepi32_ps(_mm_set1_epi32(int(top)));
@@ -1086,7 +1084,7 @@ ZMIJ_INLINE auto itoa_top8(char* out, uint32_t top, uint64_t len,
 // chunks are fixed-width; only the top trims leading zeros.
 //
 // gcc and clang need some handholding. ZMIJ_NOINLINE here on SSE2 and on
-// NEON's itoa_body32_pad, with ZMIJ_LIKELY in write_signed, turned out to be
+// NEON's write_body32_pad, with ZMIJ_LIKELY in write_signed, turned out to be
 // the best compromise with neither compiler regressing >10% on some
 // benchmarks.
 #  if ZMIJ_USE_SSE && !ZMIJ_USE_SSE4_1
@@ -1094,7 +1092,7 @@ ZMIJ_NOINLINE
 #  else
 ZMIJ_INLINE
 #  endif
-auto itoa_u128_wide(char* out, uint128_t value) noexcept -> char* {
+auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
   const auto* d = &static_data;
   ZMIJ_ASM(("" : "+r"(d)));  // Load constants from memory.
   if (!ZMIJ_USE_SSE && !ZMIJ_USE_NEON) {
@@ -1149,34 +1147,34 @@ auto itoa_u128_wide(char* out, uint128_t value) noexcept -> char* {
     // Fuse the trimmed head (q) and the fixed low chunk into one 256-bit pass,
     // then store the two lanes at out and out + len(q) (offset concatenation,
     // no lane-crossing shuffle).
-    return itoa_body_head16_pad(out, q, count_digits_lt_1e16(q, *d), lo.rem,
-                                *d);
+    return write_body_head16_pad(out, q, count_digits_lt_1e16(q, *d), lo.rem,
+                                 *d);
 #    else
-    char* p = itoa_body(out, q, count_digits_lt_1e16(q, *d), *d);  // q < 1e16
-    itoa_body16_pad(p, lo.rem, *d);
+    char* p = write_body(out, q, count_digits_lt_1e16(q, *d), *d);  // q < 1e16
+    write_body16_pad(p, lo.rem, *d);
     return p + 16;
 #    endif
   }
   // hi.rem = digits [16, 32); hi.quot = top (<= 7 digits)
   divmod_1e16_narrow_result hi = divmod_1e16_narrow(lo.quot, *d);
 #    if ZMIJ_USE_FMA
-  char* p = itoa_top8(out, hi.quot, count_digits(hi.quot, *d), *d);
+  char* p = write_top8(out, hi.quot, count_digits(hi.quot, *d), *d);
 #    elif ZMIJ_USE_SSE && !ZMIJ_USE_SSE4_1
-  char* p = itoa_head7(out, hi.quot, count_digits(hi.quot, *d));
+  char* p = write_head7(out, hi.quot, count_digits(hi.quot, *d));
 #    else
-  char* p = itoa_body(out, hi.quot, count_digits(hi.quot, *d), *d);
+  char* p = write_body(out, hi.quot, count_digits(hi.quot, *d), *d);
 #    endif
-  itoa_body32_pad(p, hi.rem, lo.rem, *d);
+  write_body32_pad(p, hi.rem, lo.rem, *d);
   return p + 32;
 #  endif
 }
 
 // A u128 holds 20-39 digits. Values <= u64 delegate to the u64 path (realistic
 // data is overwhelmingly small, so this branch is well predicted).
-ZMIJ_INLINE auto itoa_u128(char* out, uint128_t value) noexcept -> char* {
+ZMIJ_INLINE auto write_u128(char* out, uint128_t value) noexcept -> char* {
   if (value <= UINT64_MAX) [[ZMIJ_LIKELY]]
     return write_unsigned(out, uint64_t(value));
-  return itoa_u128_wide(out, value);
+  return write_above_i64(out, value);
 }
 #endif  // ZMIJ_USE_INT128
 
@@ -1189,17 +1187,17 @@ template <typename UInt>
 ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
 #if ZMIJ_USE_INT128
   // Guarded like the sizeof(Int) > 8 block in write_signed: MSVC at /Od keeps
-  // the reference to itoa_u128 in the statically-false branch, so the
+  // the reference to write_u128 in the statically-false branch, so the
   // preprocessor has to remove it where no 128-bit support exists.
-  if (sizeof(UInt) > 8) return itoa_u128(out, value);
+  if (sizeof(UInt) > 8) return write_u128(out, value);
 #endif
   uint64_t v = value;
   const auto* d = &static_data;
   ZMIJ_ASM(("" : "+r"(d)));  // Load constants from memory.
   if (sizeof(UInt) <= 4) {
 #if ZMIJ_USE_SSE4_1 || ZMIJ_USE_NEON
-    return itoa_body10(out, uint32_t(value), count_digits(uint32_t(value), *d),
-                       *d);
+    return write_body10(out, uint32_t(value), count_digits(uint32_t(value), *d),
+                        *d);
 #else
     uint32_t high8 = uint32_t(value) / 100;
     uint32_t top4 = uint32_t(value) / 1'000'000;
@@ -1260,15 +1258,15 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   // and the tail's /100 pair) load from static_data ldp pairs; letting
   // the compiler materialize them costs seven mov/movk and, measured on
   // the M5, ~a cycle per call.
-  uint64_t high = umul128_hi64(v, d->u64toa_consts[0]) >> 11;
-  uint64_t big = v > d->u64toa_consts[1];
+  uint64_t high = umul128_hi64(v, d->u64_consts[0]) >> 11;
+  uint64_t big = v > d->u64_consts[1];
 #  else
   uint64_t high = v / 10000;
   uint64_t big = v >= uint64_t(1e16);
 #  endif
   uint32_t low4 = uint32_t(v - high * 10000);
   uint64_t body = big ? high : v;  // body < 1e16 either way
-  char* p = itoa_body(out, body, count_digits_lt_1e16(body, *d), *d);
+  char* p = write_body(out, body, count_digits_lt_1e16(body, *d), *d);
   uint64_t t = uint64_t(low4) * (ZMIJ_USE_NEON ? d->frac_mul : frac_tail_mul);
   copy_bytes(p, digits2(t >> 32), 2);
   copy_bytes(p + 2, d->frac100.e[uint32_t(t) >> 25], 2);
@@ -1309,7 +1307,7 @@ ZMIJ_INLINE auto write_signed(char* out, Int value) noexcept -> char* {
     uint128_t mag = value < 0 ? -uint128_t(value) : uint128_t(value);
     *out = '-';
     out += value < 0;
-    return itoa_u128_wide(out, mag);
+    return write_above_i64(out, mag);
   }
 #endif
   using uint = std::conditional_t<sizeof(Int) <= 4, uint32_t, uint64_t>;
@@ -1327,8 +1325,7 @@ ZMIJ_INLINE auto write_signed(char* out, Int value) noexcept -> char* {
     uint8x16_t shuffle = vld1q_u8(d->revalign_shuffle + (16 - chars));
     uint8x16_t bias = vld1q_u8(d->sign_bias[neg]);
     vst1q_u8(reinterpret_cast<uint8_t*>(out),
-             vaddq_u8(vqtbl1q_u8(to_unshuffled_digits_itoa(mag, *d), shuffle),
-                      bias));
+             vaddq_u8(vqtbl1q_u8(to_reversed_digits(mag, *d), shuffle), bias));
     return out + chars;
   }
 #endif  // ZMIJ_USE_NEON
