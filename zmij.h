@@ -763,10 +763,11 @@ inline ZMIJ_CONSTEXPR20 auto copy_clamped(char* out, size_t n,
 // Writes an unsigned integer's decimal representation to `out` and returns its
 // logical end. Whole-block stores may extend past that pointer but never past
 // the corresponding *_buffer_size capacity.
-template <typename UInt> auto itoa(char* out, UInt value) noexcept -> char*;
+template <typename UInt>
+auto write_unsigned(char* out, UInt value) noexcept -> char*;
 
 template <typename Int>
-auto itoa_signed(char* out, Int value) noexcept -> char*;
+auto write_signed(char* out, Int value) noexcept -> char*;
 
 }  // namespace detail
 
@@ -851,31 +852,31 @@ inline auto write(char* out, size_t n, long_double value) noexcept -> char* {
 /// representation exceeds `n` characters, only the first `n` are written.
 inline auto write(char* out, size_t n, int value) noexcept -> char* {
   char buffer[int32_buffer_size];
-  if (n >= sizeof(buffer)) return detail::itoa_signed(out, int32_t(value));
+  if (n >= sizeof(buffer)) return detail::write_signed(out, int32_t(value));
   return detail::copy_clamped(out, n, buffer,
-                              detail::itoa_signed(buffer, int32_t(value)));
+                              detail::write_signed(buffer, int32_t(value)));
 }
 
 inline auto write(char* out, size_t n, unsigned value) noexcept -> char* {
   char buffer[uint32_buffer_size];
-  if (n >= sizeof(buffer)) return detail::itoa(out, uint32_t(value));
+  if (n >= sizeof(buffer)) return detail::write_unsigned(out, uint32_t(value));
   return detail::copy_clamped(out, n, buffer,
-                              detail::itoa(buffer, uint32_t(value)));
+                              detail::write_unsigned(buffer, uint32_t(value)));
 }
 
 inline auto write(char* out, size_t n, long long value) noexcept -> char* {
   char buffer[int64_buffer_size];
-  if (n >= sizeof(buffer)) return detail::itoa_signed(out, int64_t(value));
+  if (n >= sizeof(buffer)) return detail::write_signed(out, int64_t(value));
   return detail::copy_clamped(out, n, buffer,
-                              detail::itoa_signed(buffer, int64_t(value)));
+                              detail::write_signed(buffer, int64_t(value)));
 }
 
 inline auto write(char* out, size_t n, unsigned long long value) noexcept
     -> char* {
   char buffer[uint64_buffer_size];
-  if (n >= sizeof(buffer)) return detail::itoa(out, uint64_t(value));
+  if (n >= sizeof(buffer)) return detail::write_unsigned(out, uint64_t(value));
   return detail::copy_clamped(out, n, buffer,
-                              detail::itoa(buffer, uint64_t(value)));
+                              detail::write_unsigned(buffer, uint64_t(value)));
 }
 
 inline auto write(char* out, size_t n, long value) noexcept -> char* {
@@ -892,16 +893,17 @@ inline auto write(char* out, size_t n, unsigned long value) noexcept -> char* {
 #if ZMIJ_USE_INT128
 inline auto write(char* out, size_t n, __int128 value) noexcept -> char* {
   char buffer[int128_buffer_size];
-  if (n >= sizeof(buffer)) return detail::itoa_signed(out, value);
+  if (n >= sizeof(buffer)) return detail::write_signed(out, value);
   return detail::copy_clamped(out, n, buffer,
-                              detail::itoa_signed(buffer, value));
+                              detail::write_signed(buffer, value));
 }
 
 inline auto write(char* out, size_t n, unsigned __int128 value) noexcept
     -> char* {
   char buffer[uint128_buffer_size];
-  if (n >= sizeof(buffer)) return detail::itoa(out, value);
-  return detail::copy_clamped(out, n, buffer, detail::itoa(buffer, value));
+  if (n >= sizeof(buffer)) return detail::write_unsigned(out, value);
+  return detail::copy_clamped(out, n, buffer,
+                              detail::write_unsigned(buffer, value));
 }
 #endif  // ZMIJ_USE_INT128
 

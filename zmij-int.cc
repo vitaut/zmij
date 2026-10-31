@@ -49,9 +49,9 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 #  define ZMIJ_USE_FMA 0
 #endif
 
-// The u64 kernel (see itoa): the 20-digit grid as five 4-digit groups from
-// two 128-bit products, two group chains running side by side in the two
-// 64-bit lanes of an XMM register. It needs SSE4.1 and a 64x64->128
+// The u64 kernel (see write_unsigned): the 20-digit grid as five 4-digit
+// groups from two 128-bit products, two group chains running side by side in
+// the two 64-bit lanes of an XMM register. It needs SSE4.1 and a 64x64->128
 // multiply; other configurations, NEON included, keep the 16 + 4 peel. The top
 // group comes from a 7380-byte string table, or under ZMIJ_OPTIMIZE_SIZE from
 // one product and two small tables.
@@ -70,10 +70,10 @@ namespace detail {
 namespace {
 
 // Copy that bypasses the fortified memcpy, whose per-copy check is a runtime
-// computation whenever the destination offset isn't constant -- as in itoa,
-// where the digit count decides where the last digits land, costing a call
-// plus clamp branches on every conversion. Callers provide the documented
-// *_buffer_size, which covers every copy.
+// computation whenever the destination offset isn't constant -- as in
+// write_unsigned, where the digit count decides where the last digits land,
+// costing a call plus clamp branches on every conversion. Callers provide the
+// documented *_buffer_size, which covers every copy.
 ZMIJ_INLINE void copy_bytes(void* dst, const void* src, size_t n) noexcept {
 #if ZMIJ_HAS_BUILTIN(__builtin_memcpy)
   __builtin_memcpy(dst, src, n);
@@ -1086,7 +1086,7 @@ ZMIJ_INLINE auto itoa_top8(char* out, uint32_t top, uint64_t len,
 // chunks are fixed-width; only the top trims leading zeros.
 //
 // gcc and clang need some handholding. ZMIJ_NOINLINE here on SSE2 and on
-// NEON's itoa_body32_pad, with ZMIJ_LIKELY in itoa_signed, turned out to be
+// NEON's itoa_body32_pad, with ZMIJ_LIKELY in write_signed, turned out to be
 // the best compromise with neither compiler regressing >10% on some
 // benchmarks.
 #  if ZMIJ_USE_SSE && !ZMIJ_USE_SSE4_1
@@ -1175,7 +1175,7 @@ auto itoa_u128_wide(char* out, uint128_t value) noexcept -> char* {
 // data is overwhelmingly small, so this branch is well predicted).
 ZMIJ_INLINE auto itoa_u128(char* out, uint128_t value) noexcept -> char* {
   if (value <= UINT64_MAX) [[ZMIJ_LIKELY]]
-    return itoa(out, uint64_t(value));
+    return write_unsigned(out, uint64_t(value));
   return itoa_u128_wide(out, value);
 }
 #endif  // ZMIJ_USE_INT128
@@ -1186,9 +1186,9 @@ ZMIJ_INLINE auto itoa_u128(char* out, uint128_t value) noexcept -> char* {
 // sizes: u32 -> 16, u64 -> 20, u128 -> 48 bytes (+1 for the sign in the signed
 // wrappers). Returns one past the last digit.
 template <typename UInt>
-ZMIJ_INLINE auto itoa(char* out, UInt value) noexcept -> char* {
+ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
 #if ZMIJ_USE_INT128
-  // Guarded like the sizeof(Int) > 8 block in itoa_signed: MSVC at /Od keeps
+  // Guarded like the sizeof(Int) > 8 block in write_signed: MSVC at /Od keeps
   // the reference to itoa_u128 in the statically-false branch, so the
   // preprocessor has to remove it where no 128-bit support exists.
   if (sizeof(UInt) > 8) return itoa_u128(out, value);
@@ -1299,13 +1299,13 @@ ZMIJ_INLINE auto itoa(char* out, UInt value) noexcept -> char* {
 
 // Write the decimal representation of signed value.
 template <typename Int>
-ZMIJ_INLINE auto itoa_signed(char* out, Int value) noexcept -> char* {
+ZMIJ_INLINE auto write_signed(char* out, Int value) noexcept -> char* {
 #if ZMIJ_USE_INT128
   // If possible, use the 64bit path.  The 128x128 multiplications required for
   // the full width are more expensive than branching.
   if (sizeof(Int) > 8) {
     if (value == Int(int64_t(value))) [[ZMIJ_LIKELY]]
-      return itoa_signed(out, int64_t(value));
+      return write_signed(out, int64_t(value));
     uint128_t mag = value < 0 ? -uint128_t(value) : uint128_t(value);
     *out = '-';
     out += value < 0;
@@ -1334,16 +1334,16 @@ ZMIJ_INLINE auto itoa_signed(char* out, Int value) noexcept -> char* {
 #endif  // ZMIJ_USE_NEON
   *out = '-';
   out += value < 0;
-  return itoa(out, mag);
+  return write_unsigned(out, mag);
 }
 
-template auto itoa(char* out, uint32_t value) noexcept -> char*;
-template auto itoa(char* out, uint64_t value) noexcept -> char*;
-template auto itoa_signed(char* out, int32_t value) noexcept -> char*;
-template auto itoa_signed(char* out, int64_t value) noexcept -> char*;
+template auto write_unsigned(char* out, uint32_t value) noexcept -> char*;
+template auto write_unsigned(char* out, uint64_t value) noexcept -> char*;
+template auto write_signed(char* out, int32_t value) noexcept -> char*;
+template auto write_signed(char* out, int64_t value) noexcept -> char*;
 #if ZMIJ_USE_INT128
-template auto itoa(char* out, uint128_t value) noexcept -> char*;
-template auto itoa_signed(char* out, __int128 value) noexcept -> char*;
+template auto write_unsigned(char* out, uint128_t value) noexcept -> char*;
+template auto write_signed(char* out, __int128 value) noexcept -> char*;
 #endif
 
 }  // namespace detail
