@@ -65,6 +65,14 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 #  define ZMIJ_NOINLINE
 #endif
 
+// Declares data members that NEON loads from memory, since materializing a
+// 64-bit immediate there takes mov + 3 movk; elsewhere they are immediates.
+#if ZMIJ_USE_NEON
+#  define ZMIJ_NEON_CONST
+#else
+#  define ZMIJ_NEON_CONST [[ZMIJ_MAYBE_UNUSED]] static constexpr
+#endif
+
 namespace zmij {
 namespace {
 
@@ -202,12 +210,21 @@ struct top4_table {
       for (int i = 3; i >= 0; --i, n /= 10) e[v][i] = char('0' + n % 10);
     }
   }
+
+  // Writes the u64 value's top four digits at out, left-aligned: the caller's
+  // body store covers whatever of the four is surplus, all four when the head
+  // is empty. `head` is the digits above the low 16, at most 1844, and `c` the
+  // value's total digit count. One load from the table, one store.
+  ZMIJ_INLINE void write(char* out, uint64_t head, uint64_t,
+                         const frac100_table&) const noexcept {
+    copy_bytes(out, e[head], 4);
+  }
 };
 struct head4_tables {
   // Per count c, 10^(20-c) -- the scale that left-aligns the head to four
   // digits: head * scale < 10000 for every count, and the head is zero below
   // 17 -- times frac_tail_mul, so one multiply both aligns the head and
-  // splits it (see write_head4). The aligned head's quotient runs
+  // splits it (see write). The aligned head's quotient runs
   // 10..99, so the pair table covers all of it.
   uint64_t mul4[21] = {};
   uint16_t pairs[100] = {};
@@ -219,6 +236,18 @@ struct head4_tables {
       for (int k = c; k < 20 && c > 16; ++k) p *= 10;
       mul4[c] = p * frac_tail_mul;
     }
+  }
+
+  // top4_table::write from one product: head * mul4[c] has the aligned head's
+  // /100 quotient above bit 32 -- indexing the pair table -- and the
+  // remainder's pair under the fraction's top 7 bits (frac100). Storing the
+  // two pairs separately beat merging them into a word by 0.05..0.17 ns on
+  // x86.
+  ZMIJ_INLINE void write(char* out, uint64_t head, uint64_t c,
+                         const frac100_table& frac100) const noexcept {
+    uint64_t t = head * mul4[c];
+    copy_bytes(out, &pairs[t >> 32], 2);
+    copy_bytes(out + 2, frac100.e[uint32_t(t) >> 25], 2);
   }
 };
 struct u64_lane_tables {
@@ -273,14 +302,9 @@ struct count_digits_tables {
   // Row 64 serves n == 0 on the defined-at-zero clz form (never indexed by
   // the bsr form).
   uint8_t estimate[65] = {};
-#if ZMIJ_OPTIMIZE_SIZE
-  // Correction thresholds indexed by the digit estimate.
-  uint64_t pow10[21] = {};
-#else
-  // Correction threshold indexed by the leading-zero index rather than by the
-  // digit estimate.
-  uint64_t threshold[65] = {};
-#endif
+  // Correction thresholds, indexed by the leading-zero index like `estimate`
+  // or, under ZMIJ_OPTIMIZE_SIZE, by the digit estimate.
+  uint64_t threshold[ZMIJ_OPTIMIZE_SIZE ? 21 : 65] = {};
 
  private:
   // Table index of an entry by MSB position.
@@ -309,9 +333,6 @@ struct count_digits_tables {
   constexpr count_digits_tables() {
     uint64_t p10[20] = {1};  // 10^i, i in [0, 19]
     for (int i = 1; i < 20; ++i) p10[i] = p10[i - 1] * 10;
-#if ZMIJ_OPTIMIZE_SIZE
-    for (int t = 2; t <= 20; ++t) pow10[t] = p10[t - 1];
-#endif
     for (int b = 0; b < 64; ++b) {
       uint64_t max_val = (uint64_t(2) << b) - 1;  // b == 63 wraps to ~0
       int t = 1;                                  // digit count of max_val
@@ -321,12 +342,12 @@ struct count_digits_tables {
       if (b < 54)  // n < 1e16 => MSB <= 53
         inc_lt1e16[index64(b)] = (uint64_t(t) << 54) - (t > 1 ? p10[t - 1] : 0);
 #endif
-#if !ZMIJ_OPTIMIZE_SIZE
-      threshold[index64(b)] = t > 1 ? p10[t - 1] : 0;
-#endif
+      // Every estimate in [1, 20] occurs, so this fills the estimate-indexed
+      // form too.
+      threshold[ZMIJ_OPTIMIZE_SIZE ? t : index64(b)] = t > 1 ? p10[t - 1] : 0;
     }
     // Row 64: n == 0 under the defined-at-zero clz form. One digit, no
-    // correction (threshold[64] stays 0 from the initializer).
+    // correction (its threshold, 0, is already in place in either form).
     estimate[64] = 1;
 #if !ZMIJ_USE_NEON
     inc_lt1e16[64] = uint64_t(1) << 54;
@@ -372,24 +393,25 @@ struct data {
            u64(d) << 24 | u64(c) << 16 | u64(b) << +8 | u64(a);
   }
 
+  // NEON's scalar-constant head, exactly 80 bytes: it occupies the dead rows
+  // 0..9 of the fused count_digits table that follows (see inc_lt1e16_rows),
+  // and staying under byte 80 keeps every pair inside ldp immediate range.
+  // mul_const and neg1e8 are adjacent for one ldp in to_reversed_digits.
+  ZMIJ_NEON_CONST uint64_t mul_const = 0xabcc77118461cefd;
+  // (1 << 32) - 1e8: one madd packs a value's base-1e8 divmod as
+  // remainder | quotient << 32 (see to_reversed_digits).
+  ZMIJ_NEON_CONST uint64_t neg1e8 = (uint64_t(1) << 32) - 100000000;
+  // u64 path head constants, paired for one ldp: the full-range /1e4 umulh
+  // reciprocal (post-shift 11, the compiler's own magic) and the 16-digit
+  // threshold 1e16 - 1.
+  ZMIJ_NEON_CONST uint64_t div10k_sig64 = 0x346dc5d63886594b;
+  ZMIJ_NEON_CONST uint64_t max16 = 9999999999999999;
 #if ZMIJ_USE_NEON
   static constexpr int32_t neg10k = 0x10000 - 10000;
 
   using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
   using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
 
-  // Scalar-constant head, exactly 80 bytes: it occupies the dead rows 0..9
-  // of the fused count_digits table that follows (see inc_lt1e16_rows), and
-  // staying under byte 80 keeps every pair inside ldp immediate range.
-  // mul_const and neg1e8 are adjacent for one ldp in to_reversed_digits.
-  uint64_t mul_const = 0xabcc77118461cefd;
-  // (1 << 32) - 1e8: one madd packs a value's base-1e8 divmod as
-  // remainder | quotient << 32 (see to_reversed_digits).
-  uint64_t neg1e8 = (uint64_t(1) << 32) - 100000000;
-  // u64 path head constants, paired for one ldp: the full-range /1e4 umulh
-  // reciprocal (post-shift 11, the compiler's own magic) and the 16-digit
-  // threshold 1e16 - 1.
-  uint64_t u64_consts[2] = {0x346dc5d63886594b, 9999999999999999};
   int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
   int16x8 multipliers16 = {0xce0, neg10};
   uint64_t pad[2] = {};  // keeps the head at 80 bytes
@@ -499,52 +521,25 @@ struct data {
        '0', '0'},
       {'-', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0',
        '0', '0'}};
+#endif  // ZMIJ_USE_NEON
   // write_above_i64 constants: the 128-bit /1e16 reciprocal (hi, lo), the
   // second peel's 5^16 reciprocal (ceil(2^96 / 5^16)), and 1e16 itself --
-  // loaded instead of mov/movk-materialized (~15 instructions per call).
-  // Plain ldrs: the head's ldp range is fully occupied.
-  uint64_t u128_consts[4] = {0x39a5652fb1137856, 0xd30baf9a1e626a6d,
-                             0x734aca5f6226f0b, 10000000000000000};
-#endif  // ZMIJ_USE_NEON
+  // on NEON loaded instead of mov/movk-materialized (~15 instructions per
+  // call). Plain ldrs: the head's ldp range is fully occupied.
+  ZMIJ_NEON_CONST uint64_t div1e16_hi = 0x39a5652fb1137856;
+  ZMIJ_NEON_CONST uint64_t div1e16_lo = 0xd30baf9a1e626a6d;
+  ZMIJ_NEON_CONST uint64_t div5p16_sig = 0x734aca5f6226f0b;
+  ZMIJ_NEON_CONST uint64_t ten16 = 10000000000000000;
 
   count_digits_tables cd_tables;
   frac100_table frac100 = make_frac100();
-  uint32_t frac_mul = frac_tail_mul;  // loaded, not materialized, on NEON
+  ZMIJ_NEON_CONST uint32_t frac_mul = frac_tail_mul;
 #if ZMIJ_USE_U64_LANE_CHAIN
   u64_lane_tables u64_lane;
-#  if ZMIJ_OPTIMIZE_SIZE
-  head4_tables head4;
-#  else
-  top4_table top4;
-#  endif
+  std::conditional_t<ZMIJ_OPTIMIZE_SIZE, head4_tables, top4_table> head4;
 #endif
 };
 alignas(64) constexpr data static_data;
-
-#if ZMIJ_USE_U64_LANE_CHAIN
-// Writes the u64 value's top four digits at out, left-aligned: the caller's
-// body store covers whatever of the four is surplus, all four when the head
-// is empty. `head` is the digits above the low 16, at most 1844, and `c` the
-// value's total digit count.
-#  if ZMIJ_OPTIMIZE_SIZE
-// One product: head * mul4[c] has the aligned head's /100 quotient above bit
-// 32 -- indexing the pair table -- and the remainder's pair under the
-// fraction's top 7 bits (frac100). Storing the two pairs separately beat
-// merging them into a word by 0.05..0.17 ns on x86.
-ZMIJ_INLINE void write_head4(char* out, uint64_t head, uint64_t c,
-                             const data& d) noexcept {
-  uint64_t t = head * d.head4.mul4[c];
-  copy_bytes(out, &d.head4.pairs[t >> 32], 2);
-  copy_bytes(out + 2, d.frac100.e[uint32_t(t) >> 25], 2);
-}
-#  else
-// One load from the 7380-byte table of left-aligned strings, one store.
-ZMIJ_INLINE void write_head4(char* out, uint64_t head, uint64_t,
-                             const data& d) noexcept {
-  copy_bytes(out, d.top4.e[head], 4);
-}
-#  endif
-#endif
 
 #if ZMIJ_USE_NEON
 // count_digits_lt_1e16 loads the fused count entry from byte offset
@@ -556,9 +551,6 @@ static_assert(offsetof(data, inc_rows) == 10 * sizeof(uint64_t),
 static_assert(offsetof(data, inc_rows) + sizeof(inc_lt1e16_rows::rows) ==
                   65 * sizeof(uint64_t),
               "stored rows must cover count indices 10..64");
-#endif
-
-#if ZMIJ_USE_NEON  // An optimized version for NEON by Dougall Johnson.
 
 // Converts four numbers < 10000, one in each 32-bit lane, to BCD digits.
 ZMIJ_INLINE auto to_bcd_4x4(int32x4_t efgh_abcd_mnop_ijkl,
@@ -670,12 +662,8 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
 // constants rather than via their own RIP-relative address.
 ZMIJ_INLINE auto count_digits(uint64_t n, const data& d) noexcept -> uint64_t {
   uint64_t z = count_digits_tables::index_of(n);
-#if ZMIJ_OPTIMIZE_SIZE
-  uint64_t t = d.cd_tables.estimate[z];
-  return t - (n < d.cd_tables.pow10[t]);
-#else
-  return d.cd_tables.estimate[z] - (n < d.cd_tables.threshold[z]);
-#endif
+  int t = d.cd_tables.estimate[z];
+  return t - (n < d.cd_tables.threshold[ZMIJ_OPTIMIZE_SIZE ? t : z]);
 }
 
 // Number of decimal digits in n, valid only for n < 1e16. Fused single-load
@@ -718,22 +706,11 @@ struct divmod_1e16_result {
   uint128_t quot;
   uint64_t rem;
 };
-ZMIJ_INLINE auto divmod_1e16(uint128_t n,
-                             [[ZMIJ_MAYBE_UNUSED]] const data& d) noexcept
+ZMIJ_INLINE auto divmod_1e16(uint128_t n, const data& d) noexcept
     -> divmod_1e16_result {
-#  if ZMIJ_USE_NEON
-  // The constants come from static_data (see u128_consts); materializing
-  // them costs mov + 3 movk apiece.
-  const uint128_t magic =
-      (uint128_t(d.u128_consts[0]) << 64) | d.u128_consts[1];
+  const uint128_t magic = (uint128_t(d.div1e16_hi) << 64) | d.div1e16_lo;
   uint128_t q = mulhi128(n, magic) >> 51;
-  return {q, uint64_t(n - q * d.u128_consts[3])};
-#  else
-  const uint128_t magic =
-      (uint128_t(0x39a5652fb1137856ull) << 64) | 0xd30baf9a1e626a6dull;
-  uint128_t q = mulhi128(n, magic) >> 51;
-  return {q, uint64_t(n - q * uint64_t(1e16))};
-#  endif
+  return {q, uint64_t(n - q * d.ten16)};
 }
 
 // Divmod by 1e16 for the second peel: n = value / 1e16 < 2**75, so with
@@ -745,22 +722,12 @@ struct divmod_1e16_narrow_result {
   uint64_t rem;
 };
 
-ZMIJ_INLINE auto divmod_1e16_narrow(
-    uint128_t n, [[ZMIJ_MAYBE_UNUSED]] const data& d) noexcept
+ZMIJ_INLINE auto divmod_1e16_narrow(uint128_t n, const data& d) noexcept
     -> divmod_1e16_narrow_result {
-#  if ZMIJ_USE_NEON
-  uint32_t q =
-      uint32_t(umul128_hi64(uint64_t(n >> 16), d.u128_consts[2]) >> 32);
+  uint32_t q = uint32_t(umul128_hi64(uint64_t(n >> 16), d.div5p16_sig) >> 32);
   // Remainder is evaluated mod 2**64; quot is <= 7 digits, so uint32_t holds
   // it and every consumer gets the cheaper 32-bit count_digits.
-  return {q, uint64_t(n) - q * d.u128_consts[3]};
-#  else
-  constexpr uint64_t div5p16_sig = 0x734aca5f6226f0b;  // ceil(2**96 / 5**16)
-  uint32_t q = uint32_t(umul128_hi64(uint64_t(n >> 16), div5p16_sig) >> 32);
-  // Remainder is evaluated mod 2**64; quot is <= 7 digits, so uint32_t holds
-  // it and every consumer gets the cheaper 32-bit count_digits.
-  return {q, uint64_t(n) - q * uint64_t(1e16)};
-#  endif
+  return {q, uint64_t(n) - q * d.ten16};
 }
 #endif  // ZMIJ_USE_INT128
 
@@ -1138,13 +1105,7 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
   }
 #  if ZMIJ_USE_SSE || ZMIJ_USE_NEON
   divmod_1e16_result lo = divmod_1e16(value, *d);  // lo.rem = digits [0, 16)
-#    if ZMIJ_USE_NEON
-  // Same 1e16 the divmod just loaded, so the compare reuses the register.
-  uint64_t ten16 = d->u128_consts[3];
-#    else
-  uint64_t ten16 = uint64_t(1e16);
-#    endif
-  if (lo.quot < uint128_t(ten16)) {  // 19-32 digits: top (<=16) + low
+  if (lo.quot < d->ten16) {  // 19-32 digits: top (<=16) + low
     uint64_t q = uint64_t(lo.quot);
 #    if ZMIJ_USE_AVX2
     // Fuse the trimmed head (q) and the fixed low chunk into one 256-bit pass,
@@ -1249,7 +1210,7 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   // stored over the head's unused bytes at out + (c - 16 or 0), the
   // offset from a byte table by count.
   __m128i window = _mm_loadu_si128(m128ptr(d->u64_lane.window[c]));
-  write_head4(out, g1, c, *d);
+  d->head4.write(out, g1, c, d->frac100);
   _mm_storeu_si128(reinterpret_cast<__m128i*>(out + d->u64_lane.body_off[c]),
                    _mm_shuffle_epi8(ascii, window));
   return out + c;
@@ -1258,21 +1219,18 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   // but if the number is below 1e16 we don't move them around but instead
   // fill them into the SIMD kernel.  This benchmarked fastest out of
   // the variations that I tried.
-#  if ZMIJ_USE_NEON
-  // The big constants (the /1e4 umulh reciprocal, the 1e16 - 1 threshold
-  // and the tail's /100 pair) load from static_data ldp pairs; letting
-  // the compiler materialize them costs seven mov/movk and, measured on
-  // the M5, ~a cycle per call.
-  uint64_t high = umul128_hi64(v, d->u64_consts[0]) >> 11;
-  uint64_t big = v > d->u64_consts[1];
-#  else
-  uint64_t high = v / 10000;
-  uint64_t big = v >= uint64_t(1e16);
-#  endif
+  // On NEON the big constants (the /1e4 umulh reciprocal, the 1e16 - 1
+  // threshold and the tail's /100 pair) load from static_data ldp pairs;
+  // letting the compiler materialize them costs seven mov/movk and, measured
+  // on the M5, ~a cycle per call. Elsewhere the compiler picks its own
+  // sequence for / 10000.
+  uint64_t high =
+      ZMIJ_USE_NEON ? umul128_hi64(v, d->div10k_sig64) >> 11 : v / 10000;
+  uint64_t big = v > d->max16;
   uint32_t low4 = uint32_t(v - high * 10000);
   uint64_t body = big ? high : v;  // body < 1e16 either way
   char* p = write_body(out, body, count_digits_lt_1e16(body, *d), *d);
-  uint64_t t = uint64_t(low4) * (ZMIJ_USE_NEON ? d->frac_mul : frac_tail_mul);
+  uint64_t t = uint64_t(low4) * d->frac_mul;
   copy_bytes(p, digits2(t >> 32), 2);
   copy_bytes(p + 2, d->frac100.e[uint32_t(t) >> 25], 2);
   // The trailing digits only count if they aren't redundant.
