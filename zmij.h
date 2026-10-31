@@ -760,12 +760,13 @@ inline ZMIJ_CONSTEXPR20 auto copy_clamped(char* out, size_t n,
   return clamp_end(out, size, n);
 }
 
-// Writes an unsigned integer's decimal representation to `out` and returns its
-// logical end. Whole-block stores may extend past that pointer but never past
-// the corresponding *_buffer_size capacity.
+// Writes the decimal representation of unsigned value to out and returns one
+// past the last digit. Stores may run past that, up to the type's
+// *_buffer_size.
 template <typename UInt>
 auto write_unsigned(char* out, UInt value) noexcept -> char*;
 
+// Like write_unsigned for a signed value, with a '-' before negatives.
 template <typename Int>
 auto write_signed(char* out, Int value) noexcept -> char*;
 
