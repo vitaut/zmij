@@ -115,6 +115,13 @@ taking the best of 3 runs.
 * Rust: https://github.com/dtolnay/zmij
 * Zig: https://github.com/de-sh/zmij
 
+## Users
+
+* [ClickHouse](https://github.com/ClickHouse/ClickHouse): a real-time analytics
+  database management system
+* [MoarVM](https://github.com/MoarVM/MoarVM): a virtual machine built for
+  Rakudo, the Raku compiler
+
 ## Name
 
 Żmij (pronounced roughly zhmeey or more precisely /ʐmij/) is a Polish word that
