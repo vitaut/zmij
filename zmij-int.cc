@@ -66,7 +66,6 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 #endif
 
 namespace zmij {
-namespace detail {
 namespace {
 
 // Copy that bypasses the fortified memcpy, whose per-copy check is a runtime
@@ -125,6 +124,10 @@ inline auto bswap64(uint64_t x) noexcept -> uint64_t {
   return n;
 #endif
 }
+
+using detail::uint128;
+using detail::uint128_t;
+using detail::umul128;
 
 constexpr auto umul128_hi64(uint64_t x, uint64_t y) noexcept -> uint64_t {
   return uint64_t(umul128(x, y) >> 64);
@@ -398,7 +401,7 @@ struct data {
   uint128 div100 = splat32(div100_sig);
   uint128 div10 = splat16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
-  uint128 neg100 = splat32(detail::neg100);
+  uint128 neg100 = splat32(zmij::neg100);
   uint128 neg10 = splat16((1 << 8) - 10);
   // The full 16-byte reversal, as raw memory bytes 15, 14, ..., 0. Written
   // against detail::uint128's lo-first layout: the (hi, lo) constructor takes
@@ -412,8 +415,8 @@ struct data {
   uint128 moddiv10 = splat16(10 * (1 << 8) - 1);
 #  endif  // ZMIJ_USE_SSE4_1
   uint128 div10k = splat64(div10k_sig);
-  uint128 neg10k = splat64(detail::neg10k);
-  uint128 zeros = splat64(detail::zeros);
+  uint128 neg10k = splat64(zmij::neg10k);
+  uint128 zeros = splat64(zmij::zeros);
 #  if !ZMIJ_USE_SSE4_1
   // 10^lz for lz = 16 - len in [0, 15]: scaling a len-digit value by it moves
   // the MSD into the top digit of the 16-digit field.
@@ -1173,12 +1176,14 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
 // data is overwhelmingly small, so this branch is well predicted).
 ZMIJ_INLINE auto write_u128(char* out, uint128_t value) noexcept -> char* {
   if (value <= UINT64_MAX) [[ZMIJ_LIKELY]]
-    return write_unsigned(out, uint64_t(value));
+    return detail::write_unsigned(out, uint64_t(value));
   return write_above_i64(out, value);
 }
 #endif  // ZMIJ_USE_INT128
 
 }  // namespace
+
+namespace detail {
 
 // Writes the decimal representation of unsigned value to out. Minimum buffer
 // sizes: u32 -> 16, u64 -> 20, u128 -> 48 bytes (+1 for the sign in the signed
