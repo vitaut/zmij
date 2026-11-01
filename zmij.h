@@ -778,6 +778,29 @@ struct bigint {
   }
 };
 
+// Emits n's decimal digits (most significant first) ending at `end`, consuming
+// n, and returns a pointer to the first (most significant) digit.
+inline ZMIJ_CONSTEXPR auto write_digits(bigint n, char* end) noexcept -> char* {
+  char* p = end;
+  uint32_t group = n.divmod_1e9();
+  while (n.num_limbs != 0) {  // Lower groups keep all 9 digits.
+    for (int k = 0; k < 9; ++k, group /= 10) *--p = char('0' + group % 10);
+    group = n.divmod_1e9();
+  }
+  do {  // The most significant group drops its leading zeros.
+    *--p = char('0' + group % 10);
+  } while ((group /= 10) != 0);
+  return p;
+}
+
+// Returns true if any character in [first, last) is not '0'.
+inline ZMIJ_CONSTEXPR auto any_nonzero(const char* first,
+                                       const char* last) noexcept -> bool {
+  for (; first < last; ++first)
+    if (*first != '0') return true;
+  return false;
+}
+
 // `buffer` params require at least buffer_sizes<Float> capacity;
 // `out`/`n` params write at most `n` characters.
 

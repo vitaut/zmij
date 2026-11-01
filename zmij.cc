@@ -84,6 +84,7 @@ ZMIJ_INLINE auto select(uint64_t condition, int64_t true_value,
   return false_value;
 }
 
+using zmij::detail::any_nonzero;
 using zmij::detail::bigint;
 using zmij::detail::bswap64;
 using zmij::detail::clz;
@@ -95,6 +96,7 @@ using zmij::detail::uint128;
 using zmij::detail::uint128_t;
 using zmij::detail::umul128;
 using zmij::detail::umul192_hi128;
+using zmij::detail::write_digits;
 
 #if ZMIJ_USE_INT128 && defined(__APPLE__)
 constexpr bool use_umul128_hi64 = true;  // Use umul128_hi64 for division.
@@ -1015,14 +1017,6 @@ struct writer {
   }
 };
 
-// Returns true if any character in [first, last) is not '0'.
-ZMIJ_CONSTEXPR auto any_nonzero(const char* first, const char* last) noexcept
-    -> bool {
-  for (; first < last; ++first)
-    if (*first != '0') return true;
-  return false;
-}
-
 // Writes zero in fixed notation, e.g. "0.000" (or "0" when precision is 0).
 ZMIJ_INLINE auto write_zero(char* buffer, int precision) noexcept -> char* {
   *buffer++ = '0';
@@ -1266,21 +1260,6 @@ ZMIJ_INLINE auto to_decimal(uint64_t bin_sig, int bin_exp,
     ++dec_exp;
   }
   return {dec_sig * pow10s[18 - precision], dec_exp + precision - 1};
-}
-
-// Emits n's decimal digits (most significant first) ending at `end`, consuming
-// n, and returns a pointer to the first (most significant) digit.
-ZMIJ_CONSTEXPR auto write_digits(bigint n, char* end) noexcept -> char* {
-  char* p = end;
-  uint32_t group = n.divmod_1e9();
-  while (n.num_limbs != 0) {  // Lower groups keep all 9 digits.
-    for (int k = 0; k < 9; ++k, group /= 10) *--p = char('0' + group % 10);
-    group = n.divmod_1e9();
-  }
-  do {  // The most significant group drops its leading zeros.
-    *--p = char('0' + group % 10);
-  } while ((group /= 10) != 0);
-  return p;
 }
 
 // Writes bin_sig * 2**bin_exp in fixed notation with `precision` fractional
