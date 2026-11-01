@@ -1016,7 +1016,8 @@ struct writer {
 };
 
 // Returns true if any character in [first, last) is not '0'.
-auto any_nonzero(const char* first, const char* last) noexcept -> bool {
+ZMIJ_CONSTEXPR auto any_nonzero(const char* first, const char* last) noexcept
+    -> bool {
   for (; first < last; ++first)
     if (*first != '0') return true;
   return false;
@@ -1269,7 +1270,7 @@ ZMIJ_INLINE auto to_decimal(uint64_t bin_sig, int bin_exp,
 
 // Emits n's decimal digits (most significant first) ending at `end`, consuming
 // n, and returns a pointer to the first (most significant) digit.
-auto write_digits(bigint n, char* end) noexcept -> char* {
+ZMIJ_CONSTEXPR auto write_digits(bigint n, char* end) noexcept -> char* {
   char* p = end;
   uint32_t group = n.divmod_1e9();
   while (n.num_limbs != 0) {  // Lower groups keep all 9 digits.
