@@ -51,14 +51,6 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 // register. Other configurations, NEON included, keep the 16 + 4 peel.
 #define ZMIJ_USE_U64_LANE_CHAIN (ZMIJ_USE_SSE4_1 && ZMIJ_USE_INT128)
 
-#if ZMIJ_HAS_ATTRIBUTE(noinline)
-#  define ZMIJ_NOINLINE __attribute__((noinline))
-#elif ZMIJ_MSC_VER
-#  define ZMIJ_NOINLINE __declspec(noinline)
-#else
-#  define ZMIJ_NOINLINE
-#endif
-
 // Declares data members that NEON loads from memory, since materializing a
 // 64-bit immediate there takes mov + 3 movk; elsewhere they are immediates.
 #if ZMIJ_USE_NEON

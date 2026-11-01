@@ -10,7 +10,6 @@
 #include <float.h>   // DBL_MANT_DIG, LDBL_MANT_DIG
 #include <stddef.h>  // size_t
 #include <stdint.h>  // uint64_t
-#include <stdlib.h>  // malloc, free
 #include <string.h>  // memcpy
 
 #include <limits>       // std::numeric_limits
@@ -1514,45 +1513,6 @@ auto write_big(char* out, size_t n, Float value) noexcept -> size_t {
                lead_exp <= traits::max_fixed_dec_exp;
   return write_number(w, start, num_digits, lead_exp, fixed,
                       num_digits - lead_exp - 1, 0);
-}
-
-template <typename Float>
-auto write_big(char* out, size_t n, Float value, int precision,
-               format fmt) noexcept -> size_t {
-  using traits = float_traits<Float>;
-  auto bits = traits::to_bits(value);
-  auto bin_exp = traits::get_exp(bits);
-  auto bin_sig = traits::get_sig(bits);
-
-  writer w = {out, out + n, 0};
-  if (traits::is_negative(bits)) w.write('-');
-
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
-    if (bin_exp != 0)  // inf or nan
-      return w.write(bin_sig != 0 ? "nan" : "inf", 3);
-    if (bin_sig != 0) normalize<Float>(bin_sig, bin_exp);
-    bin_sig = bin_sig ^ traits::implicit_bit;
-  }
-  bin_sig = bin_sig ^ traits::implicit_bit;
-
-  // One scratch block holds the big integer's limbs followed by the decimal
-  // digits. It stays on the stack except for the extended long double case,
-  // which is too large (~11.6 KB).
-  constexpr int digit_words = (traits::big_digits + 3) / 4;
-  constexpr int scratch_words = traits::big_limbs + digit_words;
-  constexpr bool use_heap =
-      traits::big_digits > float_traits<double>::big_digits;
-  uint32_t stack_scratch[use_heap ? 1 : scratch_words];
-  uint32_t* scratch =
-      use_heap ? static_cast<uint32_t*>(malloc(size_t(scratch_words) * 4))
-               : stack_scratch;
-  if (!scratch) return 0;
-  bigint num(bin_sig, scratch, traits::big_limbs);
-  char* digits = reinterpret_cast<char*>(scratch + traits::big_limbs);
-  size_t size = write_big(w, num, int(bin_exp - traits::exp_offset), precision,
-                          digits, traits::big_digits, fmt);
-  if (use_heap) free(scratch);
-  return size;
 }
 
 template <typename Float>

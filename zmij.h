@@ -11,6 +11,7 @@
 #include <float.h>   // DBL_MANT_DIG, LDBL_MANT_DIG
 #include <stddef.h>  // size_t
 #include <stdint.h>  // uint64_t
+#include <stdlib.h>  // malloc, free
 #include <string.h>  // memcpy
 
 #include <limits>       // std::numeric_limits
@@ -134,6 +135,14 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "SSE4.1 requires SSE");
 #  define ZMIJ_INLINE __forceinline
 #else
 #  define ZMIJ_INLINE inline
+#endif
+
+#if ZMIJ_HAS_ATTRIBUTE(noinline)
+#  define ZMIJ_NOINLINE __attribute__((noinline))
+#elif ZMIJ_MSC_VER
+#  define ZMIJ_NOINLINE __declspec(noinline)
+#else
+#  define ZMIJ_NOINLINE
 #endif
 
 #if ZMIJ_HAS_CPP_ATTRIBUTE(likely) && ZMIJ_HAS_CPP_ATTRIBUTE(unlikely)
@@ -825,10 +834,11 @@ auto write_big(char* out, size_t n, Float value) noexcept -> size_t;
 // (ties to even), into `out`, truncating after `n` chars. Returns the total
 // length the result would need; if it exceeds `n` the output was truncated to
 // the first `n` chars, and 0 on allocation failure (only possible for long
-// double).
+// double). Not inlined, so that callers use the instantiations in zmij.cc.
 template <typename Float>
-auto write_big(char* out, size_t n, Float value, int precision,
-               format fmt) noexcept -> size_t;
+ZMIJ_NOINLINE ZMIJ_CONSTEXPR20 auto write_big(char* out, size_t n, Float value,
+                                              int precision,
+                                              format fmt) noexcept -> size_t;
 template <>
 inline auto write_big(char* out, size_t n, float value, int precision,
                       format fmt) noexcept -> size_t {
@@ -1025,6 +1035,55 @@ inline ZMIJ_CONSTEXPR20 auto write_big(writer& w, bigint num, int bin_exp,
                       num_tail_zeros);
 }
 
+template <typename Float>
+ZMIJ_CONSTEXPR20 auto write_big(char* out, size_t n, Float value, int precision,
+                                format fmt) noexcept -> size_t {
+  using traits = float_traits<Float>;
+  auto bits = traits::to_bits(value);
+  auto bin_exp = traits::get_exp(bits);
+  auto bin_sig = traits::get_sig(bits);
+
+  writer w = {out, out + n, 0};
+  if (traits::is_negative(bits)) w.write('-');
+
+  if (!traits::is_normal(bin_exp)) {
+    if (bin_exp != 0)  // inf or nan
+      return w.write(bin_sig != 0 ? "nan" : "inf", 3);
+    bin_exp = 1;  // subnormal or zero
+    bin_sig = bin_sig ^ traits::implicit_bit;
+  }
+  bin_sig = bin_sig ^ traits::implicit_bit;
+
+  // The big integer's limbs and the decimal digits stay on the stack except for
+  // the extended long double case, which is too large (~11.6 KB) and puts both
+  // in one heap block.
+  constexpr bool use_heap =
+      traits::big_digits > float_traits<double>::big_digits;
+  uint32_t stack_limbs[use_heap ? 1 : traits::big_limbs];
+  char stack_digits[use_heap ? 1 : traits::big_digits];
+  uint32_t* limbs = stack_limbs;
+  char* digits = stack_digits;
+  if (use_heap) {
+    constexpr int digit_words = (traits::big_digits + 3) / 4;
+    limbs = static_cast<uint32_t*>(
+        malloc(size_t(traits::big_limbs + digit_words) * 4));
+    if (!limbs) return 0;
+    digits = reinterpret_cast<char*>(limbs + traits::big_limbs);
+  }
+  bigint num(bin_sig, limbs, traits::big_limbs);
+  size_t size = write_big(w, num, int(bin_exp - traits::exp_offset), precision,
+                          digits, traits::big_digits, fmt);
+  if (use_heap) free(limbs);
+  return size;
+}
+
+extern template auto write_big(char* out, size_t n, double value, int precision,
+                               format fmt) noexcept -> size_t;
+#if LDBL_MANT_DIG != DBL_MANT_DIG && ZMIJ_USE_LONG_DOUBLE
+extern template auto write_big(char* out, size_t n, long double value,
+                               int precision, format fmt) noexcept -> size_t;
+#endif
+
 // Writes `value` in hexadecimal floating-point notation (like printf's %a) in
 // its shortest form, e.g. -0x1.8p+1. If `prefix` is false the leading "0x" is
 // omitted (e.g. -1.8p+1).
@@ -1074,7 +1133,7 @@ inline auto write_hex(char* out, size_t n, long_double value, int precision,
 #endif  // LDBL_MANT_DIG == DBL_MANT_DIG || !ZMIJ_USE_LONG_DOUBLE
 
 // Returns the past-the-end pointer after writing min(size, n) chars to `out`.
-inline auto clamp_end(char* out, size_t size, size_t n) noexcept -> char* {
+constexpr auto clamp_end(char* out, size_t size, size_t n) noexcept -> char* {
   return out + (size < n ? size : n);
 }
 
@@ -1244,10 +1303,10 @@ inline auto write(char* out, size_t n, unsigned __int128 value) noexcept
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written. The `long double`
 /// overload returns nullptr on allocation failure.
-inline auto write_scientific(char* out, size_t n, double value,
-                             int precision) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_scientific(char* out, size_t n, double value,
+                                              int precision) noexcept -> char* {
   if (precision < 0) precision = 6;
-  if (precision >= 18) {
+  if (precision >= 18 || detail::is_constant_evaluated()) {
     auto size = detail::write_big(out, n, value, precision, format::scientific);
     return detail::clamp_end(out, size, n);
   }
@@ -1258,11 +1317,12 @@ inline auto write_scientific(char* out, size_t n, double value,
       out, n, buffer, detail::write_scientific(buffer, value, precision + 1));
 }
 
-inline auto write_scientific(char* out, size_t n, float value,
-                             int precision) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_scientific(char* out, size_t n, float value,
+                                              int precision) noexcept -> char* {
   if (precision < 0) precision = 6;
-  if (precision >= 18) {
-    auto size = detail::write_big(out, n, value, precision, format::scientific);
+  if (precision >= 18 || detail::is_constant_evaluated()) {
+    auto size =
+        detail::write_big(out, n, double(value), precision, format::scientific);
     return detail::clamp_end(out, size, n);
   }
   char buffer[buffer_sizes<float>::scientific];
@@ -1290,10 +1350,10 @@ inline auto write_scientific(char* out, size_t n, long_double value,
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written. The `long double`
 /// overload returns nullptr on allocation failure.
-inline auto write_general(char* out, size_t n, double value,
-                          int precision) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_general(char* out, size_t n, double value,
+                                           int precision) noexcept -> char* {
   if (precision <= 1) precision = precision < 0 ? 6 : 1;
-  if (precision > 18) {
+  if (precision > 18 || detail::is_constant_evaluated()) {
     auto size = detail::write_big(out, n, value, precision, format::general);
     return detail::clamp_end(out, size, n);
   }
@@ -1303,11 +1363,12 @@ inline auto write_general(char* out, size_t n, double value,
                               detail::write_general(buffer, value, precision));
 }
 
-inline auto write_general(char* out, size_t n, float value,
-                          int precision) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_general(char* out, size_t n, float value,
+                                           int precision) noexcept -> char* {
   if (precision <= 1) precision = precision < 0 ? 6 : 1;
-  if (precision > 18) {
-    auto size = detail::write_big(out, n, value, precision, format::general);
+  if (precision > 18 || detail::is_constant_evaluated()) {
+    auto size =
+        detail::write_big(out, n, double(value), precision, format::general);
     return detail::clamp_end(out, size, n);
   }
   char buffer[buffer_sizes<float>::scientific];
@@ -1333,10 +1394,10 @@ inline auto write_general(char* out, size_t n, long_double value,
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written. The `long double`
 /// overload returns nullptr on allocation failure.
-inline auto write_fixed(char* out, size_t n, double value,
-                        int precision) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_fixed(char* out, size_t n, double value,
+                                         int precision) noexcept -> char* {
   if (precision < 0) precision = 6;
-  if (precision > 18) {
+  if (precision > 18 || detail::is_constant_evaluated()) {
     auto size = detail::write_big(out, n, value, precision, format::fixed);
     return detail::clamp_end(out, size, n);
   }
@@ -1346,11 +1407,12 @@ inline auto write_fixed(char* out, size_t n, double value,
                               detail::write_fixed(buffer, value, precision));
 }
 
-inline auto write_fixed(char* out, size_t n, float value,
-                        int precision) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_fixed(char* out, size_t n, float value,
+                                         int precision) noexcept -> char* {
   if (precision < 0) precision = 6;
-  if (precision > 18) {
-    auto size = detail::write_big(out, n, value, precision, format::fixed);
+  if (precision > 18 || detail::is_constant_evaluated()) {
+    auto size =
+        detail::write_big(out, n, double(value), precision, format::fixed);
     return detail::clamp_end(out, size, n);
   }
   char buffer[buffer_sizes<float>::fixed];
