@@ -81,6 +81,7 @@ two grids is all of `## The grid at k`.
 
     fine_output_nearest
       ← digit_nearest
+          ← table_digit_eq
 
 `ulp_scaled_bounds` is the other thing `exact_candidate_correct` asks for: at
 Żmij's exponent one ULP spans between one and ten grid steps, so the fine case
@@ -135,6 +136,36 @@ def halfUlp (f : ℕ) (e : ℤ) : ℕ :=
     boundary by less than one of its units. -/
 def biasedHalf : ℕ := 2 ^ 63 + 6
 
+/-- The derived digit as a rounding rule: ten times the fraction, rounded with
+    `biasedHalf`. The one exact half that survives truncation is a quarter,
+    whose digit 2.5 has to go to even. Żmij computes the digit from
+    `digitOffset` instead, and `table_digit_eq` shows the two agree. -/
+def roundedDigit (frac : ℕ) : ℕ :=
+  if frac = 2 ^ 62 then 2 else (frac * 10 + biasedHalf) / 2 ^ 64
+
+/-- Żmij's `digit_offsets`: the digit is the top four bits of the fraction plus
+    the offset of its cell, the top four bits of the fraction itself. Each cell
+    holds at most one digit boundary, and its offset carries into the top four
+    bits exactly from that boundary on. -/
+def digitOffset : ℕ → ℕ
+  | 0 => 0x0333333333333333
+  | 1 => 0
+  | 2 => 0xf999999999999999
+  | 3 => 0xf000000000000000
+  | 4 => 0xefffffffffffffff
+  | 5 => 0xe666666666666667
+  | 6 => 0xe000000000000000
+  | 7 => 0xdccccccccccccccd
+  | 8 => 0xd333333333333333
+  | 9 => 0xd000000000000000
+  | 10 => 0xc99999999999999a
+  | 11 => 0xc000000000000000
+  | 12 => 0xc000000000000000
+  | 13 => 0xb666666666666666
+  | 14 => 0xb000000000000000
+  | 15 => 0xaccccccccccccccc
+  | _ => 0
+
 structure DecimalCandidates where
   k : ℤ
   integral : ℕ
@@ -151,9 +182,11 @@ def toDecimalCandidates (f : ℕ) (e : ℤ) : DecimalCandidates :=
   let roundUp : Bool := 2 ^ 64 ≤ frac + half
   let roundDown : Bool := frac < half
 
-  -- Ten times the fraction, rounded. The one exact half that survives
-  -- truncation is a quarter, whose digit 2.5 has to go to even.
-  let digit : ℕ := if frac = 2 ^ 62 then 2 else (frac * 10 + biasedHalf) / 2 ^ 64
+  -- The digit from the fraction's cell, its top four bits, which Żmij reads
+  -- from the high word of the product alone: the four bits below the integral
+  -- part.
+  let cell := scaledSignificand f e / 2 ^ 69 % 16
+  let digit : ℕ := (frac + digitOffset cell) % 2 ^ 64 / 2 ^ 60
 
   { k := binary64.decimalExponent e
     integral := integralPart f e + (if roundUp then 1 else 0)
@@ -1314,6 +1347,110 @@ private theorem no_digit_high (f : ℕ) (e : ℤ)
           rw [h] <;> omega)
     (by rw [hres]; omega)
 
+/-! ### The table
+
+Żmij reads the digit from `digitOffset` rather than computing `roundedDigit`.
+The table places the boundaries after the digits 0, 1, 2, 8 and 9 where
+`(frac·10 + 2^63 - 1) / 2^64` steps up, which rounds the quarter's 2.5 to even
+by itself, and those after 3 to 7 where `(frac·10 + 2^63 + 7) / 2^64` does.
+The second rule moves no boundary of `roundedDigit`, but the first moves three
+up by one fraction unit, those after 1, 8 and 9, so the two digits differ at
+three fractions. All three are low edges, which the certificates of
+`digit_low_refuted` exclude only with a small truncation. Here the whole cell of
+each is refuted, which is what lets `table_digit_eq` state the two digits are
+equal.
+-/
+
+/-- The cell read from the high word is the top four bits of the fraction. -/
+theorem cell_eq (f : ℕ) (e : ℤ) :
+    scaledSignificand f e / 2 ^ 69 % 16 = fractionalPart f e / 2 ^ 60 := by
+  rw [fractionalPart]
+  omega
+
+/-- The table's digit is `roundedDigit` at every fraction but three. -/
+private theorem table_digit_eq_rounded {φ : ℕ} (hφ : φ < 2 ^ 64)
+    (h12 : φ ≠ 2767011611056432742) (h89 : φ ≠ 15679732462653118873)
+    (h910 : φ ≠ 17524406870024074035) :
+    (φ + digitOffset (φ / 2 ^ 60)) % 2 ^ 64 / 2 ^ 60 = roundedDigit φ := by
+  obtain ⟨c, hc⟩ : ∃ c, φ / 2 ^ 60 = c := ⟨_, rfl⟩
+  have hc16 : c < 16 := by omega
+  -- Name the reference digit and split on the carry out of the table's sum:
+  -- with both fixed, every comparison left is linear in `φ`, which `omega`
+  -- needs, having no dark shadow to reason across two divisions.
+  obtain ⟨d, hd⟩ : ∃ d, (φ * 10 + biasedHalf) / 2 ^ 64 = d := ⟨_, rfl⟩
+  have hd10 : d ≤ 10 := by rw [biasedHalf] at hd; omega
+  have hK : digitOffset c < 2 ^ 64 := by
+    interval_cases c <;> simp only [digitOffset] <;> omega
+  rw [hc, roundedDigit, hd]
+  rw [biasedHalf] at hd
+  rcases Nat.lt_or_ge (φ + digitOffset c) (2 ^ 64) with hcarry | hcarry
+  · rw [Nat.mod_eq_of_lt hcarry]
+    interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
+      interval_cases d <;> split_ifs <;> omega
+  · rw [Nat.mod_eq_sub_mod hcarry, Nat.mod_eq_of_lt (by omega)]
+    interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
+      interval_cases d <;> split_ifs <;> omega
+
+/-- The cell of a changed fraction: every remainder below its unit. -/
+private def cellWindows (w : ℕ) (e : ℤ) : ModWindows :=
+  binary64.regularWindows (p10 e) (unit e * 2 ^ 64) e
+    [((unit e : ℤ) * w, (unit e : ℤ) * w + unit e - 1)]
+
+/-- Close a cell certificate for a literal fraction and exponent. -/
+elab "cell_cert " w:num : tactic =>
+  modCertTactic fun e => (cellWindows w.getNat e).search
+
+/-- The fraction the table moves from digit two down to one. -/
+private theorem cell_12_refuted (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
+    ∃ q, (cellWindows 2767011611056432742 e).refutedBy q = true := by
+  obtain ⟨hlo, hhi⟩ := he
+  interval_cases e <;> cell_cert 2767011611056432742
+
+/-- From nine down to eight. -/
+private theorem cell_89_refuted (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
+    ∃ q, (cellWindows 15679732462653118873 e).refutedBy q = true := by
+  obtain ⟨hlo, hhi⟩ := he
+  interval_cases e <;> cell_cert 15679732462653118873
+
+/-- From ten down to nine. -/
+private theorem cell_910_refuted (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
+    ∃ q, (cellWindows 17524406870024074035 e).refutedBy q = true := by
+  obtain ⟨hlo, hhi⟩ := he
+  interval_cases e <;> cell_cert 17524406870024074035
+
+/-- No significand has a fraction whose cell is refuted. -/
+private theorem no_cell_hit (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) {w : ℕ}
+    (hcert : ∃ q, (cellWindows w e).refutedBy q = true)
+    (hφ : fractionalPart f e = w) : False := by
+  obtain ⟨q, hcert⟩ := hcert
+  have hres : (res f e : ℤ)
+      = (unit e : ℤ) * w + (f * p10 e % unit e : ℕ) := by
+    rw [res_split f e (exponent_shift_range e hr.range).2, hφ]
+    push_cast
+    ring
+  have hlt : ((f * p10 e % unit e : ℕ) : ℤ) ≤ (unit e : ℤ) - 1 := by
+    have := Nat.mod_lt (f * p10 e) (unit_pos e)
+    omega
+  exact no_res_hit f e hr hcert (List.mem_singleton_self _)
+    (by rw [hres]; omega) (by rw [hres]; omega)
+
+/-- Żmij's table digit is `roundedDigit` for every regular input: the three
+    fractions where the two differ are never reached. -/
+theorem table_digit_eq (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) :
+    (toDecimalCandidates f e).digit = roundedDigit (fractionalPart f e) := by
+  have hφ : fractionalPart f e < 2 ^ 64 := by
+    rw [fractionalPart]
+    exact Nat.mod_lt _ (by norm_num)
+  have hdigit : (toDecimalCandidates f e).digit
+      = (fractionalPart f e
+          + digitOffset (scaledSignificand f e / 2 ^ 69 % 16)) % 2 ^ 64
+        / 2 ^ 60 := rfl
+  rw [hdigit, cell_eq]
+  exact table_digit_eq_rounded hφ
+    (fun h => no_cell_hit f e hr (cell_12_refuted e hr.range) h)
+    (fun h => no_cell_hit f e hr (cell_89_refuted e hr.range) h)
+    (fun h => no_cell_hit f e hr (cell_910_refuted e hr.range) h)
+
 /-! ### Nearest at the digit
 
 What is left is finite arithmetic on the fraction and the digit it
@@ -1412,10 +1549,8 @@ theorem digit_nearest (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) :
   by_cases hsp : φ = 2 ^ 62
   · -- The quarter: the one exact midpoint, whose digit Żmij rounds to even.
     have hd2 : d = 2 := by
-      rw [← hd, toDecimalCandidates]
-      dsimp only
-      rw [hφ]
-      simp only [hsp, ite_true]
+      rw [← hd, table_digit_eq f e hr, hφ, roundedDigit]
+      simp only [hsp, ↓reduceIte]
     have hv2 : v = 2 ^ 65 := by rw [hv, hsp, hd2]; ring
     have hzero : err f e = 0 := by
       by_contra hne
@@ -1429,10 +1564,8 @@ theorem digit_nearest (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) :
   -- ways: the `+6` is worth twelve of the doubled units, so the offset misses
   -- the boundary below by at most that and the one above by at least it.
   have hdq : d = (φ * 10 + biasedHalf) / 2 ^ 64 := by
-    rw [← hd, toDecimalCandidates]
-    dsimp only
-    rw [hφ]
-    simp only [hsp, ite_false]
+    rw [← hd, table_digit_eq f e hr, hφ, roundedDigit]
+    simp only [hsp, ↓reduceIte]
   rw [biasedHalf] at hdq
   obtain ⟨hd10, hvlo, hvhi⟩ :=
     digit_offset_bounds (m := (φ * 10 + (2 ^ 63 + 6)) % 2 ^ 64) hφlt
