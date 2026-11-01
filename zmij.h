@@ -835,11 +835,10 @@ auto write_big(char* out, size_t n, Float value) noexcept -> size_t;
 // (ties to even), into `out`, truncating after `n` chars. Returns the total
 // length the result would need; if it exceeds `n` the output was truncated to
 // the first `n` chars, and 0 on allocation failure (only possible for long
-// double). Not inlined, so that callers use the instantiations in zmij.cc.
+// double).
 template <typename Float>
-ZMIJ_NOINLINE ZMIJ_CONSTEXPR20 auto write_big(char* out, size_t n, Float value,
-                                              int precision,
-                                              format fmt) noexcept -> size_t;
+ZMIJ_CONSTEXPR20 auto write_big(char* out, size_t n, Float value, int precision,
+                                format fmt) noexcept -> size_t;
 template <>
 inline auto write_big(char* out, size_t n, float value, int precision,
                       format fmt) noexcept -> size_t {
@@ -1078,11 +1077,15 @@ ZMIJ_CONSTEXPR20 auto write_big(char* out, size_t n, Float value, int precision,
   return size;
 }
 
-extern template auto write_big(char* out, size_t n, double value, int precision,
-                               format fmt) noexcept -> size_t;
+// Not inlined, so that callers use the instantiations in zmij.cc. On the
+// template itself, noinline makes GCC warn since constexpr implies inline.
+extern template ZMIJ_NOINLINE auto write_big(char* out, size_t n, double value,
+                                             int precision, format fmt) noexcept
+    -> size_t;
 #if LDBL_MANT_DIG != DBL_MANT_DIG && ZMIJ_USE_LONG_DOUBLE
-extern template auto write_big(char* out, size_t n, long double value,
-                               int precision, format fmt) noexcept -> size_t;
+extern template ZMIJ_NOINLINE auto write_big(char* out, size_t n,
+                                             long double value, int precision,
+                                             format fmt) noexcept -> size_t;
 #endif
 
 // Writes `value` in hexadecimal floating-point notation (like printf's %a) in
