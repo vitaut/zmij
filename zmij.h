@@ -250,27 +250,28 @@ inline auto bswap64(uint64_t x) noexcept -> uint64_t {
 #endif
 }
 
-inline auto clz(uint64_t x) noexcept -> int {
+inline ZMIJ_CONSTEXPR20 auto clz(uint64_t x) noexcept -> int {
   assert(x != 0);
+  if (!is_constant_evaluated()) {
 #if ZMIJ_HAS_BUILTIN(__builtin_clzll)
-  return __builtin_clzll(x);
+    return __builtin_clzll(x);
 #elif defined(_M_AMD64) && defined(__AVX2__)
-  // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
-  return __lzcnt64(x);
+    // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
+    return __lzcnt64(x);
 #elif defined(_M_AMD64) || defined(_M_ARM64)
-  unsigned long idx;
-  _BitScanReverse64(&idx, x);
-  return 63 - idx;
+    unsigned long idx;
+    _BitScanReverse64(&idx, x);
+    return 63 - idx;
 #elif ZMIJ_MSC_VER
-  unsigned long idx;
-  if (_BitScanReverse(&idx, uint32_t(x >> 32))) return 31 - idx;
-  _BitScanReverse(&idx, uint32_t(x));
-  return 63 - idx;
-#else
+    unsigned long idx;
+    if (_BitScanReverse(&idx, uint32_t(x >> 32))) return 31 - idx;
+    _BitScanReverse(&idx, uint32_t(x));
+    return 63 - idx;
+#endif
+  }
   int n = 64;
   for (; x > 0; x >>= 1) --n;
   return n;
-#endif
 }
 
 struct uint128 {
