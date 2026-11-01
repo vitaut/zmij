@@ -95,7 +95,8 @@
 
 #ifdef ZMIJ_USE_NEON
 // Use the provided definition.
-#elif defined(__ARM_NEON) || defined(_M_ARM64)
+#elif (defined(__ARM_NEON) && defined(__aarch64__)) || defined(_M_ARM64)
+// The NEON code uses AArch64-only intrinsics such as vqtbl1q_u8.
 #  define ZMIJ_USE_NEON ZMIJ_USE_SIMD
 #else
 #  define ZMIJ_USE_NEON 0
@@ -114,8 +115,10 @@
 #ifdef ZMIJ_USE_SSE4_1
 // Use the provided definition.
 static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "SSE4.1 requires SSE");
-#elif defined(__SSE4_1__) || defined(__AVX__)
+#elif (defined(__SSE4_1__) || defined(__AVX__)) && \
+    (defined(__x86_64__) || defined(_M_X64))
 // On MSVC there's no way to check for SSE4.1 specifically so check __AVX__.
+// The SSE4.1 code uses x86-64-only intrinsics such as _mm_insert_epi64.
 #  define ZMIJ_USE_SSE4_1 ZMIJ_USE_SSE
 #else
 #  define ZMIJ_USE_SSE4_1 0
