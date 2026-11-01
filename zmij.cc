@@ -83,7 +83,6 @@ ZMIJ_INLINE auto select(uint64_t condition, int64_t true_value,
   return false_value;
 }
 
-using zmij::detail::any_nonzero;
 using zmij::detail::bigint;
 using zmij::detail::bswap64;
 using zmij::detail::clz;
@@ -975,11 +974,6 @@ ZMIJ_INLINE auto write_float_simd(char*, const dec_digits<64>&, int, bool, bool,
   return nullptr;
 }
 
-// Writes "inf"/"nan" with one 4-byte store, so the buffer must hold 4 bytes.
-auto write_inf_nan(char* buffer, bool is_nan) noexcept -> char* {
-  return memcpy(buffer, is_nan ? "nan" : "inf", 4), buffer + 3;
-}
-
 // Writes zero in fixed notation, e.g. "0.000" (or "0" when precision is 0).
 ZMIJ_INLINE auto write_zero(char* buffer, int precision) noexcept -> char* {
   *buffer++ = '0';
@@ -1643,43 +1637,6 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
   memmove(buffer + num_int_digits + 1, buffer + num_int_digits, precision);
   buffer[num_int_digits] = '.';
   return buffer + total + 1;
-}
-
-template <typename Float>
-auto write_hex(char* buffer, Float value, bool prefix) noexcept -> char* {
-  using traits = float_traits<Float>;
-  auto bits = traits::to_bits(value);
-  auto bin_exp = traits::get_exp(bits);
-  auto bin_sig = traits::get_sig(bits);
-
-  *buffer = '-';
-  buffer += traits::is_negative(bits);
-
-  bool zero = false;
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
-    if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
-    zero = bin_sig == 0;
-    if (zero)
-      bin_exp = traits::exp_bias;  // This cancels to 0 below.
-    else
-      normalize<Float>(bin_sig, bin_exp);
-  }
-  bin_exp -= traits::exp_bias;
-
-  if (prefix) buffer = write2(buffer, '0', 'x');
-  *buffer++ = char('0' + !zero);
-
-  constexpr int width = int(sizeof(bin_sig)) * 8;
-  bin_sig = bin_sig << (width - traits::num_sig_bits);
-  if (bin_sig != 0) {
-    *buffer++ = '.';
-    do {
-      *buffer++ = "0123456789abcdef"[uint64_t(bin_sig >> (width - 4))];
-      bin_sig = bin_sig << 4;
-    } while (bin_sig != 0);
-  }
-
-  return write_hex_exp(buffer, bin_exp);
 }
 
 template <typename Float>

@@ -1049,7 +1049,7 @@ ZMIJ_CONSTEXPR20 auto write_big(char* out, size_t n, Float value, int precision,
   writer w = {out, out + n, 0};
   if (traits::is_negative(bits)) w.write('-');
 
-  if (!traits::is_normal(bin_exp)) {
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0)  // inf or nan
       return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     bin_exp = 1;  // subnormal or zero
@@ -1105,6 +1105,14 @@ ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write2(char* out, char a, char b) noexcept
   return out + 2;
 }
 
+// Writes "inf"/"nan" with one 4-byte store, so the buffer must hold 4 bytes.
+inline ZMIJ_CONSTEXPR20 auto write_inf_nan(char* buffer, bool is_nan) noexcept
+    -> char* {
+  if (zmij::detail::is_constant_evaluated())
+    return zmij::detail::copy_n(buffer, is_nan ? "nan" : "inf", 3);
+  return memcpy(buffer, is_nan ? "nan" : "inf", 4), buffer + 3;
+}
+
 // Writes the binary exponent as 'p', a sign and at least one digit (e.g. p+3).
 inline ZMIJ_CONSTEXPR20 auto write_hex_exp(char* buffer, int bin_exp) noexcept
     -> char* {
@@ -1146,7 +1154,50 @@ ZMIJ_INLINE ZMIJ_CONSTEXPR20 void normalize(UInt& bin_sig,
 // its shortest form, e.g. -0x1.8p+1. If `prefix` is false the leading "0x" is
 // omitted (e.g. -1.8p+1).
 template <typename Float>
-auto write_hex(char* buffer, Float value, bool prefix = true) noexcept -> char*;
+ZMIJ_CONSTEXPR20 auto write_hex(char* buffer, Float value,
+                                bool prefix = true) noexcept -> char* {
+  using traits = float_traits<Float>;
+  auto bits = traits::to_bits(value);
+  auto bin_exp = traits::get_exp(bits);
+  auto bin_sig = traits::get_sig(bits);
+
+  *buffer = '-';
+  buffer += traits::is_negative(bits);
+
+  bool zero = false;
+  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+    if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
+    zero = bin_sig == 0;
+    if (zero)
+      bin_exp = traits::exp_bias;  // This cancels to 0 below.
+    else
+      normalize<Float>(bin_sig, bin_exp);
+  }
+  bin_exp -= traits::exp_bias;
+
+  if (prefix) buffer = write2(buffer, '0', 'x');
+  *buffer++ = char('0' + !zero);
+
+  constexpr int width = int(sizeof(bin_sig)) * 8;
+  bin_sig = bin_sig << (width - traits::num_sig_bits);
+  if (bin_sig != 0) {
+    *buffer++ = '.';
+    do {
+      *buffer++ = "0123456789abcdef"[uint64_t(bin_sig >> (width - 4))];
+      bin_sig = bin_sig << 4;
+    } while (bin_sig != 0);
+  }
+
+  return write_hex_exp(buffer, int(bin_exp));
+}
+
+// Not inlined, so that callers use the instantiations in zmij.cc.
+extern template ZMIJ_NOINLINE auto write_hex(char* buffer, double value,
+                                             bool prefix) noexcept -> char*;
+#if LDBL_MANT_DIG != DBL_MANT_DIG && ZMIJ_USE_LONG_DOUBLE
+extern template ZMIJ_NOINLINE auto write_hex(char* buffer, long double value,
+                                             bool prefix) noexcept -> char*;
+#endif
 
 // Writes `value` in hexadecimal floating-point notation with `precision` hex
 // digits after the point, correctly rounded (ties to even), e.g. -0x1.80p+1,
@@ -1493,13 +1544,15 @@ inline auto write_fixed(char* out, size_t n, long_double value,
 ///
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written.
-inline auto write_hex(char* out, size_t n, double value) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_hex(char* out, size_t n,
+                                       double value) noexcept -> char* {
   char buffer[buffer_sizes<double>::hex];
   if (n >= sizeof(buffer)) return detail::write_hex(out, value);
   return detail::copy_clamped(out, n, buffer, detail::write_hex(buffer, value));
 }
 
-inline auto write_hex(char* out, size_t n, float value) noexcept -> char* {
+inline ZMIJ_CONSTEXPR20 auto write_hex(char* out, size_t n,
+                                       float value) noexcept -> char* {
   return write_hex(out, n, double(value));
 }
 
