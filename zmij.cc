@@ -1446,18 +1446,6 @@ template <typename Float> auto to_decimal(Float value) noexcept -> dec_fp<> {
   return {dec.sig * 10 + last_digit, dec.exp, negative};
 }
 
-auto write_big_exp(char* buffer, int dec_exp) noexcept -> char* {
-  buffer = write2(buffer, 'e', dec_exp >= 0 ? '+' : '-');
-  uint32_t abs_exp = dec_exp >= 0 ? uint32_t(dec_exp) : uint32_t(-dec_exp);
-  uint32_t hi = (abs_exp * div100_sig) >> div100_exp;  // abs_exp / 100
-  *buffer = char('0' + hi / 10);
-  buffer += hi >= 10;
-  *buffer = char('0' + hi % 10);
-  buffer += abs_exp >= 100;
-  memcpy(buffer, digits2(abs_exp - hi * 100), 2);
-  return buffer + 2;
-}
-
 // It is slightly faster to return a pointer to the end than the size.
 template <typename Float>
 auto write(char* buffer, Float value) noexcept -> char* {

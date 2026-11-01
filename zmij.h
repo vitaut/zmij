@@ -847,7 +847,21 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char*;
 
 // Writes the decimal exponent as 'e', a sign and at least two digits, up to
 // four (e.g. e+05 or e+4932, enough for extended long double).
-auto write_big_exp(char* buffer, int dec_exp) noexcept -> char*;
+inline ZMIJ_CONSTEXPR auto write_big_exp(char* buffer, int dec_exp) noexcept
+    -> char* {
+  *buffer++ = 'e';
+  *buffer++ = dec_exp >= 0 ? '+' : '-';
+  uint32_t abs_exp = dec_exp >= 0 ? uint32_t(dec_exp) : uint32_t(-dec_exp);
+  uint32_t hi = abs_exp / 100;
+  *buffer = char('0' + hi / 10);
+  buffer += hi >= 10;
+  *buffer = char('0' + hi % 10);
+  buffer += abs_exp >= 100;
+  uint32_t lo = abs_exp - hi * 100;
+  buffer[0] = char('0' + lo / 10);
+  buffer[1] = char('0' + lo % 10);
+  return buffer + 2;
+}
 
 // Writes `value` in hexadecimal floating-point notation (like printf's %a) in
 // its shortest form, e.g. -0x1.8p+1. If `prefix` is false the leading "0x" is
