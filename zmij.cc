@@ -1389,7 +1389,7 @@ auto write_big(writer& w, bigint num, int bin_exp, int precision, char* digits,
       if (round_up) {
         char* q = p + max_digits - 1;
         // Propagate the carry over trailing nines.
-        while (*q == '9') *q-- = '0';
+        while (q >= p && *q == '9') *q-- = '0';
         // 999.. rolling over to 1000.. adds a significant digit.
         if (q < p) {
           *--p = '1';
