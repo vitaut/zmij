@@ -52,12 +52,6 @@
 #  define ZMIJ_HAS_CPP_ATTRIBUTE(x) 0
 #endif
 
-#ifdef __cpp_lib_is_constant_evaluated
-#  define ZMIJ_CONSTEXPR20 constexpr
-#else
-#  define ZMIJ_CONSTEXPR20
-#endif
-
 #ifdef ZMIJ_USE_IS_CONSTANT_EVALUATED
 // Use the provided definition.
 #elif defined(__cpp_lib_is_constant_evaluated) ||                    \
@@ -80,6 +74,12 @@
 #  define ZMIJ_CONSTEXPR
 // A default member initializer makes its class a non-aggregate in C++11.
 #  define ZMIJ_DEFAULT(...)
+#endif
+
+#if defined(__cpp_lib_is_constant_evaluated) && ZMIJ_USE_CONSTEXPR
+#  define ZMIJ_CONSTEXPR20 constexpr
+#else
+#  define ZMIJ_CONSTEXPR20
 #endif
 
 #ifdef __x86_64__
@@ -861,6 +861,168 @@ inline ZMIJ_CONSTEXPR auto write_big_exp(char* buffer, int dec_exp) noexcept
   buffer[0] = char('0' + lo / 10);
   buffer[1] = char('0' + lo % 10);
   return buffer + 2;
+}
+
+// An output sink that appends to `out`, discarding anything past `end`.
+struct writer {
+  char* out;
+  char* end;
+  size_t count;  // total chars, including any dropped past `end`
+
+  // The write functions return `count`, the running total of requested chars.
+  ZMIJ_INLINE ZMIJ_CONSTEXPR auto write(char c) noexcept -> size_t {
+    if (out < end) *out++ = c;
+    return ++count;
+  }
+  // Copies at most `end - out` chars of `s[0..n)`; `n` must be non-negative.
+  ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write(const char* s, int n) noexcept
+      -> size_t {
+    assert(n >= 0);
+    size_t take = n < end - out ? size_t(n) : size_t(end - out);
+    if (zmij::detail::is_constant_evaluated())
+      zmij::detail::copy_n(out, s, take);
+    else
+      memcpy(out, s, take);
+    out += take;
+    return count += size_t(n);
+  }
+  // Writes at most `end - out` copies of '0'; `n` must be non-negative.
+  ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write_zeros(int n) noexcept -> size_t {
+    assert(n >= 0);
+    size_t take = n < end - out ? size_t(n) : size_t(end - out);
+    if (zmij::detail::is_constant_evaluated()) {
+      for (size_t i = 0; i < take; ++i) out[i] = '0';
+    } else {
+      memset(out, '0', take);
+    }
+    out += take;
+    return count += size_t(n);
+  }
+};
+
+// Emits the digit run digits[0..num_digits) with the decimal point placed per
+// lead_exp, in fixed or scientific notation. Fixed pads to decimal_places
+// fractional digits; scientific appends num_tail_zeros to the fraction.
+inline ZMIJ_CONSTEXPR20 auto write_number(writer& w, const char* digits,
+                                          int num_digits, int lead_exp,
+                                          bool fixed, int decimal_places,
+                                          int num_tail_zeros) noexcept
+    -> size_t {
+  if (!fixed) {
+    // Emit scientific notation d.ddde±XX.
+    w.write(digits[0]);
+    // Emit a point only when fractional digits follow it.
+    if (num_digits - 1 + num_tail_zeros > 0) {
+      w.write('.');
+      w.write(digits + 1, num_digits - 1);
+      w.write_zeros(num_tail_zeros);  // pad the fraction to precision
+    }
+    char exp[8];
+    char* end = zmij::detail::write_big_exp(exp, lead_exp);
+    return w.write(exp, int(end - exp));
+  }
+
+  // Emit fixed notation.
+  int point_pos = lead_exp + 1;
+  int num_int_digits = 0;  // significant digits before the point
+  if (point_pos <= 0) {    // |value| < 1, e.g. 0.00123
+    w.write('0');
+  } else {
+    num_int_digits = point_pos < num_digits ? point_pos : num_digits;
+    w.write(digits, num_int_digits);
+    w.write_zeros(point_pos - num_int_digits);  // integer zeros, e.g. 12300
+  }
+  if (decimal_places <= 0) return w.count;
+  w.write('.');
+  int num_lead_zeros = point_pos < 0 ? -point_pos : 0;
+  w.write_zeros(num_lead_zeros);  // 0.00...
+  int num_frac_digits = num_digits - num_int_digits;
+  w.write(digits + num_int_digits, num_frac_digits);
+  return w.write_zeros(decimal_places - num_lead_zeros - num_frac_digits);
+}
+
+inline ZMIJ_CONSTEXPR20 auto write_big(writer& w, bigint num, int bin_exp,
+                                       int precision, char* digits,
+                                       int digits_size,
+                                       zmij::format fmt) noexcept -> size_t {
+  bool general = fmt == zmij::format::general;
+  bool fixed = fmt == zmij::format::fixed;
+  assert(precision >= general);
+
+  digits[0] = '0';
+  char* p = digits;
+  int num_digits = 1;
+  int lead_exp = 0;  // exponent of the leading digit
+
+  if (num.num_limbs != 0) {
+    // Represent the value exactly as an integer num times a power of ten:
+    // value = sig * 2**bin_exp = num * 10**base_exp, so its decimal digits are
+    // num's. For bin_exp < 0 the identity 2**bin_exp = 5**-bin_exp *
+    // 10**bin_exp keeps num integral via a power-of-five multiply.
+    int base_exp = 0;
+    if (bin_exp >= 0) {
+      num.shl(bin_exp);
+    } else {
+      num.mul_pow5(-bin_exp);
+      base_exp = bin_exp;
+    }
+
+    p = write_digits(num, digits + digits_size);
+    num_digits = int(digits + digits_size - p);
+    lead_exp = num_digits - 1 + base_exp;
+
+    // Significant digits to keep: precision for %g. For %e/%f it counts
+    // fractional digits, so add one leading digit; %f adds lead_exp more.
+    int max_digits = precision + !general + (fixed ? lead_exp : 0);
+    // Round to max_digits significant digits, ties to even.
+    if (max_digits < 1) {
+      // |value| < 10**-precision: rounds to 0, or up to 10**-precision when the
+      // discarded part exceeds half a unit (a tie rounds to even, i.e. 0).
+      bool round_up = false;
+      if (max_digits == 0) {
+        round_up =
+            p[0] > '5' || (p[0] == '5' && any_nonzero(p + 1, p + num_digits));
+      }
+      digits[0] = char('0' + round_up);
+      p = digits;
+      num_digits = 1;
+      lead_exp = round_up ? -precision : 0;
+    } else if (num_digits > max_digits) {
+      char dropped = p[max_digits];
+      bool round_up = dropped > '5';
+      // A dropped 5 ties to even unless a lower nonzero digit rounds up.
+      if (dropped == '5') {
+        round_up = ((p[max_digits - 1] - '0') & 1) ||
+                   any_nonzero(p + max_digits + 1, p + num_digits);
+      }
+      num_digits = max_digits;
+      if (round_up) {
+        char* q = p + max_digits - 1;
+        // Propagate the carry over trailing nines.
+        while (q >= p && *q == '9') *q-- = '0';
+        // 999.. rolling over to 1000.. adds a significant digit.
+        if (q < p) {
+          *--p = '1';
+          ++lead_exp;
+        } else {
+          ++*q;
+        }
+      }
+    }
+  }
+
+  int decimal_places = precision;  // fractional digit positions to emit
+  if (general) {
+    // Drop trailing zeros and pick fixed or scientific.
+    while (num_digits > 1 && p[num_digits - 1] == '0') --num_digits;
+    fixed = lead_exp >= -4 && lead_exp < precision;
+    decimal_places = num_digits - lead_exp - 1;
+  }
+
+  // %e pads the fraction to `precision` digits; %g and shortest emit none.
+  int num_tail_zeros = general ? 0 : precision - num_digits + 1;
+  return write_number(w, p, num_digits, lead_exp, fixed, decimal_places,
+                      num_tail_zeros);
 }
 
 // Writes `value` in hexadecimal floating-point notation (like printf's %a) in
