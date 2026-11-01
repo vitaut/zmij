@@ -995,23 +995,31 @@ struct writer {
   size_t count;  // total chars, including any dropped past `end`
 
   // The write functions return `count`, the running total of requested chars.
-  ZMIJ_INLINE auto write(char c) noexcept -> size_t {
+  ZMIJ_INLINE ZMIJ_CONSTEXPR auto write(char c) noexcept -> size_t {
     if (out < end) *out++ = c;
     return ++count;
   }
   // Copies at most `end - out` chars of `s[0..n)`; `n` must be non-negative.
-  ZMIJ_INLINE auto write(const char* s, int n) noexcept -> size_t {
+  ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write(const char* s, int n) noexcept
+      -> size_t {
     assert(n >= 0);
     size_t take = n < end - out ? size_t(n) : size_t(end - out);
-    memcpy(out, s, take);
+    if (zmij::detail::is_constant_evaluated())
+      zmij::detail::copy_n(out, s, take);
+    else
+      memcpy(out, s, take);
     out += take;
     return count += size_t(n);
   }
   // Writes at most `end - out` copies of '0'; `n` must be non-negative.
-  ZMIJ_INLINE auto write_zeros(int n) noexcept -> size_t {
+  ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write_zeros(int n) noexcept -> size_t {
     assert(n >= 0);
     size_t take = n < end - out ? size_t(n) : size_t(end - out);
-    memset(out, '0', take);
+    if (zmij::detail::is_constant_evaluated()) {
+      for (size_t i = 0; i < take; ++i) out[i] = '0';
+    } else {
+      memset(out, '0', take);
+    }
     out += take;
     return count += size_t(n);
   }
