@@ -625,9 +625,33 @@ struct data {
   exp_shift_table exp_shifts =
       exp_shift_table::enable ? exp_shift_table::make() : exp_shift_table();
 
+  // Extra digit as (fractional + digit_offsets[cell]) >> 60 (mod 2**64) for
+  // cell = fractional >> 60. Each cell holds at most one rounding boundary t,
+  // below which the digit is b, and the cell fixes the top 4 bits, so
+  // digit_offsets[cell] = ((b + 1) << 60) - t (t = cell << 60 if none) carries
+  // into bit 60 exactly from t on and leaves the digit in the top 4 bits.
+  // The boundaries are where (fractional * 10 + bias) >> 64 steps up for a bias
+  // of 2**63 - 1, which rounds the 2.5 tie to even, except in
+  // (2**62, 0.75 * 2**64], where boundary cases found by verify.py need
+  // 2**63 + 7, which also rounds the 7.5 tie to even.
+  uint64_t digit_offsets[16] = {
+      0x0333333333333333, 0, 0xf999999999999999, 0xf000000000000000,
+      0xefffffffffffffff, 0xe666666666666667, 0xe000000000000000,
+      0xdccccccccccccccd, 0xd333333333333333, 0xd000000000000000,
+      0xc99999999999999a, 0xc000000000000000, 0xc000000000000000,
+      0xb666666666666666, 0xb000000000000000, 0xaccccccccccccccc};
+  // digit_offsets for the 32-bit float fraction, as
+  // (fractional + float_digit_offsets[fractional >> 28]) >> 28 (mod 2**32).
+  // Each entry is digit_offsets[cell] arithmetically shifted right by 32, which
+  // moves its boundary t up to ceil(t / 2**32), except in cell 2, where the
+  // boundary 0.15 * 2**32 is rounded down to 0x26666666: the fraction of
+  // 2.06794015e+29 is 0.15 + 8.1e-11 and truncates to it (float-check).
+  uint32_t float_digit_offsets[16] = {
+      0x03333333, 0x00000000, 0xf999999a, 0xf0000000, 0xefffffff, 0xe6666666,
+      0xe0000000, 0xdccccccc, 0xd3333333, 0xd0000000, 0xc9999999, 0xc0000000,
+      0xc0000000, 0xb6666666, 0xb0000000, 0xaccccccc};
+
   ZMIJ_CONST_DECL uint64_t threshold = 1e15;
-  // +6 is needed for boundary cases found by verify.py.
-  ZMIJ_CONST_DECL uint64_t biased_half = (uint64_t(1) << 63) + 6;
 
 #if ZMIJ_USE_NEON
   static constexpr int32_t neg10k = 0x10000 - 10000;
@@ -1125,23 +1149,25 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   uint64_t even = 1 - (bin_sig & 1);
 
   if (num_bits == 32) {
-    constexpr int extra_shift = 34;
+    constexpr int extra_shift = 32;
     shift += extra_shift - exp_shift_table::extra_shift;
     uint64_t pow10_hi = d.pow10_significands[-dec_exp - 1].hi;
     uint64_t p = umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << shift);
 
     uint64_t integral = p >> extra_shift;
-    uint64_t fractional = p & ((1ull << extra_shift) - 1);
+    // The fraction is the low half of p, so the rounding checks and the digit
+    // run on 32-bit values without shifting p. 32 bits are enough for the
+    // checks; the digit needs one adjusted boundary (float_digit_offsets).
+    uint32_t fractional = uint32_t(p);
 
-    uint64_t half_ulp = (pow10_hi >> (65 - shift)) + even;
-    bool round_up = (fractional + half_ulp) >> extra_shift;
+    // Fits: shift is at most 32, so pow10_hi >> (65 - shift) < 2**31.
+    uint32_t half_ulp = uint32_t((pow10_hi >> (65 - shift)) + even);
+    bool round_up = uint32_t(fractional + half_ulp) < fractional;
     bool round_down = half_ulp > fractional;
     integral += round_up;
 
-    int digit = int((fractional * 10 + (uint64_t(1) << (extra_shift - 1))) >>
-                    extra_shift);
-    if (fractional == (uint64_t(1) << (extra_shift - 2))) [[ZMIJ_UNLIKELY]]
-      digit = 2;  // Round 2.5 to 2.
+    uint32_t offset = d.float_digit_offsets[fractional >> 28];
+    int digit = int(uint32_t(fractional + offset) >> 28);
     return {integral, dec_exp, digit, (round_up + round_down) == 0};
   }
 
@@ -1180,9 +1206,9 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   integral += round_up;  // Compute integral before digit.
 
   // Derive the extra digit from the fractional part (parallel with rounding).
-  int digit = int(umul128_add_hi64(fractional, 10, d.biased_half));
-  if (fractional == (1ull << 62)) [[ZMIJ_UNLIKELY]]
-    digit = 2;  // Round 2.5 to 2.
+  // The cell is fractional >> 60, read from p.hi alone.
+  size_t cell = (p.hi >> (extra_shift - 4)) & 15;
+  int digit = int((fractional + d.digit_offsets[cell]) >> 60);
   return {integral, dec_exp, digit, (round_up + round_down) == 0};
 }
 
