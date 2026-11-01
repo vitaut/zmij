@@ -416,34 +416,56 @@ static const uint64_t boundary_bits[] = {
 #include "boundary-bits.h"
 };
 
-// Check zmij against dragonbox on every rounding-boundary double verify.py
-// enumerates, using dragonbox's to_decimal as an independent oracle.
-TEST(double_test, boundaries) {
-  auto to_string = [](uint64_t sig, int dec_exp) -> std::string {
-    std::string digits = std::to_string(sig);
-    int num_digits = int(digits.size());
-    dec_exp += num_digits - 1;           // exponent of the leading digit
-    if (dec_exp < -4 || dec_exp > 15) {  // scientific
-      std::string sig_str = num_digits == 1
-                                ? digits
-                                : digits.substr(0, 1) + "." + digits.substr(1);
-      return sig_str + fmt::format("e{:+03d}", dec_exp);
-    }
-    int point = dec_exp + 1;  // digits left of the decimal point
-    if (point <= 0) return "0." + std::string(-point, '0') + digits;
-    if (point >= num_digits)
-      return digits + std::string(point - num_digits, '0');
-    return digits.substr(0, point) + "." + digits.substr(point);
-  };
+// Formats dragonbox's shortest decimal for a positive finite value the way
+// zmij::write does, as an independent oracle.
+template <typename Float> auto dragonbox_shortest(Float value) -> std::string {
+  int max_fixed_dec_exp = sizeof(Float) == sizeof(double) ? 15 : 6;
+  auto ref = jkj::dragonbox::to_decimal(value);
+  std::string digits = std::to_string(ref.significand);
+  int num_digits = int(digits.size());
+  int dec_exp = ref.exponent + num_digits - 1;  // exponent of the leading digit
+  if (dec_exp < -4 || dec_exp > max_fixed_dec_exp) {  // scientific
+    std::string sig_str = num_digits == 1
+                              ? digits
+                              : digits.substr(0, 1) + "." + digits.substr(1);
+    return sig_str + fmt::format("e{:+03d}", dec_exp);
+  }
+  int point = dec_exp + 1;  // digits left of the decimal point
+  if (point <= 0) return "0." + std::string(-point, '0') + digits;
+  if (point >= num_digits) return digits + std::string(point - num_digits, '0');
+  return digits.substr(0, point) + "." + digits.substr(point);
+}
 
+// Check zmij against dragonbox on every rounding-boundary double verify.py
+// enumerates.
+TEST(double_test, boundaries) {
   for (uint64_t bits : boundary_bits) {
     double value = 0;
     memcpy(&value, &bits, sizeof(value));
-    auto ref = jkj::dragonbox::to_decimal(value);
-    EXPECT_EQ(to_shortest(value), to_string(ref.significand, ref.exponent))
-        << "bits=" << bits;
+    EXPECT_EQ(to_shortest(value), dragonbox_shortest(value)) << "bits=" << bits;
   }
 }
+
+// Every power of two (subnormal ones included) and its neighbors one ulp
+// below and above: the powers of two have an asymmetric rounding interval, and
+// write sends some of them down the regular path.
+template <typename Float> void check_powers_of_two() {
+  using limits = std::numeric_limits<Float>;
+  int min_exp = limits::min_exponent - limits::digits;  // denorm_min
+  for (int exp = min_exp; exp < limits::max_exponent; ++exp) {
+    Float pow2 = std::ldexp(Float(1), exp);
+    for (Float value : {std::nextafter(pow2, Float(0)), pow2,
+                        std::nextafter(pow2, limits::infinity())}) {
+      if (value == 0 || std::isinf(value)) continue;
+      EXPECT_EQ(to_shortest(value), dragonbox_shortest(value))
+          << "2**" << exp << " neighbor " << value;
+    }
+  }
+}
+
+TEST(double_test, powers_of_two) { check_powers_of_two<double>(); }
+
+TEST(float_test, powers_of_two) { check_powers_of_two<float>(); }
 
 TEST(double_test, fixed_with_zeros) {
   EXPECT_EQ(to_shortest(43210.0), "43210");

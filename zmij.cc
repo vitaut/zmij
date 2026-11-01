@@ -1091,23 +1091,31 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   constexpr int extra_shift = exp_shift_table::extra_shift;
 
   if (!regular) [[ZMIJ_UNLIKELY]] {
+    assert(bin_sig == traits::implicit_bit);
     int dec_exp = compute_dec_exp(bin_exp, false);
-    unsigned char shift = compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
+    signed char exp_shift = compute_exp_shift(bin_exp, dec_exp + 1);  // [-3, 1]
     uint128 pow10 = d.pow10_significands[-dec_exp - 1];
-    // Cast to 64 bits: for float, bin_sig << shift can exceed 32 bits.
-    uint128 p = umul192_hi128(pow10.hi, pow10.lo, uint64_t(bin_sig) << shift);
+    // The significand only contains the implicit bit, so the product
+    // pow10 * bin_sig reduces to a single shift and we can extract
+    // the integral and fractional parts directly.
+    unsigned char frac_shift = exp_shift + traits::num_sig_bits;
+    uint64_t fractional = pow10.hi << frac_shift;
+    // For float, pow10.hi alone gives fractional 40+ bits, enough for all
+    // powers of two.
+    if (num_bits == 64) fractional |= pow10.lo >> (64 - frac_shift);
 
-    uint64_t integral = p.hi >> extra_shift;
-    uint64_t fractional = p.hi << (64 - extra_shift) | p.lo >> extra_shift;
-
-    uint64_t half_ulp = pow10.hi >> (extra_shift + 1 - shift);
+    uint64_t half_ulp = pow10.hi >> (1 - exp_shift);
+    // The value is 2**(num_sig_bits + 1) half ulps.
+    uint64_t integral = half_ulp >> (63 - traits::num_sig_bits);
     bool round_up = half_ulp > ~uint64_t(0) - fractional;
     bool round_down = (half_ulp >> 1) > fractional;
     integral += round_up;
 
     int digit = int(umul128_add_hi64(fractional, 10, (uint64_t(1) << 63) - 1));
-    int lo =
-        int(umul128_add_hi64(fractional - (half_ulp >> 1), 10, ~uint64_t(0)));
+    // ceil(y * 10 / 2**64) for y = fractional - half_ulp / 2: y * 10 is a
+    // multiple of 2**64 only for y = 0 or 2**63, which no power of two hits,
+    // so we can round up always.
+    int lo = int(umul128_hi64(fractional - (half_ulp >> 1), 10)) + 1;
     if (digit < lo) digit = lo;
     return {integral, dec_exp, digit, (round_up + round_down) == 0};
   }
