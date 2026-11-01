@@ -112,15 +112,33 @@ taking the best of 3 runs.
 * C++: https://github.com/vitaut/zmij/blob/main/zmij.cc
   (reference implementation)
 * C: https://github.com/vitaut/zmij/blob/main/zmij.c
-* Rust: https://github.com/dtolnay/zmij
+* C#: https://github.com/nuskey8/Zmij.NET
+* Java: [Zmij.java][smithy-java-zmij] (part of Smithy Java)
+* Odin: https://github.com/odin-lang/Odin/blob/master/core/strconv/zmij.odin
+  (in the standard library)
+* R: https://github.com/nanxstats/zmij (bindings to the Rust port)
+* Rust: https://github.com/dtolnay/zmij (used by serde_json)
 * Zig: https://github.com/de-sh/zmij
 
 ## Users
 
+* [Apache Fory](https://github.com/apache/fory): a multi-language serialization
+  framework
+* [Beef](https://github.com/beefytech/Beef): a performance-oriented compiled
+  programming language
 * [ClickHouse](https://github.com/ClickHouse/ClickHouse): a real-time analytics
   database management system
+* [Glaze](https://github.com/stephenberry/glaze): a fast serialization and
+  reflection library for C++
+* [Ladybird](https://github.com/LadybirdBrowser/ladybird): a truly independent
+  web browser
 * [MoarVM](https://github.com/MoarVM/MoarVM): a virtual machine built for
   Rakudo, the Raku compiler
+* [nlohmann/json](https://github.com/nlohmann/json): JSON for Modern C++
+* [Smithy Java](https://github.com/smithy-lang/smithy-java): a Smithy code
+  generator for Java
+* [WebKit](https://github.com/WebKit/WebKit): the browser engine used by Safari
+  and other applications
 
 ## Name
 
@@ -175,3 +193,4 @@ We would like to express our gratitude to the individuals who have made
   occasional commits, helping improve the robustness and performance of Żmij.
 
 [to-chars]: https://en.cppreference.com/w/cpp/utility/to_chars
+[smithy-java-zmij]: https://github.com/smithy-lang/smithy-java/blob/main/codecs/codec-commons/src/main/java/software/amazon/smithy/java/codecs/commons/Zmij.java
