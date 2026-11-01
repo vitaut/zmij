@@ -462,7 +462,7 @@ constexpr
     typename float_traits<Float>::sig_type float_traits<Float>::implicit_bit;
 #endif
 
-// Compressed 128-bit significands of powers of 10.
+// Compressed 128-bit significands of powers of 10, and powers of 5 below 5**13.
 template <typename = void> struct pow10_data {
   static constexpr uint64_t minor[28] = {
       0x8000000000000000, 0xa000000000000000, 0xc800000000000000,
@@ -508,12 +508,16 @@ template <typename = void> struct pow10_data {
       0x04e00300, 0x3807e0b2, 0x3d83d793, 0x0006f5cc, 0x00000000, 0xffff0000,
       0x8076337d, 0x4ff45ba0, 0x09405033, 0x034376d9, 0x09000000, 0x4e100501,
       0x076d14dc, 0xf964f45e, 0x0000003d};
+  static constexpr uint32_t pow5[13] = {
+      1,     5,      25,      125,     625,      3125,     15625,
+      78125, 390625, 1953125, 9765625, 48828125, 244140625};
 };
 
 #ifndef __cpp_inline_variables
 template <typename T> constexpr uint64_t pow10_data<T>::minor[];
 template <typename T> constexpr uint128 pow10_data<T>::major[];
 template <typename T> constexpr uint32_t pow10_data<T>::fixups[];
+template <typename T> constexpr uint32_t pow10_data<T>::pow5[];
 #endif
 
 // Computes the 128-bit significand of 10**exp rounded down using method by
@@ -689,6 +693,90 @@ inline auto divmod10(uint128_t& x) noexcept -> uint64_t {
   return div(x.lo, div(x.hi, 0));
 #endif
 }
+
+// A minimal binary big integer (little-endian base-2**32 limbs) over caller-
+// provided storage.
+struct bigint {
+  uint32_t* limbs;
+  int num_limbs = 0;  // Significant limbs; 0 represents zero.
+  int max_limbs;      // Available limbs in `limbs`.
+
+  // Callers must size `max_limbs` for the largest value the number will reach.
+  ZMIJ_CONSTEXPR bigint(uint128_t value, uint32_t* buffer,
+                        int max_limbs) noexcept
+      : limbs(buffer), max_limbs(max_limbs) {
+    uint64_t lo = uint64_t(value), hi = uint64_t(value >> 64);
+    limbs[0] = uint32_t(lo);
+    limbs[1] = uint32_t(lo >> 32);
+    limbs[2] = uint32_t(hi);
+    limbs[3] = uint32_t(hi >> 32);
+    // Keep after the limb stores: setting it first worsens write_fixed_big.
+    num_limbs = 4;
+    trim();
+  }
+
+  ZMIJ_CONSTEXPR void trim() noexcept {
+    while (num_limbs > 0 && limbs[num_limbs - 1] == 0) --num_limbs;
+  }
+
+  // Shifts left by `n`.
+  ZMIJ_CONSTEXPR void shl(int n) noexcept {
+    assert(n >= 0);
+    if (num_limbs == 0) return;
+    int limb_shift = n >> 5, bit_shift = n & 31;
+    assert(num_limbs + limb_shift + (bit_shift != 0) <= max_limbs);
+    if (bit_shift == 0) {
+      for (int i = num_limbs - 1; i >= 0; --i) limbs[i + limb_shift] = limbs[i];
+      num_limbs += limb_shift;
+    } else {
+      limbs[num_limbs + limb_shift] = limbs[num_limbs - 1] >> (32 - bit_shift);
+      for (int i = num_limbs - 1; i > 0; --i) {
+        limbs[i + limb_shift] =
+            limbs[i] << bit_shift | limbs[i - 1] >> (32 - bit_shift);
+      }
+      limbs[limb_shift] = limbs[0] << bit_shift;
+      num_limbs += limb_shift + 1;
+    }
+    for (int i = 0; i < limb_shift; ++i) limbs[i] = 0;
+    trim();
+  }
+
+  // Divides by 10**9 in place and returns the remainder.
+  ZMIJ_CONSTEXPR auto divmod_1e9() noexcept -> uint32_t {
+    uint64_t rem = 0;
+    for (int i = num_limbs - 1; i >= 0; --i) {
+      uint64_t div = rem << 32 | limbs[i];
+      limbs[i] = uint32_t(div / 1000000000u);
+      rem = div % 1000000000u;
+    }
+    trim();
+    return uint32_t(rem);
+  }
+
+  // Multiplies in place by a nonzero `factor`.
+  ZMIJ_CONSTEXPR void mul(uint32_t factor) noexcept {
+    assert(factor != 0);
+    uint64_t carry = 0;
+    for (int i = 0; i < num_limbs; ++i) {
+      uint64_t product = uint64_t(limbs[i]) * factor + carry;
+      limbs[i] = uint32_t(product);
+      carry = product >> 32;
+    }
+    if (carry == 0) return;
+    assert(num_limbs < max_limbs);
+    limbs[num_limbs++] = uint32_t(carry);
+  }
+
+  // Multiplies in place by 5**n.
+  ZMIJ_CONSTEXPR void mul_pow5(int n) noexcept {
+    assert(n >= 0);
+    while (n >= 13) {  // 5**13 is the largest power of five below 2**32.
+      mul(1220703125u);
+      n -= 13;
+    }
+    if (n != 0) mul(pow10_data<>::pow5[n]);
+  }
+};
 
 // `buffer` params require at least buffer_sizes<Float> capacity;
 // `out`/`n` params write at most `n` characters.

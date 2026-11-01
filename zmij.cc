@@ -84,6 +84,7 @@ ZMIJ_INLINE auto select(uint64_t condition, int64_t true_value,
   return false_value;
 }
 
+using zmij::detail::bigint;
 using zmij::detail::bswap64;
 using zmij::detail::clz;
 using zmij::detail::compute_dec_exp;
@@ -1266,94 +1267,6 @@ ZMIJ_INLINE auto to_decimal(uint64_t bin_sig, int bin_exp,
   return {dec_sig * pow10s[18 - precision], dec_exp + precision - 1};
 }
 
-constexpr uint32_t pow5s[] = {1,       5,        25,       125,    625,
-                              3125,    15625,    78125,    390625, 1953125,
-                              9765625, 48828125, 244140625};
-
-// A minimal binary big integer (little-endian base-2**32 limbs) over caller-
-// provided storage.
-struct bigint {
-  uint32_t* limbs;
-  int num_limbs = 0;  // Significant limbs; 0 represents zero.
-  int max_limbs;      // Available limbs in `limbs`.
-
-  // Callers must size `max_limbs` for the largest value the number will reach.
-  ZMIJ_CONSTEXPR bigint(uint128_t value, uint32_t* buffer,
-                        int max_limbs) noexcept
-      : limbs(buffer), max_limbs(max_limbs) {
-    uint64_t lo = uint64_t(value), hi = uint64_t(value >> 64);
-    limbs[0] = uint32_t(lo);
-    limbs[1] = uint32_t(lo >> 32);
-    limbs[2] = uint32_t(hi);
-    limbs[3] = uint32_t(hi >> 32);
-    // Keep after the limb stores: setting it first worsens write_fixed_big.
-    num_limbs = 4;
-    trim();
-  }
-
-  ZMIJ_CONSTEXPR void trim() noexcept {
-    while (num_limbs > 0 && limbs[num_limbs - 1] == 0) --num_limbs;
-  }
-
-  // Shifts left by `n`.
-  ZMIJ_CONSTEXPR void shl(int n) noexcept {
-    assert(n >= 0);
-    if (num_limbs == 0) return;
-    int limb_shift = n >> 5, bit_shift = n & 31;
-    assert(num_limbs + limb_shift + (bit_shift != 0) <= max_limbs);
-    if (bit_shift == 0) {
-      for (int i = num_limbs - 1; i >= 0; --i) limbs[i + limb_shift] = limbs[i];
-      num_limbs += limb_shift;
-    } else {
-      limbs[num_limbs + limb_shift] = limbs[num_limbs - 1] >> (32 - bit_shift);
-      for (int i = num_limbs - 1; i > 0; --i) {
-        limbs[i + limb_shift] =
-            limbs[i] << bit_shift | limbs[i - 1] >> (32 - bit_shift);
-      }
-      limbs[limb_shift] = limbs[0] << bit_shift;
-      num_limbs += limb_shift + 1;
-    }
-    for (int i = 0; i < limb_shift; ++i) limbs[i] = 0;
-    trim();
-  }
-
-  // Divides by 10**9 in place and returns the remainder.
-  ZMIJ_CONSTEXPR auto divmod_1e9() noexcept -> uint32_t {
-    uint64_t rem = 0;
-    for (int i = num_limbs - 1; i >= 0; --i) {
-      uint64_t div = rem << 32 | limbs[i];
-      limbs[i] = uint32_t(div / 1000000000u);
-      rem = div % 1000000000u;
-    }
-    trim();
-    return uint32_t(rem);
-  }
-
-  // Multiplies in place by a nonzero `factor`.
-  ZMIJ_CONSTEXPR void mul(uint32_t factor) noexcept {
-    assert(factor != 0);
-    uint64_t carry = 0;
-    for (int i = 0; i < num_limbs; ++i) {
-      uint64_t product = uint64_t(limbs[i]) * factor + carry;
-      limbs[i] = uint32_t(product);
-      carry = product >> 32;
-    }
-    if (carry == 0) return;
-    assert(num_limbs < max_limbs);
-    limbs[num_limbs++] = uint32_t(carry);
-  }
-
-  // Multiplies in place by 5**n.
-  ZMIJ_CONSTEXPR void mul_pow5(int n) noexcept {
-    assert(n >= 0);
-    while (n >= 13) {  // 5**13 is the largest power of five below 2**32.
-      mul(1220703125u);
-      n -= 13;
-    }
-    if (n != 0) mul(pow5s[n]);
-  }
-};
-
 // Emits n's decimal digits (most significant first) ending at `end`, consuming
 // n, and returns a pointer to the first (most significant) digit.
 auto write_digits(bigint n, char* end) noexcept -> char* {
@@ -1525,7 +1438,6 @@ auto write_big(writer& w, bigint num, int bin_exp, int precision, char* digits,
 }  // namespace
 
 namespace zmij {
-
 namespace detail {
 
 template <typename Float> auto to_decimal(Float value) noexcept -> dec_fp<> {
