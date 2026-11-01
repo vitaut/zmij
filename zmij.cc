@@ -95,6 +95,7 @@ using zmij::detail::uint128;
 using zmij::detail::uint128_t;
 using zmij::detail::umul128;
 using zmij::detail::umul192_hi128;
+using zmij::detail::write2;
 using zmij::detail::write_digits;
 
 #if ZMIJ_USE_INT128 && defined(__APPLE__)
@@ -577,20 +578,6 @@ inline auto digits2(size_t value) noexcept -> const char* {
   return &data[value * 2];
 }
 
-// Writes chars `a` and `b` to `out` and returns the position after them.
-ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write2(char* out, char a, char b) noexcept
-    -> char* {
-  if (zmij::detail::is_constant_evaluated()) {
-    out[0] = a;
-    out[1] = b;
-    return out + 2;
-  }
-  uint16_t v = uint16_t(uint8_t(a) | uint8_t(b) << 8);
-  if (is_big_endian) v = uint16_t(v << 8 | v >> 8);
-  memcpy(out, &v, 2);
-  return out + 2;
-}
-
 constexpr int div10k_exp = 40;
 constexpr uint32_t div10k_sig = uint32_t((1ull << div10k_exp) / 10000 + 1);
 constexpr uint32_t neg10k = uint32_t((1ull << 32) - 10000);
@@ -1017,43 +1004,6 @@ ZMIJ_INLINE auto write_exp(char* buffer, int dec_exp) noexcept -> char* {
   }
   memcpy(buffer, digits2(abs_exp), 2);
   return buffer + 2;
-}
-
-// Writes the binary exponent as 'p', a sign and at least one digit (e.g. p+3).
-ZMIJ_CONSTEXPR20 auto write_hex_exp(char* buffer, int bin_exp) noexcept
-    -> char* {
-  buffer = write2(buffer, 'p', bin_exp < 0 ? '-' : '+');
-  unsigned abs_exp = unsigned(bin_exp < 0 ? -bin_exp : bin_exp);
-  char digits[8];
-  char* p = digits + sizeof(digits);
-  do {
-    *--p = char('0' + abs_exp % 10);
-    abs_exp /= 10;
-  } while (abs_exp != 0);
-  size_t n = size_t(digits + sizeof(digits) - p);
-  if (zmij::detail::is_constant_evaluated())
-    return zmij::detail::copy_n(buffer, p, n);
-  memcpy(buffer, p, n);
-  return buffer + n;
-}
-
-template <typename Float, typename UInt>
-ZMIJ_INLINE ZMIJ_CONSTEXPR20 void normalize(UInt& bin_sig,
-                                            int64_t& bin_exp) noexcept {
-  // clz counts from the top of its operand, so measure from that width.
-  int lz, width;
-  if (sizeof(UInt) > 8) {
-    uint128_t v = bin_sig;
-    uint64_t hi = uint64_t(v >> 64);
-    lz = hi != 0 ? clz(hi) : 64 + clz(uint64_t(v));
-    width = 128;
-  } else {
-    lz = clz(uint64_t(bin_sig));
-    width = 64;
-  }
-  int shift = lz - (width - 1 - float_traits<Float>::num_sig_bits);
-  bin_sig = bin_sig << shift;
-  bin_exp = 1 - shift;
 }
 
 // Writes num_digits significant digits in scientific form, d[.ddd]e±EE
