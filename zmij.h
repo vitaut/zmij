@@ -821,28 +821,35 @@ struct writer {
     if (out < end) *out++ = c;
     return ++count;
   }
+  // Copies s[0..n), or n zeros if `s` is null, during constant evaluation.
+  // Compares with `end` rather than subtracting: GCC rejects `end - out` when
+  // `out` is a row of a 2D array.
+  ZMIJ_CONSTEXPR20 void put(const char* s, int n) noexcept {
+    for (int i = 0; i < n && out < end; ++i) *out++ = s ? s[i] : '0';
+  }
   // Copies at most `end - out` chars of `s[0..n)`; `n` must be non-negative.
   ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write(const char* s, int n) noexcept
       -> size_t {
     assert(n >= 0);
-    size_t take = n < end - out ? size_t(n) : size_t(end - out);
-    if (zmij::detail::is_constant_evaluated())
-      zmij::detail::copy_n(out, s, take);
-    else
+    if (zmij::detail::is_constant_evaluated()) {
+      put(s, n);
+    } else {
+      size_t take = n < end - out ? size_t(n) : size_t(end - out);
       memcpy(out, s, take);
-    out += take;
+      out += take;
+    }
     return count += size_t(n);
   }
   // Writes at most `end - out` copies of '0'; `n` must be non-negative.
   ZMIJ_INLINE ZMIJ_CONSTEXPR20 auto write_zeros(int n) noexcept -> size_t {
     assert(n >= 0);
-    size_t take = n < end - out ? size_t(n) : size_t(end - out);
     if (zmij::detail::is_constant_evaluated()) {
-      for (size_t i = 0; i < take; ++i) out[i] = '0';
+      put(nullptr, n);
     } else {
+      size_t take = n < end - out ? size_t(n) : size_t(end - out);
       memset(out, '0', take);
+      out += take;
     }
-    out += take;
     return count += size_t(n);
   }
 };
@@ -1291,13 +1298,8 @@ template <> struct buffer_sizes<long_double> {
 /// exceeds `n` characters, only the first `n` are written.
 inline ZMIJ_CONSTEXPR20 auto write(char* out, size_t n, double value) noexcept
     -> char* {
-  if (detail::is_constant_evaluated()) {
-    // A local buffer, since GCC can't compare `out + n` with `out` when `out`
-    // is a row of a 2D array.
-    char buffer[double_buffer_size] = {};
-    size_t size = detail::write_constexpr(buffer, sizeof(buffer), value);
-    return detail::copy_clamped(out, n, buffer, buffer + size);
-  }
+  if (detail::is_constant_evaluated())
+    return detail::clamp_end(out, detail::write_constexpr(out, n, value), n);
   char buffer[double_buffer_size];
   if (n >= sizeof(buffer)) return detail::write(out, value);
   return detail::copy_clamped(out, n, buffer, detail::write(buffer, value));
@@ -1305,11 +1307,8 @@ inline ZMIJ_CONSTEXPR20 auto write(char* out, size_t n, double value) noexcept
 
 inline ZMIJ_CONSTEXPR20 auto write(char* out, size_t n, float value) noexcept
     -> char* {
-  if (detail::is_constant_evaluated()) {
-    char buffer[float_buffer_size] = {};
-    size_t size = detail::write_constexpr(buffer, sizeof(buffer), value);
-    return detail::copy_clamped(out, n, buffer, buffer + size);
-  }
+  if (detail::is_constant_evaluated())
+    return detail::clamp_end(out, detail::write_constexpr(out, n, value), n);
   char buffer[float_buffer_size];
   if (n >= sizeof(buffer)) return detail::write(out, value);
   return detail::copy_clamped(out, n, buffer, detail::write(buffer, value));
