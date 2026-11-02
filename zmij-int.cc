@@ -14,7 +14,7 @@
 #include <stdint.h>  // uint64_t
 #include <string.h>  // memcpy
 
-#include <type_traits>  // std::conditional_t
+#include <type_traits>  // std::conditional
 
 #include "zmij.h"
 
@@ -324,8 +324,10 @@ struct data {
 #if ZMIJ_USE_NEON
   static constexpr int32_t neg10k = 0x10000 - 10000;
 
-  using int32x4 = std::conditional_t<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>;
-  using int16x8 = std::conditional_t<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>;
+  using int32x4 =
+      typename std::conditional<ZMIJ_MSC_VER != 0, int32_t[4], int32x4_t>::type;
+  using int16x8 =
+      typename std::conditional<ZMIJ_MSC_VER != 0, int16_t[8], int16x8_t>::type;
 
   int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
   int16x8 multipliers16 = {0xce0, neg10};
@@ -448,7 +450,8 @@ struct data {
   ZMIJ_NEON_CONST uint32_t frac_mul = frac_tail_mul;
 #if ZMIJ_USE_U64_LANE_CHAIN
   u64_lane_tables u64_lane;
-  std::conditional_t<ZMIJ_OPTIMIZE_SIZE, head4_tables, top4_table> head4;
+  typename std::conditional<ZMIJ_OPTIMIZE_SIZE, head4_tables, top4_table>::type
+      head4;
 #endif
 };
 alignas(64) constexpr data static_data;
@@ -714,8 +717,8 @@ ZMIJ_INLINE auto to_ascii16_lanes_and_shuffle(uint32_t hi, uint32_t lo,
 
 ZMIJ_INLINE auto to_ascii16_and_shuffle(uint64_t value, const __m128i& shuffle,
                                         const data& d) noexcept -> __m128i {
-  return to_ascii16_lanes_and_shuffle(
-      uint32_t(value / 100'000'000), uint32_t(value % 100'000'000), shuffle, d);
+  return to_ascii16_lanes_and_shuffle(uint32_t(value / 100000000),
+                                      uint32_t(value % 100000000), shuffle, d);
 }
 
 // Unused where the u64 path is the lane chain and the u128 paths use
@@ -737,7 +740,7 @@ ZMIJ_INLINE auto write_body10(char* out, uint32_t value, uint64_t len,
                               const data& d) noexcept -> char* {
   __m128i shuffle = _mm_loadu_si128(m128ptr(d.revalign_shuffle10 + (10 - len)));
   uint32_t high8 = value / 100;
-  uint32_t top4 = value / 1'000'000;
+  uint32_t top4 = value / 1000000;
   uint32_t low2 = value - high8 * 100;
   uint64_t ae = high8 + neg10k * uint64_t(top4);
   __m128i x = _mm_set_epi64x(low2, ae);
@@ -774,8 +777,8 @@ ZMIJ_INLINE auto bcastq256(const void* p) noexcept -> __m256i {
 // after quotients). The caller shuffles accordingly.
 ZMIJ_INLINE auto to_ascii16x2_256(uint64_t a, uint64_t b,
                                   const data& d) noexcept -> __m256i {
-  uint32_t ah = uint32_t(a / 100'000'000), al = uint32_t(a % 100'000'000);
-  uint32_t bh = uint32_t(b / 100'000'000), bl = uint32_t(b % 100'000'000);
+  uint32_t ah = uint32_t(a / 100000000), al = uint32_t(a % 100000000);
+  uint32_t bh = uint32_t(b / 100000000), bl = uint32_t(b % 100000000);
   __m256i x = _mm256_set_epi64x(bl, bh, al, ah);  // lane0 = a, lane1 = b
   const __m256i div10k = bcastq256(&d.div10k);
   const __m256i neg10k = bcastq256(&d.neg10k);
@@ -840,8 +843,8 @@ ZMIJ_INLINE auto write_body_head16_pad(char* out, uint64_t head, uint64_t hlen,
 // Builds the 16 first ASCII digits of `value` in [0, 1e16), right-aligned
 // and zero-padded.
 ZMIJ_INLINE auto to_ascii16(uint64_t value, const data& d) noexcept -> __m128i {
-  uint32_t hi = uint32_t(value / 100'000'000);
-  uint32_t lo = uint32_t(value % 100'000'000);
+  uint32_t hi = uint32_t(value / 100000000);
+  uint32_t lo = uint32_t(value % 100000000);
   const __m128i div10k = _mm_load_si128(m128ptr(&d.div10k));
   const __m128i neg10k = _mm_load_si128(m128ptr(&d.neg10k));
   __m128i x = _mm_set_epi64x(hi, lo);
@@ -957,8 +960,8 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
     // Mirrors the SIMD paths, but we have to move in 8-digit blocks.
     bool big = value >= uint128_t(uint64_t(1e16)) * uint64_t(1e16);  // >= 1e32
     divmod_1e16_result lo = divmod_1e16(value, *d);  // lo.rem = low 16 digits
-    uint64_t low_hi = to_bcd8(uint32_t(lo.rem / 100'000'000ull)) + zeros;
-    uint64_t low_lo = to_bcd8(uint32_t(lo.rem % 100'000'000ull)) + zeros;
+    uint64_t low_hi = to_bcd8(uint32_t(lo.rem / 100000000ull)) + zeros;
+    uint64_t low_lo = to_bcd8(uint32_t(lo.rem % 100000000ull)) + zeros;
     // No zero-init: unwritten bytes are only ever copied into the scratch
     // region past out + len that the buffer contract already permits.
     // Digit groups end at buf + 40, so the read window buf + 40 - len starts
@@ -968,8 +971,8 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
     memcpy(buf + 32, &low_lo, 8);
     if (!big) {  // 19-32 digits: top (<=16) + low 16
       uint64_t top = uint64_t(lo.quot);
-      uint64_t top_hi = to_bcd8(uint32_t(top / 100'000'000ull)) + zeros;
-      uint64_t top_lo = to_bcd8(uint32_t(top % 100'000'000ull)) + zeros;
+      uint64_t top_hi = to_bcd8(uint32_t(top / 100000000ull)) + zeros;
+      uint64_t top_lo = to_bcd8(uint32_t(top % 100000000ull)) + zeros;
       memcpy(buf + 8, &top_hi, 8);
       memcpy(buf + 16, &top_lo, 8);
       uint64_t len = 16 + count_digits(top, *d);
@@ -982,8 +985,8 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
     uint64_t mid = hi.rem;
     // top is <= 7 digits, so one to_bcd8 covers it.
     uint64_t top_8 = to_bcd8(top) + zeros;
-    uint64_t mid_hi = to_bcd8(uint32_t(mid / 100'000'000ull)) + zeros;
-    uint64_t mid_lo = to_bcd8(uint32_t(mid % 100'000'000ull)) + zeros;
+    uint64_t mid_hi = to_bcd8(uint32_t(mid / 100000000ull)) + zeros;
+    uint64_t mid_lo = to_bcd8(uint32_t(mid % 100000000ull)) + zeros;
     memcpy(buf, &top_8, 8);
     memcpy(buf + 8, &mid_hi, 8);
     memcpy(buf + 16, &mid_lo, 8);
@@ -1049,7 +1052,7 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
                         *d);
 #else
     uint32_t high8 = uint32_t(value) / 100;
-    uint32_t top4 = uint32_t(value) / 1'000'000;
+    uint32_t top4 = uint32_t(value) / 1000000;
     uint64_t hi = to_bcd8_split(high8, top4) + zeros;
     uint32_t low2 = uint32_t(value) - high8 * 100;
     uint64_t len = count_digits(uint32_t(value), *d);
@@ -1121,10 +1124,10 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   // pair lookups beat a full to_bcd8. Right-aligned, those 4 bytes land at
   // buf[4..8) - where the len==20 read window (buf + 24 - len) begins.
   char buf[48] = {};
-  uint64_t q = v / 100'000'000ull;
+  uint64_t q = v / 100000000ull;
   uint32_t top = uint32_t(v / uint64_t(1e16));  // <= 1844
-  uint64_t lo = to_bcd8(uint32_t(v - q * 100'000'000ull)) + zeros;
-  uint64_t mid = to_bcd8(uint32_t(q - top * 100'000'000ull)) + zeros;
+  uint64_t lo = to_bcd8(uint32_t(v - q * 100000000ull)) + zeros;
+  uint64_t mid = to_bcd8(uint32_t(q - top * 100000000ull)) + zeros;
   uint64_t t = uint64_t(top) * frac_tail_mul;
   memcpy(buf + 4, digits2(t >> 32), 2);
   memcpy(buf + 6, d->frac100.e[uint32_t(t) >> 25], 2);
@@ -1150,7 +1153,8 @@ ZMIJ_INLINE auto write_signed(char* out, Int value) noexcept -> char* {
     return write_above_i64(out, mag);
   }
 #endif  // ZMIJ_USE_INT128
-  using uint = std::conditional_t<sizeof(Int) <= 4, uint32_t, uint64_t>;
+  using uint =
+      typename std::conditional<sizeof(Int) <= 4, uint32_t, uint64_t>::type;
   uint mag = value >= 0 ? uint(value) : -uint(value);
 #if ZMIJ_USE_NEON
   if (sizeof(Int) <= 4) {
