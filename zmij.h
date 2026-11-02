@@ -399,10 +399,12 @@ inline ZMIJ_CONSTEXPR auto umul192_hi128(uint64_t x_hi, uint64_t x_lo,
 // floor(log10(3/4 * 2**bin_exp)) otherwise, without branching.
 constexpr auto compute_dec_exp(int bin_exp, bool regular = true) noexcept
     -> int {
+#if ZMIJ_USE_CONSTEXPR  // In C++11, GCC rejects assert in noexcept constexpr.
+  assert(bin_exp >= -1334 && bin_exp <= 2620);
+#endif
   // 315653 is round(log10(2) * 2**20) and 131072 is -log10(3/4) * 2**20
   // rounded to a power of two.
-  return assert(bin_exp >= -1334 && bin_exp <= 2620),
-         (bin_exp * 315653 - !regular * 131072) >> 20;
+  return (bin_exp * 315653 - !regular * 131072) >> 20;
 }
 
 constexpr auto ilog2(int n) noexcept -> int {

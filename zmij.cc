@@ -103,7 +103,7 @@ constexpr bool use_umul128_hi64 = true;  // Use umul128_hi64 for division.
 constexpr bool use_umul128_hi64 = false;
 #endif
 
-constexpr auto umul128_hi64(uint64_t x, uint64_t y) noexcept -> uint64_t {
+ZMIJ_CONSTEXPR auto umul128_hi64(uint64_t x, uint64_t y) noexcept -> uint64_t {
   return uint64_t(umul128(x, y) >> 64);
 }
 

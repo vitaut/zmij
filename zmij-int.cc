@@ -68,7 +68,7 @@ using zmij::detail::uint128;
 using zmij::detail::uint128_t;
 using zmij::detail::umul128;
 
-constexpr auto umul128_hi64(uint64_t x, uint64_t y) noexcept -> uint64_t {
+ZMIJ_CONSTEXPR auto umul128_hi64(uint64_t x, uint64_t y) noexcept -> uint64_t {
   return uint64_t(umul128(x, y) >> 64);
 }
 
