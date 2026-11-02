@@ -624,72 +624,6 @@ inline ZMIJ_CONSTEXPR20 auto copy_n(char* out, const char* in,
   return out;
 }
 
-template <typename Float>
-inline ZMIJ_CONSTEXPR20 auto write_constexpr(char* out, Float value) noexcept
-    -> char* {
-  using traits = float_traits<Float>;
-  auto bits = traits::to_bits(value);
-  auto raw_exp = int(traits::get_exp(bits));
-  auto bin_sig = uint64_t(traits::get_sig(bits));
-
-  if (traits::is_negative(bits)) *out++ = '-';
-  if (raw_exp == traits::exp_mask)
-    return copy_n(out, bin_sig != 0 ? "nan" : "inf", 3);
-  if (raw_exp == 0 && bin_sig == 0) {
-    *out++ = '0';
-    return out;
-  }
-
-  int bin_exp = (raw_exp == 0 ? 1 : raw_exp) - traits::exp_offset;
-  if (raw_exp != 0) bin_sig |= traits::implicit_bit;
-  dec_fp<> dec = to_decimal<Float>(bin_sig, bin_exp);
-  while (dec.sig % 10 == 0) {
-    dec.sig /= 10;
-    ++dec.exp;
-  }
-
-  char digits[traits::max_digits10] = {};
-  char* first = digits + sizeof(digits);
-  do {
-    *--first = char('0' + dec.sig % 10);
-    dec.sig /= 10;
-  } while (dec.sig != 0);
-  int num_digits = int(digits + sizeof(digits) - first);
-  int lead_exp = dec.exp + num_digits - 1;
-
-  if (lead_exp >= traits::min_fixed_dec_exp &&
-      lead_exp <= traits::max_fixed_dec_exp) {
-    int point_pos = lead_exp + 1;
-    if (point_pos <= 0) {
-      *out++ = '0';
-      *out++ = '.';
-      for (int i = point_pos; i < 0; ++i) *out++ = '0';
-    }
-    for (int i = 0; i < num_digits; ++i) {
-      if (point_pos > 0 && i == point_pos) *out++ = '.';
-      *out++ = first[i];
-    }
-    for (int i = num_digits; i < point_pos; ++i) *out++ = '0';
-    return out;
-  }
-
-  *out++ = first[0];
-  if (num_digits > 1) {
-    *out++ = '.';
-    out = copy_n(out, first + 1, size_t(num_digits - 1));
-  }
-  *out++ = 'e';
-  *out++ = lead_exp >= 0 ? '+' : '-';
-  unsigned abs_exp = unsigned(lead_exp >= 0 ? lead_exp : -lead_exp);
-  if (abs_exp >= 100) {
-    *out++ = char('0' + abs_exp / 100);
-    abs_exp %= 100;
-  }
-  *out++ = char('0' + abs_exp / 10);
-  *out++ = char('0' + abs_exp % 10);
-  return out;
-}
-
 // Divides x by 10 in place and returns the remainder.
 inline auto divmod10(uint128_t& x) noexcept -> uint64_t {
 #if ZMIJ_USE_INT128
@@ -952,6 +886,45 @@ inline ZMIJ_CONSTEXPR20 auto write_number(writer& w, const char* digits,
   int num_frac_digits = num_digits - num_int_digits;
   w.write(digits + num_int_digits, num_frac_digits);
   return w.write_zeros(decimal_places - num_lead_zeros - num_frac_digits);
+}
+
+// Writes the shortest representation of `value` like `write`, for constant
+// evaluation, into `out`, truncating after `n` chars. Returns the total length
+// the result would need.
+template <typename Float>
+inline ZMIJ_CONSTEXPR20 auto write_constexpr(char* out, size_t n,
+                                             Float value) noexcept -> size_t {
+  using traits = float_traits<Float>;
+  auto bits = traits::to_bits(value);
+  auto raw_exp = int(traits::get_exp(bits));
+  auto bin_sig = uint64_t(traits::get_sig(bits));
+
+  writer w = {out, out + n, 0};
+  if (traits::is_negative(bits)) w.write('-');
+  if (raw_exp == traits::exp_mask)
+    return w.write(bin_sig != 0 ? "nan" : "inf", 3);
+  if (raw_exp == 0 && bin_sig == 0) return w.write('0');
+
+  int bin_exp = (raw_exp == 0 ? 1 : raw_exp) - traits::exp_offset;
+  if (raw_exp != 0) bin_sig |= traits::implicit_bit;
+  dec_fp<> dec = to_decimal<Float>(bin_sig, bin_exp);
+  while (dec.sig % 10 == 0) {
+    dec.sig /= 10;
+    ++dec.exp;
+  }
+
+  char digits[traits::max_digits10] = {};
+  char* first = digits + sizeof(digits);
+  do {
+    *--first = char('0' + dec.sig % 10);
+    dec.sig /= 10;
+  } while (dec.sig != 0);
+  int num_digits = int(digits + sizeof(digits) - first);
+  int lead_exp = dec.exp + num_digits - 1;
+  bool fixed = lead_exp >= traits::min_fixed_dec_exp &&
+               lead_exp <= traits::max_fixed_dec_exp;
+  return write_number(w, first, num_digits, lead_exp, fixed,
+                      num_digits - lead_exp - 1, 0);
 }
 
 inline ZMIJ_CONSTEXPR20 auto write_big(writer& w, bigint num, int bin_exp,
@@ -1319,9 +1292,11 @@ template <> struct buffer_sizes<long_double> {
 inline ZMIJ_CONSTEXPR20 auto write(char* out, size_t n, double value) noexcept
     -> char* {
   if (detail::is_constant_evaluated()) {
+    // A local buffer, since GCC can't compare `out + n` with `out` when `out`
+    // is a row of a 2D array.
     char buffer[double_buffer_size] = {};
-    return detail::copy_clamped(out, n, buffer,
-                                detail::write_constexpr(buffer, value));
+    size_t size = detail::write_constexpr(buffer, sizeof(buffer), value);
+    return detail::copy_clamped(out, n, buffer, buffer + size);
   }
   char buffer[double_buffer_size];
   if (n >= sizeof(buffer)) return detail::write(out, value);
@@ -1332,8 +1307,8 @@ inline ZMIJ_CONSTEXPR20 auto write(char* out, size_t n, float value) noexcept
     -> char* {
   if (detail::is_constant_evaluated()) {
     char buffer[float_buffer_size] = {};
-    return detail::copy_clamped(out, n, buffer,
-                                detail::write_constexpr(buffer, value));
+    size_t size = detail::write_constexpr(buffer, sizeof(buffer), value);
+    return detail::copy_clamped(out, n, buffer, buffer + size);
   }
   char buffer[float_buffer_size];
   if (n >= sizeof(buffer)) return detail::write(out, value);
