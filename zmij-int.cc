@@ -48,8 +48,10 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 
 // The u64 kernel in write_unsigned: the 20-digit grid as five 4-digit groups,
 // two group chains running side by side in the two 64-bit lanes of an XMM
-// register. Other configurations, NEON included, keep the 16 + 4 peel.
-#define ZMIJ_USE_U64_LANE_CHAIN (ZMIJ_USE_SSE4_1 && ZMIJ_USE_INT128)
+// register. Other configurations, NEON included, keep the 16 + 4 peel, and so
+// does ZMIJ_USE_CONSTEXPR=0, which can't generate the chain's tables.
+#define ZMIJ_USE_U64_LANE_CHAIN \
+  (ZMIJ_USE_SSE4_1 && ZMIJ_USE_INT128 && ZMIJ_USE_CONSTEXPR)
 
 // Declares data members that NEON loads from memory, since materializing a
 // 64-bit immediate there takes mov + 3 movk; elsewhere they are immediates.
@@ -113,9 +115,10 @@ constexpr uint32_t frac_tail_mul = 5243u << 13;
 // The digits of n mod 100 for n < 10000, indexed by bits 25..31 of the
 // 32-bit fraction of n * frac_tail_mul. 256 bytes.
 struct frac100_table {
+  static constexpr bool enable = ZMIJ_USE_CONSTEXPR != 0;
   char e[128][2];
 };
-constexpr auto make_frac100() -> frac100_table {
+ZMIJ_CONSTEXPR auto make_frac100() -> frac100_table {
   frac100_table t = {};
   for (uint32_t n = 0; n < 10000; ++n) {
     uint32_t idx = uint32_t(uint64_t(n) * frac_tail_mul) >> 25;
@@ -128,7 +131,7 @@ constexpr auto make_frac100() -> frac100_table {
 // leading zeros, left-aligned in four bytes. 7380 bytes.
 struct top4_table {
   char e[1845][4] = {};
-  constexpr top4_table() {
+  ZMIJ_CONSTEXPR top4_table() {
     for (int v = 0; v < 1845; ++v) {
       int n = v;
       while (n != 0 && n < 1000) n *= 10;  // left-align to four digits
@@ -153,7 +156,7 @@ struct head4_tables {
   // table covers all of it.
   uint64_t mul4[21] = {};
   uint16_t pairs[100] = {};
-  constexpr head4_tables() {
+  ZMIJ_CONSTEXPR head4_tables() {
     for (int i = 0; i < 100; ++i)
       pairs[i] = uint16_t(('0' + i / 10) | ('0' + i % 10) << 8);
     for (int c = 0; c <= 20; ++c) {
@@ -184,7 +187,7 @@ struct u64_lane_tables {
   alignas(16) uint8_t window[21][16] = {};
   // By digit count: the body's offset, the head digits max(c - 16, 0).
   uint8_t body_off[21] = {};
-  constexpr u64_lane_tables() {
+  ZMIJ_CONSTEXPR u64_lane_tables() {
     constexpr uint8_t print_order[16] = {3, 2, 1, 0, 11, 10, 9,  8,
                                          7, 6, 5, 4, 15, 14, 13, 12};
     for (int c = 0; c <= 20; ++c) {
@@ -210,6 +213,7 @@ struct u64_lane_tables {
 #endif
 
 struct count_digits_tables {
+  static constexpr bool enable = ZMIJ_USE_CONSTEXPR != 0;
 #if !ZMIJ_USE_NEON
   // Fused form valid only for n < 1e16 (< 2^54): each entry is
   // (estimate << 54) - threshold, so a single 64-bit add + `>> 54` yields the
@@ -248,28 +252,32 @@ struct count_digits_tables {
 #endif
   }
 
-  constexpr count_digits_tables() {
+  static ZMIJ_CONSTEXPR auto make() -> count_digits_tables {
+    count_digits_tables tables;
     uint64_t p10[20] = {1};  // 10^i, i in [0, 19]
     for (int i = 1; i < 20; ++i) p10[i] = p10[i - 1] * 10;
     for (int b = 0; b < 64; ++b) {
       uint64_t max_val = (uint64_t(2) << b) - 1;  // b == 63 wraps to ~0
       int t = 1;                                  // digit count of max_val
       while (t < 20 && max_val >= p10[t]) ++t;
-      estimate[index64(b)] = uint8_t(t);
+      tables.estimate[index64(b)] = uint8_t(t);
 #if !ZMIJ_USE_NEON
       if (b < 54)  // n < 1e16 => MSB <= 53
-        inc_lt1e16[index64(b)] = (uint64_t(t) << 54) - (t > 1 ? p10[t - 1] : 0);
+        tables.inc_lt1e16[index64(b)] =
+            (uint64_t(t) << 54) - (t > 1 ? p10[t - 1] : 0);
 #endif
       // Every estimate in [1, 20] occurs, so this fills the estimate-indexed
       // form too.
-      threshold[ZMIJ_OPTIMIZE_SIZE ? t : index64(b)] = t > 1 ? p10[t - 1] : 0;
+      tables.threshold[ZMIJ_OPTIMIZE_SIZE ? t : index64(b)] =
+          t > 1 ? p10[t - 1] : 0;
     }
     // Row 64: n == 0 under the defined-at-zero clz form. One digit, no
     // correction (its threshold, 0, is already in place in either form).
-    estimate[64] = 1;
+    tables.estimate[64] = 1;
 #if !ZMIJ_USE_NEON
-    inc_lt1e16[64] = uint64_t(1) << 54;
+    tables.inc_lt1e16[64] = uint64_t(1) << 54;
 #endif
+    return tables;
   }
 };
 
@@ -281,12 +289,14 @@ struct count_digits_tables {
 struct inc_lt1e16_rows {
   uint64_t rows[55] = {};
 
-  constexpr inc_lt1e16_rows() {
-    count_digits_tables cd;
+  static ZMIJ_CONSTEXPR auto make() -> inc_lt1e16_rows {
+    inc_lt1e16_rows r;
+    count_digits_tables cd = count_digits_tables::make();
     for (int i = 10; i <= 64; ++i) {
       uint64_t t = cd.estimate[i];
-      rows[i - 10] = (t << 54) - cd.threshold[ZMIJ_OPTIMIZE_SIZE ? t : i];
+      r.rows[i - 10] = (t << 54) - cd.threshold[ZMIJ_OPTIMIZE_SIZE ? t : i];
     }
+    return r;
   }
 };
 
@@ -333,7 +343,8 @@ struct data {
   int16x8 multipliers16 = {0xce0, neg10};
   uint64_t pad[2] = {};  // keeps the head at 80 bytes
   // Rows 10..64 of the fused count table, at byte offset 80 == 10 * 8.
-  inc_lt1e16_rows inc_rows;
+  inc_lt1e16_rows inc_rows =
+      count_digits_tables::enable ? inc_lt1e16_rows::make() : inc_lt1e16_rows();
 #endif
 #if ZMIJ_USE_SSE
   // First in data, so static_data's alignas(64) gives these the 16-byte
@@ -445,8 +456,11 @@ struct data {
   ZMIJ_NEON_CONST uint64_t div5p16_sig = 0x734aca5f6226f0b;
   ZMIJ_NEON_CONST uint64_t ten16 = 10000000000000000;
 
-  count_digits_tables cd_tables;
-  frac100_table frac100 = make_frac100();
+  count_digits_tables cd_tables = count_digits_tables::enable
+                                      ? count_digits_tables::make()
+                                      : count_digits_tables();
+  frac100_table frac100 =
+      frac100_table::enable ? make_frac100() : frac100_table();
   ZMIJ_NEON_CONST uint32_t frac_mul = frac_tail_mul;
 #if ZMIJ_USE_U64_LANE_CHAIN
   u64_lane_tables u64_lane;
@@ -561,10 +575,24 @@ auto to_bcd8(uint32_t abcdefgh) noexcept -> uint64_t {
       abcdefgh, uint32_t((uint64_t(abcdefgh) * div10k_sig) >> div10k_exp));
 }
 
+// Returns the digits of n mod 100 for n < 10000, given the 32-bit fraction of
+// n * frac_tail_mul.
+ZMIJ_INLINE auto frac100_digits(uint32_t frac, const data& d) noexcept -> const
+    char* {
+  // The fraction lies in [r/100, r/100 + 0.0023) for remainder r.
+  return frac100_table::enable ? d.frac100.e[frac >> 25]
+                               : digits2(uint64_t(frac) * 100 >> 32);
+}
+
 // Number of decimal digits in n (1 for n == 0). Branchless: the MSB position
 // gives a log10 estimate via a small table, corrected by a single power-of-10
 // compare (the Kendall Willets technique, as used by fmt).
 ZMIJ_INLINE auto count_digits(uint64_t n, const data& d) noexcept -> uint64_t {
+  if (!count_digits_tables::enable) {
+    uint64_t count = 1;
+    for (; n >= 10000; n /= 10000) count += 4;
+    return count + (n >= 10) + (n >= 100) + (n >= 1000);
+  }
   uint64_t z = count_digits_tables::index_of(n);
   int t = d.cd_tables.estimate[z];
   return t - (n < d.cd_tables.threshold[ZMIJ_OPTIMIZE_SIZE ? t : z]);
@@ -575,6 +603,7 @@ ZMIJ_INLINE auto count_digits(uint64_t n, const data& d) noexcept -> uint64_t {
 ZMIJ_INLINE auto count_digits_lt_1e16(uint64_t n, const data& d) noexcept
     -> uint64_t {
   assert(n < uint64_t(1e16));
+  if (!count_digits_tables::enable) return count_digits(n, d);
   uint64_t i = count_digits_tables::index_of(n);
 #if ZMIJ_USE_NEON
   // Row i is at byte offset i * 8 of `data` itself (see inc_lt1e16_rows).
@@ -1115,7 +1144,7 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   char* p = write_body(out, body, count_digits_lt_1e16(body, *d), *d);
   uint64_t t = uint64_t(low4) * d->frac_mul;
   memcpy(p, digits2(t >> 32), 2);
-  memcpy(p + 2, d->frac100.e[uint32_t(t) >> 25], 2);
+  memcpy(p + 2, frac100_digits(uint32_t(t), *d), 2);
   // The tail digits count only when big; otherwise the body already wrote them.
   return p + 4 * big;
 #else
@@ -1130,7 +1159,7 @@ ZMIJ_INLINE auto write_unsigned(char* out, UInt value) noexcept -> char* {
   uint64_t mid = to_bcd8(uint32_t(q - top * 100000000ull)) + zeros;
   uint64_t t = uint64_t(top) * frac_tail_mul;
   memcpy(buf + 4, digits2(t >> 32), 2);
-  memcpy(buf + 6, d->frac100.e[uint32_t(t) >> 25], 2);
+  memcpy(buf + 6, frac100_digits(uint32_t(t), *d), 2);
   memcpy(buf + 8, &mid, 8);
   memcpy(buf + 16, &lo, 8);
   uint64_t len = count_digits(v, *d);
