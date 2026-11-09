@@ -618,20 +618,24 @@ struct data {
   // into bit 60 exactly from t on and leaves the digit in the top 4 bits.
   // The boundaries are where (fractional * 10 + bias) >> 64 steps up for a bias
   // of 2**63 - 1, which rounds the 2.5 tie to even, except in
-  // (2**62, 0.75 * 2**64], where boundary cases found by verify.py need
-  // 2**63 + 7, which also rounds the 7.5 tie to even.
+  // (2**62, 0.75 * 2**64], where it is 2**63 + 7, which also rounds the 7.5
+  // tie to even. Zmij.lean proves this gives the nearest digit.
   uint64_t digit_offsets[16] = {
       0x0333333333333333, 0, 0xf999999999999999, 0xf000000000000000,
       0xefffffffffffffff, 0xe666666666666667, 0xe000000000000000,
       0xdccccccccccccccd, 0xd333333333333333, 0xd000000000000000,
       0xc99999999999999a, 0xc000000000000000, 0xc000000000000000,
       0xb666666666666666, 0xb000000000000000, 0xaccccccccccccccc};
-  // digit_offsets for the 32-bit float fraction, as
+  // Like digit_offsets above but for the 32-bit float fraction. The extra digit
+  // is evaluated as
   // (fractional + float_digit_offsets[fractional >> 28]) >> 28 (mod 2**32).
-  // Each entry is digit_offsets[cell] arithmetically shifted right by 32, which
-  // moves its boundary t up to ceil(t / 2**32), except in cell 2, where the
-  // boundary 0.15 * 2**32 is rounded down to 0x26666666: the fraction of
-  // 2.06794015e+29 is 0.15 + 8.1e-11 and truncates to it (float-check).
+  // Each entry contains the upper 32 bits of digit_offsets[cell], which moves
+  // its boundary t up to ceil(t / 2**32), except in cell 2, where t is one
+  // lower because of fractional 0x26666666: 2.0679402e+29 (likewise e+30 to
+  // e+33) is 2067940.15000000008 * 10**23, so its extra digit is 2, but its
+  // fraction truncates to 0x26666666 in 32 bits, which is below the shifted
+  // t = 0x26666667 and would give digit 1 (confirmed by exhaustive test,
+  // float_test.extra_digit_boundary tests this).
   uint32_t float_digit_offsets[16] = {
       0x03333333, 0x00000000, 0xf999999a, 0xf0000000, 0xefffffff, 0xe6666666,
       0xe0000000, 0xdccccccc, 0xd3333333, 0xd0000000, 0xc9999999, 0xc0000000,
