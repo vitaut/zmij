@@ -1163,6 +1163,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
 
   // Derive the extra digit from the fractional part (parallel with rounding).
   // The cell is fractional >> 60, read from p.hi alone.
+  static_assert(extra_shift >= 4, "top four bits of fractional all in p.hi");
   size_t cell = (p.hi >> (extra_shift - 4)) & 15;
   int digit = int((fractional + d.digit_offsets[cell]) >> 60);
   return {integral, dec_exp, digit, (round_up + round_down) == 0};
