@@ -253,23 +253,49 @@ struct pow10_significand_table {
   static constexpr int num_pow10s = 649;
   uint64_t data[compress ? 1 : num_pow10s * 2] = {};
 
+  // Stores 10**(-dec_exp - 1) at row_of(dec_exp), where by_row reads it.
   static ZMIJ_CONSTEXPR auto make() -> pow10_significand_table {
     pow10_significand_table t;
     for (int i = 0; i < num_pow10s && !compress; ++i) {
-      uint128 result = zmij::detail::compute_pow10(i - 307);
+      int dec_exp = ~(i + dec_exp_min);
+      uint128 result = zmij::detail::compute_pow10(-dec_exp - 1);
+      int row = row_of(dec_exp);
       if (split_tables) {
-        t.data[num_pow10s - i - 1] = result.hi;
-        t.data[num_pow10s * 2 - i - 1] = result.lo;
+        t.data[row] = result.hi;
+        t.data[num_pow10s + row] = result.lo;
       } else {
-        t.data[i * 2] = result.hi;
-        t.data[i * 2 + 1] = result.lo;
+        t.data[row * 2] = result.hi;
+        t.data[row * 2 + 1] = result.lo;
       }
     }
     return t;
   }
 
+  static constexpr int dec_exp_min = -307;
+
+  // The row holding 10**-(dec_exp + 1) in this layout, the inverse, and the
+  // lookup by row: one row index for both halves in either layout.
+  static constexpr auto row_of(int dec_exp) noexcept -> int {
+    return split_tables ? num_pow10s - 1 - (-dec_exp - 1 - dec_exp_min)
+                        : -dec_exp - 1 - dec_exp_min;
+  }
+  static constexpr auto dec_exp_of_row(int row) noexcept -> int {
+    return ~((split_tables ? num_pow10s - 1 - row : row) + dec_exp_min);
+  }
+  ZMIJ_CONSTEXPR20 auto by_row(size_t row) const noexcept -> uint128 {
+    if (!split_tables) return {data[row * 2], data[row * 2 + 1]};
+    // A register base per half keeps both loads indexed by the row itself,
+    // instead of sharing an add of the row that the high half would wait on.
+    const uint64_t* hi = data;
+    const uint64_t* lo = data + num_pow10s;
+    if (!zmij::detail::is_constant_evaluated()) {
+      ZMIJ_ASM(("" : "+r"(hi)));
+      ZMIJ_ASM(("" : "+r"(lo)));
+    }
+    return {hi[row], lo[row]};
+  }
+
   ZMIJ_CONSTEXPR20 auto operator[](int dec_exp) const noexcept -> uint128 {
-    constexpr int dec_exp_min = -307;
     int i = dec_exp - dec_exp_min;
     if (compress) return zmij::detail::compute_pow10(dec_exp);
     if (!split_tables) {
@@ -290,16 +316,46 @@ struct exp_shift_table {
   // bin_sig << shift in 64 bits (11 overflows the irregular 2**52 << 12).
   // 9 is fastest: extra_shift + 1 == 10 reuses the base-10 digit constant.
   static constexpr int extra_shift = 9;
-  unsigned char data[enable ? float_traits<double>::exp_mask + 1 : 1] = {};
+
+  // The shift that aligns bin_exp with 10**(-dec_exp - 1) for
+  // dec_exp = compute_dec_exp(bin_exp), extra_shift included. These are
+  // exponentShift and decimalExponent in the Lean proof.
+  static ZMIJ_CONSTEXPR auto compute_shift(int bin_exp, int dec_exp) noexcept
+      -> unsigned {
+    return unsigned(compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift);
+  }
+
+  // An entry packs the shift into bits 0-5 and the row of 10**(-dec_exp - 1)
+  // in pow10_significand_table into bits 6-15. decode_dec_exp inverts the row
+  // exactly; decode_shift leaves the row above the shift, which is in [6, 9]
+  // (exponent_shift_range in Zmij.lean), so its uses read it modulo 64.
+  static constexpr auto encode(int dec_exp, unsigned shift) noexcept
+      -> uint16_t {
+    return uint16_t(unsigned(pow10_significand_table::row_of(dec_exp)) << 6 |
+                    shift);
+  }
+  static constexpr auto decode_dec_exp(unsigned entry) noexcept -> int {
+    return pow10_significand_table::dec_exp_of_row(int(entry >> 6));
+  }
+  static constexpr auto decode_shift(unsigned entry) noexcept -> unsigned {
+    // The result is to be used mod 64.  We don't mask away the high bits.
+    // Instead, we postpone the masking to the shift invocations themselves.
+    // This sprinkles a few `& 63` through the code but allows compilers to
+    // omit the masking since the hardware instructions themselves only look
+    // at the lowest 6 bits of the shift width on both Intel and ARM.
+    return entry;
+  }
+
+  uint16_t data[enable ? float_traits<double>::exp_mask + 1 : 1] = {};
 
   static ZMIJ_CONSTEXPR auto make() -> exp_shift_table {
     exp_shift_table t;
-    for (int raw_exp = 0; raw_exp < int(sizeof(t.data)) && enable; ++raw_exp) {
+    for (int raw_exp = 0; raw_exp < int(sizeof(t.data) / 2) && enable;
+         ++raw_exp) {
       int bin_exp = raw_exp - float_traits<double>::exp_offset;
       if (raw_exp == 0) ++bin_exp;
       int dec_exp = compute_dec_exp(bin_exp);
-      t.data[raw_exp] =
-          uint8_t(compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift);
+      t.data[raw_exp] = encode(dec_exp, compute_shift(bin_exp, dec_exp));
     }
     return t;
   }
@@ -688,6 +744,29 @@ struct data {
   // shift left by 1 (drops the leading '0' of a 16-digit significand).
   unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
                                      9, 10, 11, 12, 13, 14, 15, 0};
+
+  // The high half of 10**(-dec_exp - 1) by raw float exponent, so that the
+  // float path loads it straight from the exponent.
+  struct float_pow10_table {
+    uint64_t data[exp_shift_table::enable
+                      ? float_traits<float>::exp_mask + 1
+                      : 1] = {};
+    static ZMIJ_CONSTEXPR auto make() -> float_pow10_table {
+      float_pow10_table t;
+      for (int raw_exp = 0; raw_exp < int(sizeof(t.data) / 8) &&
+                            exp_shift_table::enable;
+           ++raw_exp) {
+        int bin_exp = raw_exp - float_traits<float>::exp_offset;
+        if (raw_exp == 0) ++bin_exp;
+        t.data[raw_exp] =
+            zmij::detail::compute_pow10(-compute_dec_exp(bin_exp) - 1).hi;
+      }
+      return t;
+    }
+  };
+  float_pow10_table float_pow10s = exp_shift_table::enable
+                                       ? float_pow10_table::make()
+                                       : float_pow10_table();
 };
 alignas(64) constexpr data static_data = {};
 
@@ -1097,24 +1176,39 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     return {integral, dec_exp, digit, (round_up + round_down) == 0};
   }
 
-  constexpr uint64_t log10_2_sig = 78913;
-  constexpr int log10_2_exp = 18;
-  int dec_exp = use_umul128_hi64
-                    ? int(umul128_hi64(uint64_t(bin_exp),
-                                       log10_2_sig << (64 - log10_2_exp)))
-                    : compute_dec_exp(int(bin_exp));
-  ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
-  unsigned char shift = uint8_t(
-      exp_shift_table::enable
-          ? d.exp_shifts.data[bin_exp + float_traits<double>::exp_offset]
-          : compute_exp_shift(int(bin_exp), dec_exp + 1) + extra_shift);
+  // dec_exp is compute_dec_exp(bin_exp) and shift is
+  // exp_shift_table::compute_shift(bin_exp, dec_exp), tabulated or computed.
+  int dec_exp = 0;
+  unsigned row = 0, shift = 0;
+  if (exp_shift_table::enable) {
+    // Indexed by the raw exponent of Float. On arm64 the float offset goes into
+    // a register base so that the load needs no add.
+    const uint16_t* shifts =
+        d.exp_shifts.data +
+        (float_traits<double>::exp_offset - traits::exp_offset);
+    if (ZMIJ_AARCH64 && num_bits == 32) ZMIJ_ASM(("" : "+r"(shifts)));
+    unsigned entry = shifts[raw_exp];
+    row = entry >> 6;
+    dec_exp = exp_shift_table::decode_dec_exp(entry);
+    shift = exp_shift_table::decode_shift(entry);  // Read modulo 64.
+  } else {
+    dec_exp = compute_dec_exp(int(bin_exp));
+    shift = exp_shift_table::compute_shift(int(bin_exp), dec_exp);
+  }
   uint64_t even = 1 - (bin_sig & 1);
 
   if (num_bits == 32) {
     constexpr int float_extra_shift = 32;
-    shift = uint8_t(shift + float_extra_shift - exp_shift_table::extra_shift);
-    uint64_t pow10_hi = d.pow10_significands[-dec_exp - 1].hi;
-    uint64_t p = umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << shift);
+    shift += float_extra_shift - exp_shift_table::extra_shift;
+    // Loaded straight from the exponent, which shortens the chain into the
+    // multiply.
+    const uint64_t* pow10s = d.float_pow10s.data;
+    if (ZMIJ_AARCH64) ZMIJ_ASM(("" : "+r"(pow10s)));
+    uint64_t pow10_hi = exp_shift_table::enable
+                            ? pow10s[raw_exp]
+                            : d.pow10_significands[-dec_exp - 1].hi;
+    uint64_t p =
+        umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << (shift & 63));
 
     uint64_t integral = p >> float_extra_shift;
     // The fraction is the low half of p, so the rounding checks and the digit
@@ -1123,7 +1217,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     uint32_t fractional = uint32_t(p);
 
     // Fits: shift is at most 32, so pow10_hi >> (65 - shift) < 2**31.
-    uint32_t half_ulp = uint32_t((pow10_hi >> (65 - shift)) + even);
+    uint32_t half_ulp = uint32_t((pow10_hi >> ((65 - shift) & 63)) + even);
     bool round_up = uint32_t(fractional + half_ulp) < fractional;
     bool round_down = half_ulp > fractional;
     integral += round_up;
@@ -1156,13 +1250,15 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   //
   // d0 - shorter underestimate, u0 - shorter overestimate
   // d1 - longer underestimate,  u1 - longer overestimate
-  uint128 pow10 = d.pow10_significands[-dec_exp - 1];
-  uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << shift);
+  uint128 pow10 = exp_shift_table::enable
+                      ? d.pow10_significands.by_row(row)
+                      : d.pow10_significands[-dec_exp - 1];
+  uint128 p = umul192_hi128(pow10.hi, pow10.lo, bin_sig << (shift & 63));
 
   uint64_t integral = p.hi >> extra_shift;
   uint64_t fractional = p.hi << (64 - extra_shift) | p.lo >> extra_shift;
 
-  uint64_t half_ulp = (pow10.hi >> (extra_shift + 1 - shift)) + even;
+  uint64_t half_ulp = (pow10.hi >> ((extra_shift + 1 - shift) & 63)) + even;
   bool round_up = fractional + half_ulp < fractional;
   bool round_down = half_ulp > fractional;
   integral += round_up;  // Compute integral before digit.
