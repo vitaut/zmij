@@ -233,12 +233,12 @@ TEST(zmij_impl_test, utilities) {
   EXPECT_EQ(clz(1), 63);
   EXPECT_EQ(clz(~0ull), 0);
 
-  EXPECT_EQ(count_trailing_nonzeros(0x00000000'00000000ull), 0);
-  EXPECT_EQ(count_trailing_nonzeros(0x00000000'00000001ull), 1);
-  EXPECT_EQ(count_trailing_nonzeros(0x00000000'00000009ull), 1);
-  EXPECT_EQ(count_trailing_nonzeros(0x00090000'09000000ull), 7);
-  EXPECT_EQ(count_trailing_nonzeros(0x01000000'00000000ull), 8);
-  EXPECT_EQ(count_trailing_nonzeros(0x09000000'00000000ull), 8);
+  EXPECT_EQ(count_trailing_nonzeros(0x0000000000000000ull), 0);
+  EXPECT_EQ(count_trailing_nonzeros(0x0000000000000001ull), 1);
+  EXPECT_EQ(count_trailing_nonzeros(0x0000000000000009ull), 1);
+  EXPECT_EQ(count_trailing_nonzeros(0x0009000009000000ull), 7);
+  EXPECT_EQ(count_trailing_nonzeros(0x0100000000000000ull), 8);
+  EXPECT_EQ(count_trailing_nonzeros(0x0900000000000000ull), 8);
 }
 
 static auto to_string(const bigint& value) -> std::string {
@@ -318,7 +318,7 @@ TEST(zmij_impl_test, bigint_divmod_1e9) {
 TEST(zmij_impl_test, bigint_mul) {
   // mul multiplies by a factor below 2**32, carrying across limbs.
   fixed_bigint a(1);
-  a.mul(1'000'000'000u);
+  a.mul(1000000000u);
   EXPECT_EQ(to_string(a), "1000000000");
   fixed_bigint b(0xffffffffull);  // Forces a carry into a new limb.
   b.mul(0xffffffffu);

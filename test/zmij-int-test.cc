@@ -39,11 +39,12 @@ template <typename T> constexpr auto max_value() -> wide_uint {
 }
 
 template <typename T> constexpr auto buffer_size() -> size_t {
-  if (sizeof(T) <= 4)
-    return is_signed<T>() ? zmij::int32_buffer_size : zmij::uint32_buffer_size;
-  if (sizeof(T) <= 8)
-    return is_signed<T>() ? zmij::int64_buffer_size : zmij::uint64_buffer_size;
-  return is_signed<T>() ? zmij::int128_buffer_size : zmij::uint128_buffer_size;
+  return sizeof(T) <= 4   ? (is_signed<T>() ? zmij::int32_buffer_size
+                                            : zmij::uint32_buffer_size)
+         : sizeof(T) <= 8 ? (is_signed<T>() ? zmij::int64_buffer_size
+                                            : zmij::uint64_buffer_size)
+                          : (is_signed<T>() ? zmij::int128_buffer_size
+                                            : zmij::uint128_buffer_size);
 }
 
 // Returns the offset of the first byte in [p, p + n) other than '?', or n.
