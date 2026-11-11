@@ -106,6 +106,18 @@ TEST(float_test, normal) {
   EXPECT_EQ(to_shortest(1.3421781e+08f), "1.3421781e+08");
 }
 
+TEST(float_test, extra_digit_boundary) {
+  // These need float_digit_offsets[2] = 0xf999999a, not 0xf9999999.
+  EXPECT_EQ(to_shortest(2.0679402e+29f), "2.0679402e+29");
+  EXPECT_EQ(to_shortest(2.0679402e+30f), "2.0679402e+30");
+  EXPECT_EQ(to_shortest(2.0679402e+31f), "2.0679402e+31");
+  EXPECT_EQ(to_shortest(2.0679402e+32f), "2.0679402e+32");
+  EXPECT_EQ(to_shortest(2.0679402e+33f), "2.0679402e+33");
+  // The nearest cases on either side, which pass with both.
+  EXPECT_EQ(to_shortest(3.4986711e-32f), "3.4986711e-32");
+  EXPECT_EQ(to_shortest(3.6364662e+25f), "3.6364662e+25");
+}
+
 TEST(float_test, subnormal) {
   EXPECT_EQ(to_shortest(std::numeric_limits<float>::denorm_min()), "1e-45");
 }
