@@ -1056,11 +1056,11 @@ ZMIJ_INLINE auto write_float_simd(char* buffer, const dec_digits<32>& dig,
   // (12) only has the last digit added to it. The entry's length ends up in
   // byte 15, which no shuffle reads; the output length comes from the shuffle
   // entry.
+  auto entry = d.float_shuffles.get_entry(dec_exp, dig.num_digits,
+                                          has_last_digit, has_extra_digit);
   uint64_t exp_data = d.exp_strings.data[dec_exp + exp_string_table::offset];
   uint64_t tail = exp_data + (uint64_t(last_digit) << 32);
   (void)tail;
-  auto entry = d.float_shuffles.get_entry(dec_exp, dig.num_digits,
-                                          has_last_digit, has_extra_digit);
 #if ZMIJ_USE_SSE4_1
   __m128i ascii =
       _mm_or_si128(dig.unshuffled, _mm_load_si128(m128ptr(&d.zeros)));
