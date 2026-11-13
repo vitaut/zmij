@@ -1092,7 +1092,8 @@ inline ZMIJ_CONSTEXPR20 auto write_inf_nan(char* buffer, bool is_nan) noexcept
     -> char* {
   if (zmij::detail::is_constant_evaluated())
     return zmij::detail::copy_n(buffer, is_nan ? "nan" : "inf", 3);
-  return memcpy(buffer, is_nan ? "nan" : "inf", 4), buffer + 3;
+  memcpy(buffer, is_nan ? "nan" : "inf", 4);
+  return buffer + 3;
 }
 
 // Writes the binary exponent as 'p', a sign and at least one digit (e.g. p+3).
