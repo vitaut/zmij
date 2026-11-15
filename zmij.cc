@@ -18,8 +18,10 @@
 #if ZMIJ_USE_NEON
 #  include <arm_neon.h>
 #endif
-#if ZMIJ_USE_SSE
-#  include <immintrin.h>
+#if ZMIJ_USE_SSE4_1
+#  include <smmintrin.h>
+#elif ZMIJ_USE_SSE
+#  include <emmintrin.h>
 #endif
 
 #ifdef __aarch64__
