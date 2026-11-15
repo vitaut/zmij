@@ -420,7 +420,7 @@ constexpr auto ilog2(int n) noexcept -> int {
 }
 
 template <typename Float> struct float_traits : std::numeric_limits<Float> {
-  static_assert(float_traits::is_iec559, "IEEE 754 required");
+  static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
 
   // x87 80-bit stores the integer bit explicitly (digits == 64), so its
   // exponent sits one bit higher than the implicit-bit binary32/64/128 layouts.
