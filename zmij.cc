@@ -691,7 +691,7 @@ struct data {
   unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
                                      9, 10, 11, 12, 13, 14, 15, 0};
 };
-alignas(64) constexpr data static_data;
+alignas(64) constexpr data static_data = {};
 
 #if ZMIJ_USE_NEON  // An optimized version for NEON by Dougall Johnson.
 
