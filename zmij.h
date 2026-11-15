@@ -155,7 +155,8 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "SSE4.1 requires SSE");
 #  define ZMIJ_NOINLINE
 #endif
 
-#if ZMIJ_HAS_CPP_ATTRIBUTE(likely) && ZMIJ_HAS_CPP_ATTRIBUTE(unlikely)
+#if ZMIJ_CPLUSPLUS >= 202002L && ZMIJ_HAS_CPP_ATTRIBUTE(likely) && \
+    ZMIJ_HAS_CPP_ATTRIBUTE(unlikely)
 #  define ZMIJ_LIKELY likely
 #  define ZMIJ_UNLIKELY unlikely
 #else
