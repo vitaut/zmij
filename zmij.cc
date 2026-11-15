@@ -52,7 +52,7 @@ namespace {
 
 inline auto ctz(uint64_t x) noexcept -> int {
   assert(x != 0);
-#if ZMIJ_HAS_BUILTIN(__builtin_ctzll)
+#if ZMIJ_HAS_BUILTIN(__builtin_ctzll) || ZMIJ_GNUC_BUILTINS
   return __builtin_ctzll(x);
 #elif defined(_M_AMD64) || defined(_M_ARM64)
   unsigned long idx;

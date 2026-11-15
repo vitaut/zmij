@@ -39,6 +39,13 @@
 #else
 #  define ZMIJ_HAS_BUILTIN(x) 0
 #endif
+// GCC only has __has_builtin since version 10, but has had __builtin_clzll,
+// __builtin_ctzll and __builtin_bswap64 much longer.
+#if defined(__GNUC__) && !defined(ZMIJ_NO_BUILTINS)
+#  define ZMIJ_GNUC_BUILTINS 1
+#else
+#  define ZMIJ_GNUC_BUILTINS 0
+#endif
 // IBM double-double, the ppc64le default long double, has a 106-bit significand
 // and is not IEEE 754, so the long double API is not provided for it.
 #define ZMIJ_USE_LONG_DOUBLE (LDBL_MANT_DIG != 106)
@@ -241,7 +248,7 @@ constexpr bool is_big_endian = false;
 #endif
 
 inline auto bswap64(uint64_t x) noexcept -> uint64_t {
-#if ZMIJ_HAS_BUILTIN(__builtin_bswap64)
+#if ZMIJ_HAS_BUILTIN(__builtin_bswap64) || ZMIJ_GNUC_BUILTINS
   return __builtin_bswap64(x);
 #elif ZMIJ_MSC_VER
   return _byteswap_uint64(x);
@@ -256,7 +263,7 @@ inline auto bswap64(uint64_t x) noexcept -> uint64_t {
 inline ZMIJ_CONSTEXPR20 auto clz(uint64_t x) noexcept -> int {
   assert(x != 0);
   if (!is_constant_evaluated()) {
-#if ZMIJ_HAS_BUILTIN(__builtin_clzll)
+#if ZMIJ_HAS_BUILTIN(__builtin_clzll) || ZMIJ_GNUC_BUILTINS
     return __builtin_clzll(x);
 #elif defined(_M_AMD64) && defined(__AVX2__)
     // Use lzcnt only on AVX2-capable CPUs that have this BMI instruction.
