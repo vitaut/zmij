@@ -360,7 +360,7 @@ struct uint128 {
 #endif
 
 #if ZMIJ_USE_INT128
-using uint128_t = unsigned __int128;
+using uint128_t = __uint128_t;
 #else
 using uint128_t = uint128;
 #endif  // ZMIJ_USE_INT128
@@ -1374,15 +1374,14 @@ inline auto write(char* out, size_t n, unsigned long value) noexcept -> char* {
 }
 
 #if ZMIJ_USE_INT128
-inline auto write(char* out, size_t n, __int128 value) noexcept -> char* {
+inline auto write(char* out, size_t n, __int128_t value) noexcept -> char* {
   char buffer[int128_buffer_size];
   if (n >= sizeof(buffer)) return detail::write_signed(out, value);
   return detail::copy_clamped(out, n, buffer,
                               detail::write_signed(buffer, value));
 }
 
-inline auto write(char* out, size_t n, unsigned __int128 value) noexcept
-    -> char* {
+inline auto write(char* out, size_t n, __uint128_t value) noexcept -> char* {
   char buffer[uint128_buffer_size];
   if (n >= sizeof(buffer)) return detail::write_unsigned(out, value);
   return detail::copy_clamped(out, n, buffer,
