@@ -223,14 +223,6 @@ auto shr_round_even(uint128_t value, int n) noexcept -> uint128_t {
   return q;
 }
 
-// Returns x / 10 for x <= 2**62.
-ZMIJ_INLINE auto div10(uint64_t x) noexcept -> uint64_t {
-  assert(x <= (1ull << 62));
-  // ceil(2**64 / 10) computed as (1 << 63) / 5 + 1 to avoid int128.
-  constexpr uint64_t div10_sig64 = (1ull << 63) / 5 + 1;
-  return ZMIJ_USE_INT128 ? umul128_hi64(x, div10_sig64) : x / 10;
-}
-
 constexpr uint64_t pow10s[] = {
     1,
     10,
