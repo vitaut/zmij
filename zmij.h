@@ -491,7 +491,8 @@ template <typename = void> struct pow10_data {
       0xd3c21bcecceda100, 0x84595161401484a0, 0xa56fa5b99019a5c8,
       0xcecb8f27f4200f3a,
   };
-  static constexpr uint128 major[25] = {
+  // {hi, lo} pairs: GCC 4.9 rejects constexpr uint128 arrays in templates.
+  static constexpr uint64_t major[25][2] = {
       {0xaddcb9e83c6b1793, 0xdf4abe242a1bbf3e},  // -331 (+1 ULP: see fixups)
       {0xaf8e5410288e1b6f, 0x07ecf0ae5ee44dda},  // -303
       {0xb1442798f49ffb4a, 0x99cd11cfdf41779d},  // -275
@@ -530,7 +531,7 @@ template <typename = void> struct pow10_data {
 
 #ifndef __cpp_inline_variables
 template <typename T> constexpr uint64_t pow10_data<T>::minor[];
-template <typename T> constexpr uint128 pow10_data<T>::major[];
+template <typename T> constexpr uint64_t pow10_data<T>::major[][2];
 template <typename T> constexpr uint32_t pow10_data<T>::fixups[];
 template <typename T> constexpr uint32_t pow10_data<T>::pow5[];
 #endif
@@ -544,7 +545,8 @@ inline ZMIJ_CONSTEXPR auto compute_pow10(int exp) noexcept -> uint128 {
   assert(exp >= min_exp && exp <= 341);
   unsigned i = unsigned(exp - min_exp);
   uint64_t m = data::minor[(i + 24) % stride];
-  uint128 h = data::major[(i + 24) / stride];
+  unsigned j = (i + 24) / stride;
+  uint128 h = {data::major[j][0], data::major[j][1]};
 
   uint64_t h1 = uint64_t(umul128(h.lo, m) >> 64);
   uint64_t c0 = h.lo * m;
