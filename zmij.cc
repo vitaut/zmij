@@ -1282,7 +1282,7 @@ template <typename Float> auto to_decimal(Float value) noexcept -> dec_fp<> {
   }
   auto dec = ::to_decimal<Float>(bin_sig ^ traits::implicit_bit, bin_exp,
                                  bin_sig != 0, static_data);
-  auto last_digit = -dec.has_last_digit & dec.last_digit;
+  auto last_digit = -int(dec.has_last_digit) & dec.last_digit;
   return {dec.sig * 10 + last_digit, dec.exp, negative};
 }
 
@@ -1317,7 +1317,8 @@ auto write(char* buffer, Float value) noexcept -> char* {
     int num_zeros = traits::max_digits10 - 3 - num_digits;
     if (num_zeros >= 0) {
       // Padding dec_sig, a digit longer than dec.sig, absorbs the last digit.
-      uint64_t dec_sig = dec.sig * 10 + (-dec.has_last_digit & dec.last_digit);
+      uint64_t dec_sig =
+          dec.sig * 10 + (-int(dec.has_last_digit) & dec.last_digit);
       dec = {dec_sig * pow10s[num_zeros], dec.exp - num_zeros - 1, 0, false};
     }
   } else {
@@ -1328,7 +1329,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   bool has_extra_digit = dec.sig >= threshold;
   int dec_exp = dec.exp + traits::max_digits10 - 2 + has_extra_digit;
   if (traits::num_bits == 32 && dec.sig < uint32_t(1e6)) [[ZMIJ_UNLIKELY]] {
-    dec.sig = 10 * dec.sig + (-has_last_digit & dec.last_digit);
+    dec.sig = 10 * dec.sig + (-int(has_last_digit) & dec.last_digit);
     has_last_digit = false;
     --dec_exp;
   }
@@ -1346,7 +1347,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    char last_digit = '0' + (-has_last_digit & dec.last_digit);
+    char last_digit = '0' + (-int(has_last_digit) & dec.last_digit);
     int num_digits = select(has_last_digit, bcd_size, dig.num_digits - 1);
 
     // Materialize the base early so the entry address is `base + idx*32`;
