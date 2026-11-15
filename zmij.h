@@ -166,6 +166,8 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "SSE4.1 requires SSE");
 
 #if ZMIJ_CPLUSPLUS >= 201703L && ZMIJ_HAS_CPP_ATTRIBUTE(maybe_unused)
 #  define ZMIJ_MAYBE_UNUSED maybe_unused
+#elif defined(__GNUC__)
+#  define ZMIJ_MAYBE_UNUSED gnu::unused
 #else
 #  define ZMIJ_MAYBE_UNUSED
 #endif
