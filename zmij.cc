@@ -933,6 +933,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {unshuffled, bswap64(unshuffled_bcd) + zeros, len};
 #else
+  (void)d;
   auto result = to_bcd8(value);
   return {result.bcd + zeros, result.len};
 #endif
