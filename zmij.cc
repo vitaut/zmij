@@ -190,6 +190,7 @@ auto fpow(uint64_t* base, int base_exp, int n, uint64_t* r) noexcept -> int {
 // normalized to result_bits (top bit set). Requires |x| <= max_exp.
 auto compute(int x, uint64_t* m) noexcept -> int {
   assert(x >= -max_exp && x <= max_exp);
+  (void)max_exp;
   uint64_t p[work_limbs];
   int pe;
   if (x >= 0) {
@@ -863,6 +864,7 @@ template <int num_bits>
 ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
     -> dec_digits<num_bits> {
 #if !ZMIJ_USE_NEON && !ZMIJ_USE_SSE
+  (void)d;
   uint32_t hi = uint32_t(value / 100000000);
   uint32_t lo = uint32_t(value % 100000000);
   auto hi_bcd = to_bcd8(hi);
@@ -909,8 +911,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
 }
 
 template <>
-ZMIJ_INLINE auto to_digits<32>(uint64_t value,
-                               [[ZMIJ_MAYBE_UNUSED]] const data& d) noexcept
+ZMIJ_INLINE auto to_digits<32>(uint64_t value, const data& d) noexcept
     -> dec_digits<32> {
 #if ZMIJ_USE_SSE4_1
   // Inline to_bcd8's SSE4.1 body so we can return the unshuffled xmm too;
@@ -945,6 +946,7 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value,
 ZMIJ_INLINE void write_digits(char* buffer, dec_digits<64>::digits_type digits,
                               bool drop_leading_zero, const data& d) noexcept {
   if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
+    (void)d;
     memcpy(buffer, &digits, sizeof(digits));
     memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
     return;
@@ -980,6 +982,7 @@ ZMIJ_INLINE auto write_float_simd(char* buffer, const dec_digits<32>& dig,
   // entry.
   uint64_t exp_data = d.exp_strings.data[dec_exp + exp_string_table::offset];
   uint64_t tail = exp_data + (uint64_t(last_digit) << 32);
+  (void)tail;
   auto entry = d.float_shuffles.get_entry(dec_exp, dig.num_digits,
                                           has_last_digit, has_extra_digit);
 #if ZMIJ_USE_SSE4_1
