@@ -164,7 +164,7 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "SSE4.1 requires SSE");
 #  define ZMIJ_UNLIKELY
 #endif
 
-#if ZMIJ_HAS_CPP_ATTRIBUTE(maybe_unused)
+#if ZMIJ_CPLUSPLUS >= 201703L && ZMIJ_HAS_CPP_ATTRIBUTE(maybe_unused)
 #  define ZMIJ_MAYBE_UNUSED maybe_unused
 #else
 #  define ZMIJ_MAYBE_UNUSED
