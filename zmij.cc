@@ -402,7 +402,7 @@ struct float_shuffle_table {
                                               bool has_last_digit,
                                               bool has_extra_digit) noexcept
       -> sig_shuffle {
-    sig_shuffle s = {};
+    sig_shuffle s = sig_shuffle();
     int leading_pos = has_extra_digit ? 7 : 6;
     // Always the full padded BCD in the significand plus a last-digit char;
     // for !has_extra_digit its leading '0' is shown.
@@ -494,7 +494,7 @@ struct fixed_layout_table {
   entry data[enable ? num_entries : 1] = {};
 
   static ZMIJ_CONSTEXPR auto compute(int dec_exp) noexcept -> entry {
-    entry e = {};
+    entry e = entry();
 
     e.start_pos = uint8_t(dec_exp < -0 ? 1 - dec_exp : 0);
     e.point_pos = uint8_t(dec_exp >= 0 ? 1 + dec_exp : 1);
@@ -1112,7 +1112,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
 
   if (num_bits == 32) {
     constexpr int float_extra_shift = 32;
-    shift += float_extra_shift - exp_shift_table::extra_shift;
+    shift = uint8_t(shift + float_extra_shift - exp_shift_table::extra_shift);
     uint64_t pow10_hi = d.pow10_significands[-dec_exp - 1].hi;
     uint64_t p = umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << shift);
 
