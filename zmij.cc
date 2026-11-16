@@ -892,6 +892,34 @@ struct data {
                                        : float_pow10_table();
   float_exp_table float_exps =
       float_exp_table::enable ? float_exp_table::make() : float_exp_table();
+
+  // The shift of the float path of to_decimal in bits 0-5 and its half-ulp
+  // term, pow10_hi >> (65 - shift), in bits 31-63, by raw float exponent.
+  struct float_shift_table {
+    static constexpr int half_ulp_pos = 31;
+    uint64_t data[exp_shift_table::enable
+                      ? float_traits<float>::exp_mask + 1
+                      : 1] = {};
+    static ZMIJ_CONSTEXPR auto make() -> float_shift_table {
+      float_shift_table t;
+      for (int raw_exp = 0; raw_exp < int(sizeof(t.data) / 8) &&
+                            exp_shift_table::enable;
+           ++raw_exp) {
+        int bin_exp = raw_exp - float_traits<float>::exp_offset;
+        if (raw_exp == 0) ++bin_exp;
+        int dec_exp = compute_dec_exp(bin_exp);
+        // 32 is the float path's extra shift in to_decimal.
+        unsigned shift = exp_shift_table::compute_shift(bin_exp, dec_exp) + 32 -
+                         exp_shift_table::extra_shift;
+        uint64_t pow10_hi = zmij::detail::compute_pow10(-dec_exp - 1).hi;
+        t.data[raw_exp] = (pow10_hi >> (65 - shift)) << half_ulp_pos | shift;
+      }
+      return t;
+    }
+  };
+  float_shift_table float_shifts = exp_shift_table::enable
+                                       ? float_shift_table::make()
+                                       : float_shift_table();
   // ORed into the shuffle source: ASCII zeros for the BCD digits and the
   // constant bytes of the upper lane.
   alignas(16) uint64_t float_ascii[2] = {
@@ -1354,6 +1382,11 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   if (num_bits == 32) {
     constexpr int float_extra_shift = 32;
     shift += float_extra_shift - exp_shift_table::extra_shift;
+    uint64_t shift_entry = 0;
+    if (exp_shift_table::enable) {
+      shift_entry = d.float_shifts.data[raw_exp];
+      shift = unsigned(shift_entry);  // Read modulo 64.
+    }
     // Loaded straight from the exponent, which shortens the chain into the
     // multiply.
     const uint64_t* pow10s = d.float_pow10s.data;
@@ -1371,7 +1404,11 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     uint32_t fractional = uint32_t(p);
 
     // Fits: shift is at most 32, so pow10_hi >> (65 - shift) < 2**31.
-    uint32_t half_ulp = uint32_t((pow10_hi >> ((65 - shift) & 63)) + even);
+    uint32_t half_ulp = uint32_t(
+        (exp_shift_table::enable
+             ? shift_entry >> data::float_shift_table::half_ulp_pos
+             : pow10_hi >> ((65 - shift) & 63)) +
+        even);
     bool round_up = uint32_t(fractional + half_ulp) < fractional;
     bool round_down = half_ulp > fractional;
     integral += round_up;
