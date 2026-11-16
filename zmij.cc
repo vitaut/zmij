@@ -1021,8 +1021,9 @@ ZMIJ_INLINE auto write_exp(char* buffer, int dec_exp) noexcept -> char* {
   buffer = write2(buffer, 'e', dec_exp >= 0 ? '+' : '-');
   uint32_t abs_exp = dec_exp >= 0 ? uint32_t(dec_exp) : uint32_t(-dec_exp);
   if (float_traits<Float>::max_exponent10 >= 100) {
-    uint32_t hi = use_umul128_hi64 ? umul128_hi64(abs_exp, 0x290000000000000)
-                                   : (abs_exp * div100_sig) >> div100_exp;
+    uint32_t hi =
+        uint32_t(use_umul128_hi64 ? umul128_hi64(abs_exp, 0x290000000000000)
+                                  : (abs_exp * div100_sig) >> div100_exp);
     *buffer = char('0' + hi);  // hundreds (0-3)
     buffer += abs_exp >= 100;
     abs_exp -= hi * 100;
@@ -1099,7 +1100,8 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   constexpr uint64_t log10_2_sig = 78913;
   constexpr int log10_2_exp = 18;
   int dec_exp = use_umul128_hi64
-                    ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
+                    ? int(umul128_hi64(uint64_t(bin_exp),
+                                       log10_2_sig << (64 - log10_2_exp)))
                     : compute_dec_exp(int(bin_exp));
   ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
   unsigned char shift = uint8_t(
