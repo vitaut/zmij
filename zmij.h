@@ -292,8 +292,8 @@ struct uint128 {
   uint64_t hi;
 
   uint128() = default;
-  constexpr uint128(uint64_t hi, uint64_t lo) noexcept : lo(lo), hi(hi) {}
-  constexpr uint128(uint64_t lo) noexcept : lo(lo), hi(0) {}
+  constexpr uint128(uint64_t h, uint64_t l) noexcept : lo(l), hi(h) {}
+  constexpr uint128(uint64_t l) noexcept : lo(l), hi(0) {}
 
   explicit constexpr operator uint64_t() const noexcept { return lo; }
 
@@ -663,9 +663,8 @@ struct bigint {
   int max_limbs;      // Available limbs in `limbs`.
 
   // Callers must size `max_limbs` for the largest value the number will reach.
-  ZMIJ_CONSTEXPR bigint(uint128_t value, uint32_t* buffer,
-                        int max_limbs) noexcept
-      : limbs(buffer), max_limbs(max_limbs) {
+  ZMIJ_CONSTEXPR bigint(uint128_t value, uint32_t* buffer, int size) noexcept
+      : limbs(buffer), max_limbs(size) {
     uint64_t lo = uint64_t(value), hi = uint64_t(value >> 64);
     limbs[0] = uint32_t(lo);
     limbs[1] = uint32_t(lo >> 32);

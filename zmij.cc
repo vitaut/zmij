@@ -574,15 +574,15 @@ inline auto digits2(size_t value) noexcept -> const char* {
 
 constexpr int div10k_exp = 40;
 constexpr uint32_t div10k_sig = uint32_t((1ull << div10k_exp) / 10000 + 1);
-constexpr uint32_t neg10k = uint32_t((1ull << 32) - 10000);
+constexpr uint32_t neg10k_u32 = uint32_t((1ull << 32) - 10000);
 
 constexpr int div100_exp = 19;
 constexpr uint32_t div100_sig = (1 << div100_exp) / 100 + 1;
-constexpr uint32_t neg100 = (1 << 16) - 100;
+constexpr uint32_t neg100_u32 = (1 << 16) - 100;
 
 constexpr int div10_exp = 10;
 constexpr uint32_t div10_sig = (1 << div10_exp) / 10 + 1;
-constexpr uint32_t neg10 = (1 << 8) - 10;
+constexpr uint32_t neg10_u32 = (1 << 8) - 10;
 
 constexpr uint64_t zeros = 0x0101010101010101u * '0';
 
@@ -648,15 +648,15 @@ struct data {
 
   uint64_t mul_const = 0xabcc77118461cefd;
   uint64_t hundred_million = 100000000;
-  int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100};
-  int16x8 multipliers16 = {0xce0, neg10};
+  int32x4 multipliers32 = {div10k_sig, neg10k, div100_sig << 12, neg100_u32};
+  int16x8 multipliers16 = {0xce0, neg10_u32};
 #elif ZMIJ_USE_SSE
   // Ordered so the values used to format floats fit in a single cache line.
   // Read via aligned load (_mm_load_si128), so must be 16-byte aligned.
   alignas(16) uint128 div100 = splat32(div100_sig);
   uint128 div10 = splat16((1 << 16) / 10 + 1);
 #  if ZMIJ_USE_SSE4_1
-  uint128 neg100 = splat32(::neg100);
+  uint128 neg100 = splat32(neg100_u32);
   uint128 neg10 = splat16((1 << 8) - 10);
   uint128 bswap = uint128{pack8(7, 6, 5, 4, 3, 2, 1, 0),
                           pack8(15, 14, 13, 12, 11, 10, 9, 8)};
@@ -665,7 +665,7 @@ struct data {
   uint128 moddiv10 = splat16(10 * (1 << 8) - 1);
 #  endif  // ZMIJ_USE_SSE4_1
   uint128 div10k = splat64(div10k_sig);
-  uint128 neg10k = splat64(::neg10k);
+  uint128 neg10k = splat64(neg10k_u32);
   uint128 zeros = splat64(::zeros);
 #endif    // ZMIJ_USE_SSE
 
@@ -779,13 +779,13 @@ struct bcd_result {
     // where the division on the RHS is implemented by the multiply + shift
     // trick and the fractional bits are masked away.
     uint64_t abcd_efgh =
-        abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+        abcdefgh + neg10k_u32 * ((abcdefgh * div10k_sig) >> div10k_exp);
     uint64_t ab_cd_ef_gh =
         abcd_efgh +
-        neg100 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
+        neg100_u32 * (((abcd_efgh * div100_sig) >> div100_exp) & 0x7f0000007f);
     uint64_t a_b_c_d_e_f_g_h =
-        ab_cd_ef_gh +
-        neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
+        ab_cd_ef_gh + neg10_u32 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) &
+                                   0xf000f000f000f);
     uint64_t bcd = is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
     return {bcd, count_trailing_nonzeros(bcd)};
   }
@@ -795,7 +795,7 @@ struct bcd_result {
 
 #if ZMIJ_USE_NEON
   uint64_t abcd_efgh_64 =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+      abcdefgh + neg10k_u32 * ((abcdefgh * div10k_sig) >> div10k_exp);
   int32x4_t abcd_efgh = vcombine_s32(
       vreinterpret_s32_u64(vcreate_u64(abcd_efgh_64)), vdup_n_s32(0));
   uint8x16_t digits_128 = to_bcd_4x4(abcd_efgh, *d);
@@ -804,7 +804,7 @@ struct bcd_result {
   return {bcd, count_trailing_nonzeros(bcd)};
 #elif ZMIJ_USE_SSE4_1
   uint64_t abcd_efgh =
-      abcdefgh + neg10k * ((abcdefgh * div10k_sig) >> div10k_exp);
+      abcdefgh + neg10k_u32 * ((abcdefgh * div10k_sig) >> div10k_exp);
   uint64_t unshuffled_bcd =
       _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
@@ -888,7 +888,6 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
   if (!ZMIJ_USE_SSE4_1) y = _mm_shuffle_epi32(y, _MM_SHUFFLE(0, 1, 2, 3));
 
   __m128i bcd = to_bcd_4x4(y, d);
-  const __m128i zeros = _mm_load_si128(m128ptr(&d.zeros));
 
   // Computed against current bcd (rather than the post-bswap bcd) so the mask
   // is derived in parallel with the shuffle on the SSE4.1 path.
@@ -898,7 +897,7 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
 #  if ZMIJ_USE_SSE4_1
   bcd = _mm_shuffle_epi8(bcd, _mm_load_si128(m128ptr(&d.bswap)));  // SSSE3
 #  endif
-  return {_mm_or_si128(bcd, zeros), len};
+  return {_mm_or_si128(bcd, _mm_load_si128(m128ptr(&d.zeros))), len};
 #endif  // ZMIJ_USE_SSE
 }
 
@@ -908,7 +907,8 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, const data& d) noexcept
 #if ZMIJ_USE_SSE4_1
   // Inline to_bcd8's SSE4.1 body so we can return the unshuffled xmm too;
   // the exponential-notation path uses it to skip the bswap-via-gpr.
-  uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
+  uint64_t abcd_efgh =
+      value + neg10k_u32 * ((value * div10k_sig) >> div10k_exp);
   __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
   uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
@@ -917,7 +917,8 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, const data& d) noexcept
   // Inline to_bcd8's NEON body so we can return the unshuffled vector too;
   // the exponential-notation path uses it to skip the simd->gpr->bswap->simd
   // roundtrip needed to materialize `digits`.
-  uint64_t abcd_efgh = value + neg10k * ((value * div10k_sig) >> div10k_exp);
+  uint64_t abcd_efgh =
+      value + neg10k_u32 * ((value * div10k_sig) >> div10k_exp);
   int32x4_t input =
       vcombine_s32(vreinterpret_s32_u64(vcreate_u64(abcd_efgh)), vdup_n_s32(0));
   uint8x16_t unshuffled = to_bcd_4x4(input, d);
