@@ -1066,7 +1066,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   constexpr int num_bits = std::numeric_limits<UInt>::digits;
   constexpr int extra_shift = exp_shift_table::extra_shift;
 
-  if (!regular) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!regular) {
     assert(bin_sig == traits::implicit_bit);
     int dec_exp = compute_dec_exp(int(bin_exp), false);
     signed char exp_shift =
@@ -1274,7 +1274,7 @@ template <typename Float> auto to_decimal(Float value) noexcept -> dec_fp<> {
   auto bin_exp = traits::get_exp(bits);  // binary exponent
   auto bin_sig = traits::get_sig(bits);  // binary significand
   auto negative = traits::is_negative(bits);
-  if (bin_exp == 0 || bin_exp == traits::exp_mask) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (bin_exp == 0 || bin_exp == traits::exp_mask) {
     if (bin_exp != 0) return {bin_sig, nonfinite_exp, negative};
     if (bin_sig == 0) return {0, 0, negative};
     bin_exp = 1;
@@ -1302,7 +1302,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   uint64_t threshold = traits::num_bits == 64 ? d->threshold : uint64_t(1e7);
 
   shortest_decimal dec;
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(bin_exp)) {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) {
       *buffer = '0';
@@ -1328,7 +1328,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   bool has_last_digit = dec.has_last_digit;
   bool has_extra_digit = dec.sig >= threshold;
   int dec_exp = dec.exp + traits::max_digits10 - 2 + has_extra_digit;
-  if (traits::num_bits == 32 && dec.sig < uint32_t(1e6)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (traits::num_bits == 32 && dec.sig < uint32_t(1e6)) {
     dec.sig = 10 * dec.sig + uint64_t(-int(has_last_digit) & dec.last_digit);
     has_last_digit = false;
     --dec_exp;
@@ -1407,7 +1407,7 @@ auto to_decimal_big(Float value) noexcept -> dec_fp<uint128_t> {
   auto bin_sig = traits::get_sig(bits);
   bool negative = traits::is_negative(bits);
 
-  if (!traits::is_normal(raw_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(raw_exp)) {
     if (raw_exp != 0) return {bin_sig, nonfinite_exp, negative};
     if (bin_sig == 0) return {0, 0, negative};
     raw_exp = 1;
@@ -1527,7 +1527,7 @@ auto write_scientific(char* buffer, Float value, int precision) noexcept
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(bin_exp)) {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) {  // zero, e.g. 0.000e+00
       memset(buffer, '0', size_t(precision + 1));
@@ -1555,7 +1555,7 @@ auto write_general(char* buffer, Float value, int precision) noexcept -> char* {
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(bin_exp)) {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) {  // zero
       *buffer = '0';
@@ -1609,7 +1609,7 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
   *buffer = '-';
   buffer += traits::is_negative(bits);
 
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(bin_exp)) {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) return write_zero(buffer, precision);  // e.g. 0.000
     normalize<Float>(bin_sig, bin_exp);
@@ -1629,7 +1629,7 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
   int lead_exp = dec_exp + num_scaled_digits - 1;
   int num_digits = lead_exp + 1 + precision;  // significant digits to emit
 
-  if (num_digits <= 0) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (num_digits <= 0) {
     // |value| < 10**-precision, so it rounds to 0, or up to 10**-precision iff
     // |value| > 0.5 * 10**-precision (a tie rounds to 0). A 19-digit scale has
     // leading digit 1 (< 5), so only the 18-digit case rounds up.
@@ -1642,7 +1642,7 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
     return end;
   }
 
-  if (num_digits > 18) [[ZMIJ_UNLIKELY]]
+  if ZMIJ_UNLIKELY (num_digits > 18)
     return write_fixed_big(buffer, bin_sig, int(bin_exp), precision);
 
   uint64_t dec_sig = 0;
@@ -1700,7 +1700,7 @@ auto write_hex(char* out, size_t n, Float value, int precision,
   if (traits::is_negative(bits)) w.write('-');
 
   bool zero = false;
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(bin_exp)) {
     if (bin_exp != 0) return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     zero = bin_sig == 0;
     if (zero)

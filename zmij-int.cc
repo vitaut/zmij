@@ -1053,7 +1053,7 @@ auto write_above_i64(char* out, uint128_t value) noexcept -> char* {
 // Values above UINT64_MAX have 20-39 digits; the rest delegate to the u64 path
 // (realistic data is overwhelmingly small, so this branch is well predicted).
 ZMIJ_INLINE auto write_u128(char* out, uint128_t value) noexcept -> char* {
-  if (value <= UINT64_MAX) [[ZMIJ_LIKELY]]
+  if ZMIJ_LIKELY (value <= UINT64_MAX)
     return zmij::detail::write_unsigned(out, uint64_t(value));
   return write_above_i64(out, value);
 }
@@ -1174,7 +1174,7 @@ ZMIJ_INLINE auto write_signed(char* out, Int value) noexcept -> char* {
   // If possible, use the 64bit path. The 128x128 multiplications required for
   // the full width are more expensive than branching.
   if (sizeof(Int) > 8) {
-    if (value == Int(int64_t(value))) [[ZMIJ_LIKELY]]
+    if ZMIJ_LIKELY (value == Int(int64_t(value)))
       return write_signed(out, int64_t(value));
     uint128_t mag = value < 0 ? -uint128_t(value) : uint128_t(value);
     *out = '-';

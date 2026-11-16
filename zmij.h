@@ -161,11 +161,14 @@ static_assert(!ZMIJ_USE_SSE4_1 || ZMIJ_USE_SSE, "SSE4.1 requires SSE");
 
 #if ZMIJ_CPLUSPLUS >= 202002L && ZMIJ_HAS_CPP_ATTRIBUTE(likely) && \
     ZMIJ_HAS_CPP_ATTRIBUTE(unlikely)
-#  define ZMIJ_LIKELY likely
-#  define ZMIJ_UNLIKELY unlikely
+#  define ZMIJ_LIKELY(x) (x) [[likely]]
+#  define ZMIJ_UNLIKELY(x) (x) [[unlikely]]
+#elif ZMIJ_HAS_BUILTIN(__builtin_expect) || ZMIJ_GNUC_BUILTINS
+#  define ZMIJ_LIKELY(x) (__builtin_expect(!!(x), 1))
+#  define ZMIJ_UNLIKELY(x) (__builtin_expect(!!(x), 0))
 #else
-#  define ZMIJ_LIKELY
-#  define ZMIJ_UNLIKELY
+#  define ZMIJ_LIKELY(x) (x)
+#  define ZMIJ_UNLIKELY(x) (x)
 #endif
 
 #if ZMIJ_CPLUSPLUS >= 201703L && ZMIJ_HAS_CPP_ATTRIBUTE(maybe_unused)
@@ -1046,7 +1049,7 @@ ZMIJ_CONSTEXPR20 auto write_big(char* out, size_t n, Float value, int precision,
   writer w = {out, out + n, 0};
   if (traits::is_negative(bits)) w.write('-');
 
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(bin_exp)) {
     if (bin_exp != 0)  // inf or nan
       return w.write(bin_sig != 0 ? "nan" : "inf", 3);
     bin_exp = 1;  // subnormal or zero
@@ -1163,7 +1166,7 @@ ZMIJ_CONSTEXPR20 auto write_hex(char* buffer, Float value,
   buffer += traits::is_negative(bits);
 
   bool zero = false;
-  if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
+  if ZMIJ_UNLIKELY (!traits::is_normal(bin_exp)) {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     zero = bin_sig == 0;
     if (zero)
