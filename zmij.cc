@@ -808,8 +808,8 @@ struct bcd_result {
 #elif ZMIJ_USE_SSE4_1
   uint64_t abcd_efgh =
       abcdefgh + neg10k_u32 * ((abcdefgh * div10k_sig) >> div10k_exp);
-  uint64_t unshuffled_bcd =
-      _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d));
+  uint64_t unshuffled_bcd = uint64_t(
+      _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, int64_t(abcd_efgh)), *d)));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bswap64(unshuffled_bcd), len};
 #elif ZMIJ_USE_SSE
@@ -818,9 +818,9 @@ struct bcd_result {
   uint64_t abcd_efgh =
       (abcdefgh << 32) -
       uint64_t((10000ull << 32) - 1) * ((abcdefgh * div10k_sig) >> div10k_exp);
-  __m128i v = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), *d);
+  __m128i v = to_bcd_4x4(_mm_set_epi64x(0, int64_t(abcd_efgh)), *d);
 #  if defined(__x86_64__) || defined(_M_X64)
-  uint64_t bcd = _mm_cvtsi128_si64(v);
+  uint64_t bcd = uint64_t(_mm_cvtsi128_si64(v));
 #  else
   uint64_t bcd = uint64_t(_mm_cvtsi128_si32(_mm_srli_si128(v, 4))) << 32 |
                  uint32_t(_mm_cvtsi128_si32(v));
@@ -913,8 +913,8 @@ ZMIJ_INLINE auto to_digits<32>(uint64_t value, const data& d) noexcept
   // the exponential-notation path uses it to skip the bswap-via-gpr.
   uint64_t abcd_efgh =
       value + neg10k_u32 * ((value * div10k_sig) >> div10k_exp);
-  __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d);
-  uint64_t unshuffled_bcd = _mm_cvtsi128_si64(bcd_xmm);
+  __m128i bcd_xmm = to_bcd_4x4(_mm_set_epi64x(0, int64_t(abcd_efgh)), d);
+  uint64_t unshuffled_bcd = uint64_t(_mm_cvtsi128_si64(bcd_xmm));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
   return {bcd_xmm, bswap64(unshuffled_bcd) + zeros, len};
 #elif ZMIJ_USE_NEON
@@ -1067,8 +1067,9 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
 
   if (!regular) [[ZMIJ_UNLIKELY]] {
     assert(bin_sig == traits::implicit_bit);
-    int dec_exp = compute_dec_exp(bin_exp, false);
-    signed char exp_shift = compute_exp_shift(bin_exp, dec_exp + 1);  // [-3, 1]
+    int dec_exp = compute_dec_exp(int(bin_exp), false);
+    signed char exp_shift =
+        compute_exp_shift(int(bin_exp), dec_exp + 1);  // [-3, 1]
     uint128 pow10 = d.pow10_significands[-dec_exp - 1];
     // The significand only contains the implicit bit, so the product
     // pow10 * bin_sig reduces to a single shift and we can extract
@@ -1099,12 +1100,12 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   constexpr int log10_2_exp = 18;
   int dec_exp = use_umul128_hi64
                     ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
-                    : compute_dec_exp(bin_exp);
+                    : compute_dec_exp(int(bin_exp));
   ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
   unsigned char shift = uint8_t(
       exp_shift_table::enable
           ? d.exp_shifts.data[bin_exp + float_traits<double>::exp_offset]
-          : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift);
+          : compute_exp_shift(int(bin_exp), dec_exp + 1) + extra_shift);
   uint64_t even = 1 - (bin_sig & 1);
 
   if (num_bits == 32) {
@@ -1345,7 +1346,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
     char last_digit = char('0' + (-int(has_last_digit) & dec.last_digit));
-    int num_digits = select(has_last_digit, bcd_size, dig.num_digits - 1);
+    int num_digits = int(select(has_last_digit, bcd_size, dig.num_digits - 1));
 
     // Materialize the base early so the entry address is `base + idx*32`;
     // otherwise Clang folds the offset in and adds a cycle to the idx chain.
@@ -1414,7 +1415,7 @@ auto to_decimal_big(Float value) noexcept -> dec_fp<uint128_t> {
   // The smallest normal is treated as irregular, but the result is unaffected.
   bool regular = bin_sig != 0;
   bin_sig = bin_sig ^ traits::implicit_bit;
-  int bin_exp = raw_exp - traits::exp_offset;
+  int bin_exp = int(raw_exp - traits::exp_offset);
 
   // dec_exp = floor(bin_exp * log10(2) [+ log10(3/4) at a power of two]);
   // scaling by 10**-dec_exp puts the ulp in [1, 10) so the shortest form is the
@@ -1535,7 +1536,7 @@ auto write_scientific(char* buffer, Float value, int precision) noexcept
   }
 
   auto dec = ::to_decimal<Float>(bin_sig | traits::implicit_bit,
-                                 bin_exp - traits::exp_offset, precision);
+                                 int(bin_exp - traits::exp_offset), precision);
   auto digits = to_digits<64>(dec.sig / 100, static_data).digits;
   return write_scientific_digits<Float>(buffer, digits, unsigned(dec.sig % 100),
                                         precision, dec.lead_exp);
@@ -1562,7 +1563,7 @@ auto write_general(char* buffer, Float value, int precision) noexcept -> char* {
   }
 
   auto dec = ::to_decimal<Float>(bin_sig | traits::implicit_bit,
-                                 bin_exp - traits::exp_offset, precision);
+                                 int(bin_exp - traits::exp_offset), precision);
 
   auto lo = unsigned(dec.sig % 100);
   auto hi = to_digits<64>(dec.sig / 100, static_data);
@@ -1616,8 +1617,8 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
   bin_sig |= traits::implicit_bit;
 
   // Scale to 18 significant digits, retaining the fraction for later rounding.
-  int dec_exp = compute_dec_exp(bin_exp + traits::num_sig_bits) - 17;
-  scaled_value scaled = scale<Float>(bin_sig, bin_exp, dec_exp);
+  int dec_exp = compute_dec_exp(int(bin_exp + traits::num_sig_bits)) - 17;
+  scaled_value scaled = scale<Float>(bin_sig, int(bin_exp), dec_exp);
   // A one-too-small dec_exp estimate leaves 19 significant digits, so derive
   // the count (and the exact leading exponent) from the truncated integral.
   uint64_t integral = scaled.integral;
@@ -1743,7 +1744,7 @@ auto write_hex(char* out, size_t n, Float value, int precision,
   }
 
   char exp[8];
-  return w.write(exp, int(write_hex_exp(exp, bin_exp) - exp));
+  return w.write(exp, int(write_hex_exp(exp, int(bin_exp)) - exp));
 }
 
 template auto to_decimal(float value) noexcept -> dec_fp<>;
