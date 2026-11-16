@@ -111,6 +111,10 @@
 
 #ifdef ZMIJ_USE_SSE
 // Use the provided definition.
+#elif defined(_M_IX86) && ZMIJ_MSC_VER && !defined(__clang__)
+// MSVC up to at least 19.37 miscompiles the SSE2 code on 32-bit x86: the
+// upper half of _mm_set_epi64x of a computed 64-bit value comes out wrong.
+#  define ZMIJ_USE_SSE 0
 #elif defined(__SSE2__)
 #  define ZMIJ_USE_SSE ZMIJ_USE_SIMD
 #elif defined(_M_AMD64) || (defined(_M_IX86_FP) && _M_IX86_FP == 2)
