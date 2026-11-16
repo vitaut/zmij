@@ -319,7 +319,7 @@ struct exp_string_table {
   static ZMIJ_CONSTEXPR auto make() -> exp_string_table {
     exp_string_table t;
     for (int e = min_dec_exp; e <= traits::max_exponent10 && enable; ++e) {
-      uint64_t abs_e = e >= 0 ? e : -e;
+      uint64_t abs_e = uint64_t(e >= 0 ? e : -e);
       // Left-aligning a two-digit exponent pads it with the '0' byte 4 holds.
       uint64_t ddd = abs_e < 100 ? abs_e * 10 : abs_e;
       uint64_t val = (ddd / 100 + '0') | ((ddd / 10 % 10 + '0') << 8) |
@@ -557,7 +557,8 @@ inline auto count_trailing_nonzeros(uint64_t x) noexcept -> int {
   // datum left by one and inserting a sentinel bit at the end. This can
   // be faster than the automatically inserted range check.
   if (is_big_endian) x = bswap64(x);
-  return (size_t(70) - clz((x << 1) | 1)) / 8;  // size_t for native arithmetic
+  // Use size_t for native arithmetic.
+  return int((size_t(70) - size_t(clz((x << 1) | 1))) / 8);
 }
 
 // Converts value in the range [0, 100) to a string. GCC generates a bit better
@@ -893,7 +894,8 @@ ZMIJ_INLINE auto to_digits(uint64_t value, const data& d) noexcept
 
   // Computed against current bcd (rather than the post-bswap bcd) so the mask
   // is derived in parallel with the shuffle on the SSE4.1 path.
-  uint64_t mask = _mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128()));
+  uint64_t mask =
+      uint64_t(_mm_movemask_epi8(_mm_cmpgt_epi8(bcd, _mm_setzero_si128())));
   // Trailing zeros are in the low bits for SSE4.1, the high bits for SSE2.
   int len = ZMIJ_USE_SSE4_1 ? 16 - ctz(mask) : 64 - clz(mask);
 #  if ZMIJ_USE_SSE4_1
@@ -1008,7 +1010,7 @@ ZMIJ_INLINE auto write_zero(char* buffer, int precision) noexcept -> char* {
   *buffer++ = '0';
   if (precision == 0) return buffer;
   *buffer = '.';
-  memset(buffer + 1, '0', precision);
+  memset(buffer + 1, '0', size_t(precision));
   return buffer + 1 + precision;
 }
 
@@ -1245,16 +1247,16 @@ auto write_fixed_big(char* buffer, uint64_t bin_sig, int bin_exp,
   // Place the decimal point `precision` digits from the right.
   if (num_digits > precision) {
     int num_int_digits = num_digits - precision;
-    memcpy(buffer, p, num_int_digits);
+    memcpy(buffer, p, size_t(num_int_digits));
     if (precision == 0) return buffer + num_int_digits;
     buffer[num_int_digits] = '.';
-    memcpy(buffer + num_int_digits + 1, p + num_int_digits, precision);
+    memcpy(buffer + num_int_digits + 1, p + num_int_digits, size_t(precision));
     return buffer + num_int_digits + 1 + precision;
   }
   write2(buffer, '0', '.');  // |value| < 1: "0." + leading zeros + digits.
   int lead_zeros = precision - num_digits;
-  memset(buffer + 2, '0', lead_zeros);
-  memcpy(buffer + 2 + lead_zeros, p, num_digits);
+  memset(buffer + 2, '0', size_t(lead_zeros));
+  memcpy(buffer + 2 + lead_zeros, p, size_t(num_digits));
   return buffer + 2 + lead_zeros + num_digits;
 }
 
@@ -1278,7 +1280,7 @@ template <typename Float> auto to_decimal(Float value) noexcept -> dec_fp<> {
   auto dec = ::to_decimal<Float>(bin_sig ^ traits::implicit_bit, bin_exp,
                                  bin_sig != 0, static_data);
   auto last_digit = -int(dec.has_last_digit) & dec.last_digit;
-  return {dec.sig * 10 + last_digit, dec.exp, negative};
+  return {dec.sig * 10 + uint64_t(last_digit), dec.exp, negative};
 }
 
 // It is slightly faster to return a pointer to the end than the size.
@@ -1313,7 +1315,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
     if (num_zeros >= 0) {
       // Padding dec_sig, a digit longer than dec.sig, absorbs the last digit.
       uint64_t dec_sig =
-          dec.sig * 10 + (-int(dec.has_last_digit) & dec.last_digit);
+          dec.sig * 10 + uint64_t(-int(dec.has_last_digit) & dec.last_digit);
       dec = {dec_sig * pow10s[num_zeros], dec.exp - num_zeros - 1, 0, false};
     }
   } else {
@@ -1324,7 +1326,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   bool has_extra_digit = dec.sig >= threshold;
   int dec_exp = dec.exp + traits::max_digits10 - 2 + has_extra_digit;
   if (traits::num_bits == 32 && dec.sig < uint32_t(1e6)) [[ZMIJ_UNLIKELY]] {
-    dec.sig = 10 * dec.sig + (-int(has_last_digit) & dec.last_digit);
+    dec.sig = 10 * dec.sig + uint64_t(-int(has_last_digit) & dec.last_digit);
     has_last_digit = false;
     --dec_exp;
   }
@@ -1525,7 +1527,7 @@ auto write_scientific(char* buffer, Float value, int precision) noexcept
   if (!traits::is_normal(bin_exp)) [[ZMIJ_UNLIKELY]] {
     if (bin_exp != 0) return write_inf_nan(buffer, bin_sig != 0);
     if (bin_sig == 0) {  // zero, e.g. 0.000e+00
-      memset(buffer, '0', precision + 1);
+      memset(buffer, '0', size_t(precision + 1));
       buffer[1] = '.';  // Overwritten by the exponent when precision is 1.
       return write_exp<Float>(buffer + precision + (precision > 1), 0);
     }
@@ -1573,7 +1575,8 @@ auto write_general(char* buffer, Float value, int precision) noexcept -> char* {
   }
 
   if (lead_exp < 0) {  // fixed with a leading 0.00...: lead_exp in [-4, -1]
-    memcpy(buffer, "0.0000", 1 - lead_exp);  // "0.", then -lead_exp-1 zeros.
+    // "0.", then -lead_exp-1 zeros.
+    memcpy(buffer, "0.0000", size_t(1 - lead_exp));
     memcpy(buffer + 1 - lead_exp, &hi.digits, 16);
     memcpy(buffer + 17 - lead_exp, digits2(lo), 2);
     return buffer + (1 - lead_exp) + num_digits;
@@ -1583,10 +1586,11 @@ auto write_general(char* buffer, Float value, int precision) noexcept -> char* {
   memcpy(buffer + 16, digits2(lo), 2);
   int point_pos = lead_exp + 1;
   if (point_pos >= num_digits) {  // All significant digits are integral.
-    memset(buffer + num_digits, '0', point_pos - num_digits);
+    memset(buffer + num_digits, '0', size_t(point_pos - num_digits));
     return buffer + point_pos;
   }
-  memmove(buffer + point_pos + 1, buffer + point_pos, num_digits - point_pos);
+  memmove(buffer + point_pos + 1, buffer + point_pos,
+          size_t(num_digits - point_pos));
   buffer[point_pos] = '.';
   return buffer + num_digits + 1;
 }
@@ -1664,7 +1668,7 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
 
   if (num_int_digits <= 0) {  // |value| < 1: "0." + leading zeros + digits
     write2(buffer, '0', '.');
-    memset(buffer + 2, '0', -num_int_digits);
+    memset(buffer + 2, '0', size_t(-num_int_digits));
     buffer += 2 - num_int_digits;
     memcpy(buffer, &hi.digits, 16);
     memcpy(buffer + 16, digits2(lo), 2);
@@ -1675,7 +1679,8 @@ auto write_fixed(char* buffer, Float value, int precision) noexcept -> char* {
   memcpy(buffer + 16, digits2(lo), 2);
   buffer[18] = '0';  // at most one carry digit: total <= 18, or 19 on carry
   if (precision == 0) return buffer + total;
-  memmove(buffer + num_int_digits + 1, buffer + num_int_digits, precision);
+  memmove(buffer + num_int_digits + 1, buffer + num_int_digits,
+          size_t(precision));
   buffer[num_int_digits] = '.';
   return buffer + total + 1;
 }
