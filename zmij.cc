@@ -1103,12 +1103,12 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   uint64_t even = 1 - (bin_sig & 1);
 
   if (num_bits == 32) {
-    constexpr int extra_shift = 32;
-    shift += extra_shift - exp_shift_table::extra_shift;
+    constexpr int float_extra_shift = 32;
+    shift += float_extra_shift - exp_shift_table::extra_shift;
     uint64_t pow10_hi = d.pow10_significands[-dec_exp - 1].hi;
     uint64_t p = umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << shift);
 
-    uint64_t integral = p >> extra_shift;
+    uint64_t integral = p >> float_extra_shift;
     // The fraction is the low half of p, so the rounding checks and the digit
     // run on 32-bit values without shifting p. 32 bits are enough for the
     // checks; the digit needs one adjusted boundary (float_digit_offsets).
