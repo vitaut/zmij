@@ -298,7 +298,8 @@ struct exp_shift_table {
       int bin_exp = raw_exp - float_traits<double>::exp_offset;
       if (raw_exp == 0) ++bin_exp;
       int dec_exp = compute_dec_exp(bin_exp);
-      t.data[raw_exp] = compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
+      t.data[raw_exp] =
+          uint8_t(compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift);
     }
     return t;
   }
@@ -408,7 +409,8 @@ struct float_shuffle_table {
     s.len =
         (has_last_digit ? num_bcd_digits : num_digits - 1) + has_extra_digit;
     if (s.len < 1) s.len = 1;
-    for (int j = 0; j < s.len - has_last_digit; ++j) s.pos[j] = leading_pos - j;
+    for (int j = 0; j < s.len - has_last_digit; ++j)
+      s.pos[j] = uint8_t(leading_pos - j);
     if (has_last_digit) s.pos[s.len - 1] = last_digit_pos;
     return s;
   }
@@ -445,9 +447,9 @@ struct float_shuffle_table {
           for (int j = split; j < s.len; ++j) out[len++] = s.pos[j];
         }
         if (slot == sci_slot) {
-          for (int i = 0; i < 4; ++i) out[len++] = exp_pos + i;
+          for (int i = 0; i < 4; ++i) out[len++] = uint8_t(exp_pos + i);
         }
-        out[15] = len;
+        out[15] = uint8_t(len);
       }
     }
     return t;
@@ -494,15 +496,15 @@ struct fixed_layout_table {
   static ZMIJ_CONSTEXPR auto compute(int dec_exp) noexcept -> entry {
     entry e = {};
 
-    e.start_pos = dec_exp < -0 ? 1 - dec_exp : 0;
-    e.point_pos = dec_exp >= 0 ? 1 + dec_exp : 1;
-    e.shift_pos = e.point_pos + (dec_exp >= 0);
+    e.start_pos = uint8_t(dec_exp < -0 ? 1 - dec_exp : 0);
+    e.point_pos = uint8_t(dec_exp >= 0 ? 1 + dec_exp : 1);
+    e.shift_pos = uint8_t(e.point_pos + (dec_exp >= 0));
 
 #if ZMIJ_USE_SSE4_1
     constexpr int bcd_size = 16;
     for (int extra = 0; extra < 2; ++extra) {
       int len = bcd_size + extra - 1;
-      e.last_digit_pos[extra] = len + (0 <= dec_exp && dec_exp < len);
+      e.last_digit_pos[extra] = uint8_t(len + (0 <= dec_exp && dec_exp < len));
     }
 
     // Build the shuffle tables from natural-order BCD (to_digits puts BCD[k]
@@ -519,7 +521,7 @@ struct fixed_layout_table {
     for (int n = 1; n <= traits::max_digits10; ++n) {
       int end_pos = n;
       if (dec_exp >= 0) end_pos = n > dec_exp + 1 ? n + 1 : dec_exp + 1;
-      e.end_pos[n - 1] = end_pos;
+      e.end_pos[n - 1] = uint8_t(end_pos);
     }
     return e;
   }
@@ -1069,7 +1071,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     // The significand only contains the implicit bit, so the product
     // pow10 * bin_sig reduces to a single shift and we can extract
     // the integral and fractional parts directly.
-    unsigned char frac_shift = exp_shift + traits::num_sig_bits;
+    unsigned char frac_shift = uint8_t(exp_shift + traits::num_sig_bits);
     uint64_t fractional = pow10.hi << frac_shift;
     // For float, pow10.hi alone gives fractional 40+ bits, enough for all
     // powers of two.
@@ -1097,10 +1099,10 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
                     ? umul128_hi64(bin_exp, log10_2_sig << (64 - log10_2_exp))
                     : compute_dec_exp(bin_exp);
   ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
-  unsigned char shift =
+  unsigned char shift = uint8_t(
       exp_shift_table::enable
           ? d.exp_shifts.data[bin_exp + float_traits<double>::exp_offset]
-          : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift;
+          : compute_exp_shift(bin_exp, dec_exp + 1) + extra_shift);
   uint64_t even = 1 - (bin_sig & 1);
 
   if (num_bits == 32) {
@@ -1340,7 +1342,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    char last_digit = '0' + (-int(has_last_digit) & dec.last_digit);
+    char last_digit = char('0' + (-int(has_last_digit) & dec.last_digit));
     int num_digits = select(has_last_digit, bcd_size, dig.num_digits - 1);
 
     // Materialize the base early so the entry address is `base + idx*32`;
@@ -1375,7 +1377,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
 
   buffer += has_extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
-  buffer[bcd_size] = '0' + dec.last_digit;
+  buffer[bcd_size] = char('0' + dec.last_digit);
   buffer += select(has_last_digit, bcd_size + 1, dig.num_digits);
   start[0] = start[1];
   start[1] = '.';
