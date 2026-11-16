@@ -188,7 +188,7 @@ auto fpow(uint64_t* base, int base_exp, int n, uint64_t* r) noexcept -> int {
 
 // Returns e such that m[0..result_limbs) = floor(10**x / 2**e), with m
 // normalized to result_bits (top bit set). Requires |x| <= max_exp.
-auto compute(int x, uint64_t* m) noexcept -> int {
+[[ZMIJ_MAYBE_UNUSED]] auto compute(int x, uint64_t* m) noexcept -> int {
   assert(x >= -max_exp && x <= max_exp);
   (void)max_exp;
   uint64_t p[work_limbs];
@@ -769,7 +769,7 @@ struct bcd_result {
   int len;
 };
 
-auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
+[[ZMIJ_MAYBE_UNUSED]] auto to_bcd8(uint64_t abcdefgh) noexcept -> bcd_result {
   if (!ZMIJ_USE_SSE && !ZMIJ_USE_NEON) {
     // An optimization from Xiang JunBo.
     // Three steps BCD. Base 10000 -> base 100 -> base 10.
