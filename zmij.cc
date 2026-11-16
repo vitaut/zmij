@@ -401,28 +401,28 @@ struct exp_string_table {
 // The decimal exponent and digit count of a float's shortest significand by
 // raw exponent and binary significand.
 //
-// A binade spans a factor of two, so the 7-digit significand to_decimal
-// produces changes its digit count at most once in it, at a power of ten.
-// An entry holds 2**24 minus the first binary significand past that point in
-// its low 24 bits, so that adding the significand carries into the code above:
-//   code = 2 * (dec_exp - min_dec_exp) + !has_extra_digit
-// where dec_exp is the exponent of the leading digit. Going from 7 to 8 digits
-// raises dec_exp and sets has_extra_digit, which is the next code. Below a
-// 6-to-7 digit point the code is one less than above it; the caller folds the
-// last digit into such a significand and subtracts one more. The final code
-// selects the exponent string and the shuffle row; see float_shuffle_table.
+// to_decimal produces a significand of 6 to 8 digits. A binade spans a factor
+// of two, so the digit count changes at most once in it, at a power of ten.
+// An entry holds 2**23 minus the first fraction past that point in its low 23
+// bits, so that adding the significand carries into the code above:
+//   code = 3 * (dec_exp - min_dec_exp) + num_digits - 6
+// where dec_exp is the exponent of the leading digit of a 7-digit significand.
+// The code selects the exponent string and the shuffle row; see
+// float_shuffle_table.
 struct float_exp_table {
   static constexpr bool enable = exp_shift_table::enable;
   using traits = float_traits<float>;
   static constexpr int min_dec_exp = -47;
   static constexpr int num_codes =
-      2 * (traits::max_exponent10 - min_dec_exp + 1);
-  static constexpr int num_sig_bits = 24;
+      3 * (traits::max_exponent10 - min_dec_exp + 2);
+  static constexpr int num_sig_bits = 23;
 
-  static constexpr auto encode(int dec_exp, bool has_extra_digit) noexcept
-      -> uint32_t {
-    return uint32_t(dec_exp - min_dec_exp) * 2 +
-           !has_extra_digit;
+  // `extra` is the number of digits past 7, in [-1, 1].
+  static constexpr auto encode(int dec_exp, int extra) noexcept -> uint32_t {
+    return uint32_t(3 * (dec_exp - min_dec_exp) + extra + 1);
+  }
+  static constexpr auto num_extra_digits(uint64_t dec_sig) noexcept -> int {
+    return (dec_sig >= 1000000) + (dec_sig >= 10000000) - 1;
   }
 
   uint32_t data[enable ? traits::exp_mask + 1 : 1] = {};
@@ -437,7 +437,7 @@ struct float_exp_table {
     uint64_t fractional = p & ((1ull << extra_shift) - 1);
     uint64_t half_ulp = (pow10_hi >> (65 - shift)) + (1 - (bin_sig & 1));
     integral += (fractional + half_ulp) >> extra_shift;
-    return (integral >= 1000000) + (integral >= 10000000) - 1;
+    return num_extra_digits(integral);
   }
 
   static ZMIJ_CONSTEXPR auto make() -> float_exp_table {
@@ -449,11 +449,11 @@ struct float_exp_table {
       unsigned shift = exp_shift_table::compute_shift(bin_exp, dec_exp) + 34 -
                        exp_shift_table::extra_shift;
       uint64_t pow10_hi = zmij::detail::compute_pow10(-dec_exp - 1).hi;
-      uint64_t lo = uint64_t(1) << (num_sig_bits - 1), hi = lo * 2 - 1;
+      uint64_t implicit_bit = uint64_t(1) << num_sig_bits;
+      uint64_t lo = implicit_bit, hi = lo * 2 - 1;
       int lo_extra = num_extra_digits(pow10_hi, shift, lo);
       int hi_extra = num_extra_digits(pow10_hi, shift, hi);
-      uint32_t code = encode(dec_exp + traits::max_digits10 - 2, false) +
-                      uint32_t(lo_extra);
+      uint32_t code = encode(dec_exp + traits::max_digits10 - 2, lo_extra);
       uint32_t carry = 0;
       if (lo_extra != hi_extra) {
         // Find the first significand with hi_extra.
@@ -464,9 +464,10 @@ struct float_exp_table {
           else
             hi = mid;
         }
-        carry = uint32_t((uint64_t(1) << num_sig_bits) - hi);
+        carry = uint32_t(2 * implicit_bit - hi);
       }
-      t.data[raw_exp] = (code << num_sig_bits) + carry;
+      // The implicit bit of the significand adds one to the code.
+      t.data[raw_exp] = ((code - 1) << num_sig_bits) + carry;
     }
     return t;
   }
@@ -513,7 +514,8 @@ struct float_shuffle_table {
   static constexpr int sci_slot =
       traits::max_fixed_dec_exp - traits::min_fixed_dec_exp + 1;
   static constexpr int num_slots = sci_slot + 1;
-  static constexpr int num_rows = num_slots * 4;
+  // A row per (slot, digit count, has_last_digit).
+  static constexpr int num_rows = num_slots * 6;
   static constexpr int num_shuffles = num_rows * num_bcd_digits;
   alignas(16) unsigned char data[enable ? num_shuffles * 16 : 1] = {};
 
@@ -523,17 +525,17 @@ struct float_shuffle_table {
   };
 
   // The row pair of a float_exp_table code. A dec_exp outside the fixed range
-  // maps onto the scientific slot.
+  // clamps onto the scientific slot.
   static constexpr auto row_pair(int code) noexcept -> int {
-    return (code / 2 + float_exp_table::min_dec_exp >=
+    return (code / 3 + code % 3 - 1 + float_exp_table::min_dec_exp >=
                     traits::min_fixed_dec_exp &&
-                code / 2 + float_exp_table::min_dec_exp <=
+                code / 3 + code % 3 - 1 + float_exp_table::min_dec_exp <=
                     traits::max_fixed_dec_exp
-                ? code / 2 + float_exp_table::min_dec_exp -
+                ? code / 3 + code % 3 - 1 + float_exp_table::min_dec_exp -
                       traits::min_fixed_dec_exp
                 : sci_slot) *
-               2 +
-           code % 2;
+               3 +
+           code % 3;
   }
 
   ZMIJ_CONSTEXPR auto get_row(unsigned row_pair,
@@ -556,16 +558,16 @@ struct float_shuffle_table {
     int len;
   };
 
+  // `extra` is the number of significand digits past 7, in [-1, 1].
   static ZMIJ_CONSTEXPR auto make_sig_shuffle(int num_digits,
                                               bool has_last_digit,
-                                              bool has_extra_digit) noexcept
+                                              int extra) noexcept
       -> sig_shuffle {
     sig_shuffle s = sig_shuffle();
-    int leading_pos = has_extra_digit ? 7 : 6;
-    // Always the full padded BCD in the significand plus a last-digit char;
-    // for !has_extra_digit its leading '0' is shown.
-    s.len =
-        (has_last_digit ? num_bcd_digits : num_digits - 1) + has_extra_digit;
+    int leading_pos = 6 + extra;
+    // With a last digit, every BCD digit from the leading one down plus the
+    // last-digit char.
+    s.len = (has_last_digit ? num_bcd_digits : num_digits - 1) + extra;
     if (s.len < 1) s.len = 1;
     for (int j = 0; j < s.len - has_last_digit; ++j)
       s.pos[j] = uint8_t(leading_pos - j);
@@ -577,10 +579,10 @@ struct float_shuffle_table {
     float_shuffle_table t;
     for (int idx = 0; idx < num_shuffles && enable; ++idx) {
       int row = idx / num_bcd_digits;
-      int slot = row >> 2;
+      int slot = row / 6;
       sig_shuffle s =
           make_sig_shuffle(num_bcd_digits - idx % num_bcd_digits,
-                           (row & 1) != 0, (row & 2) == 0);
+                           (row & 1) != 0, row / 2 % 3 - 1);
       unsigned char* out = &t.data[idx * 16];
       // Shuffle high bit: output 0.
       for (int i = 0; i < 16; ++i) out[i] = 0x80;
@@ -624,7 +626,7 @@ struct float_exp_string_table {
   static ZMIJ_CONSTEXPR auto make() -> float_exp_string_table {
     float_exp_string_table t;
     for (int code = 0; code < float_exp_table::num_codes && enable; ++code) {
-      int dec_exp = code / 2 + float_exp_table::min_dec_exp;
+      int dec_exp = code / 3 + code % 3 - 1 + float_exp_table::min_dec_exp;
       t.data[code] =
           (uint32_t(exp_string_table::compute(dec_exp)) & ~uint32_t(0xff)) |
           uint32_t(float_shuffle_table::row_pair(code));
@@ -1321,10 +1323,9 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     if (digit < lo) digit = lo;
     unsigned exp_code = 0;
     if (num_bits == 32) {
-      bool has_extra_digit = integral >= 10000000;
       exp_code = float_exp_table::encode(
-          dec_exp + float_traits<float>::max_digits10 - 2 + has_extra_digit,
-          has_extra_digit);
+          dec_exp + float_traits<float>::max_digits10 - 2,
+          float_exp_table::num_extra_digits(integral));
     }
     return {integral, dec_exp, digit, (round_up + round_down) == 0, exp_code};
   }
@@ -1382,11 +1383,9 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
       exp_code = (d.float_exps.data[raw_exp] + uint32_t(bin_sig)) >>
                  float_exp_table::num_sig_bits;
     } else {
-      bool has_extra_digit = integral >= 10000000;
-      exp_code = float_exp_table::encode(
-                     dec_exp + traits::max_digits10 - 2 + has_extra_digit,
-                     has_extra_digit) -
-                 (integral < 1000000);
+      exp_code =
+          float_exp_table::encode(dec_exp + traits::max_digits10 - 2,
+                                  float_exp_table::num_extra_digits(integral));
     }
     return {integral, dec_exp, digit, (round_up + round_down) == 0, exp_code};
   }
@@ -1582,9 +1581,9 @@ auto write(char* buffer, Float value) noexcept -> char* {
       dec = {dec_sig * pow10s[num_zeros], dec.exp - num_zeros - 1, 0, false};
     }
     if (traits::num_bits == 32) {
-      bool extra = dec.sig >= threshold;
       dec.exp_code = float_exp_table::encode(
-          dec.exp + traits::max_digits10 - 2 + extra, extra);
+          dec.exp + traits::max_digits10 - 2,
+          float_exp_table::num_extra_digits(dec.sig));
     }
   } else {
     dec = ::to_decimal<Float>(bin_sig | traits::implicit_bit, bin_exp,
@@ -1593,11 +1592,12 @@ auto write(char* buffer, Float value) noexcept -> char* {
   bool has_last_digit = dec.has_last_digit;
   bool has_extra_digit = dec.sig >= threshold;
   int dec_exp = dec.exp + traits::max_digits10 - 2 + has_extra_digit;
-  if ZMIJ_UNLIKELY (traits::num_bits == 32 && dec.sig < uint32_t(1e6)) {
+  // The shuffle table has rows for 6-digit significands.
+  if ZMIJ_UNLIKELY (traits::num_bits == 32 && !float_shuffle_table::enable &&
+                    dec.sig < uint32_t(1e6)) {
     dec.sig = 10 * dec.sig + uint64_t(-int(has_last_digit) & dec.last_digit);
     has_last_digit = false;
     --dec_exp;
-    --dec.exp_code;
   }
 
   auto dig = to_digits<traits::num_bits>(dec.sig, *d);
