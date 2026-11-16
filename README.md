@@ -128,6 +128,7 @@ taking the best of 3 runs.
   programming language
 * [ClickHouse](https://github.com/ClickHouse/ClickHouse): a real-time analytics
   database management system
+* [{fmt}](https://github.com/fmtlib/fmt): a modern formatting library
 * [Glaze](https://github.com/stephenberry/glaze): a fast serialization and
   reflection library for C++
 * [Ladybird](https://github.com/LadybirdBrowser/ladybird): a truly independent
