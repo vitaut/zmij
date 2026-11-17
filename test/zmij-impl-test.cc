@@ -12,6 +12,7 @@
 #include <cmath>   // std::isfinite
 #include <limits>  // std::numeric_limits
 #include <string>
+#include <type_traits>  // std::is_same
 
 // Lets tests force an allocation failure: the code under test calls malloc
 // unqualified, so this zmij overload shadows ::malloc.
@@ -387,3 +388,18 @@ TEST(zmij_impl_test, write_big_allocation_failure) {
   EXPECT_NE(zmij::write_scientific(buf, sizeof(buf), value, 30), nullptr);
 }
 #endif  // ZMIJ_USE_LONG_DOUBLE
+
+#if ZMIJ_USE_FLOAT128
+TEST(zmij_impl_test, float128_traits) {
+  using traits = zmij::detail::float_traits<__float128>;
+  static_assert(traits::num_bits == 128, "");
+  static_assert(traits::num_exp_bits == 15, "");
+  static_assert(traits::exp_shift == 112, "");
+  static_assert(std::is_same<traits::sig_type, zmij::detail::uint128_t>::value,
+                "");
+  auto bits = traits::to_bits(__float128(-1.5));
+  EXPECT_TRUE(traits::is_negative(bits));
+  EXPECT_EQ(traits::get_exp(bits), 16383);
+  EXPECT_TRUE(traits::get_sig(bits) == traits::implicit_bit >> 1);
+}
+#endif

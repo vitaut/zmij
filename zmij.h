@@ -369,6 +369,14 @@ struct uint128 {
 #  define ZMIJ_USE_INT128 0
 #endif
 
+#ifdef ZMIJ_USE_FLOAT128
+// Use the provided definition.
+#elif defined(__SIZEOF_FLOAT128__)
+#  define ZMIJ_USE_FLOAT128 1
+#else
+#  define ZMIJ_USE_FLOAT128 0
+#endif
+
 #if ZMIJ_USE_INT128
 using uint128_t = __uint128_t;
 #else
@@ -428,8 +436,22 @@ constexpr auto ilog2(int n) noexcept -> int {
   return n > 1 ? 1 + ilog2(n >> 1) : 0;
 }
 
+#if ZMIJ_USE_FLOAT128
+template <typename T> struct is_float128 : std::is_same<T, __float128> {};
+#else
+template <typename T> struct is_float128 : std::false_type {};
+#endif
+
 template <typename Float> struct float_traits : std::numeric_limits<Float> {
-  static_assert(std::numeric_limits<Float>::is_iec559, "IEEE 754 required");
+  // std::numeric_limits doesn't describe __float128, which is IEEE binary128.
+  static constexpr bool binary128 =
+      is_float128<Float>::value && !std::numeric_limits<Float>::is_specialized;
+  static_assert(std::numeric_limits<Float>::is_iec559 || binary128,
+                "IEEE 754 required");
+  static constexpr int digits =
+      binary128 ? 113 : std::numeric_limits<Float>::digits;
+  static constexpr int max_exponent =
+      binary128 ? 16384 : std::numeric_limits<Float>::max_exponent;
 
   // x87 80-bit stores the integer bit explicitly (digits == 64), so its
   // exponent sits one bit higher than the implicit-bit binary32/64/128 layouts.
