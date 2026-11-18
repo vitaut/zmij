@@ -1194,7 +1194,7 @@ ZMIJ_INLINE auto scale(uint64_t bin_sig, int bin_exp, int dec_exp) noexcept
 }
 
 // Rounds a retained fixed-point value to nearest, ties to even.
-ZMIJ_INLINE auto round_even(scaled_value value) noexcept -> uint64_t {
+ZMIJ_INLINE auto round_even(const scaled_value& value) noexcept -> uint64_t {
   constexpr uint64_t half = uint64_t(1) << 63;
   bool round_up = half < value.fraction ||
                   (value.fraction == half &&
