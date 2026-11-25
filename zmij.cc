@@ -1410,8 +1410,11 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
              ? shift_entry >> data::float_shift_table::half_ulp_pos
              : (pow10_factor - 1) >> ((65 - shift) & 63)) +
         even);
-    bool round_up = uint32_t(fractional + half_ulp) < fractional;
+    // round_up is the carry of fractional + half_ulp. Written as a comparison
+    // after round_down, GCC adds into half_ulp; otherwise it keeps the sum in
+    // a callee-saved register that it saves and restores on this path.
     bool round_down = half_ulp > fractional;
+    bool round_up = half_ulp > uint32_t(~fractional);
     integral += round_up;
 
     uint32_t offset = d.float_digit_offsets[fractional >> 28];
