@@ -868,8 +868,9 @@ struct data {
   unsigned char shift_shuffle[17] = {0, 1,  2,  3,  4,  5,  6,  7, 8,
                                      9, 10, 11, 12, 13, 14, 15, 0};
 
-  // The high half of 10**(-dec_exp - 1) by raw float exponent, so that the
-  // float path loads it straight from the exponent.
+  // The high half of 10**(-dec_exp - 1) plus one, the factor of the float
+  // path's multiplication, by raw float exponent, so that the float path loads
+  // it straight from the exponent.
   struct float_pow10_table {
     uint64_t data[exp_shift_table::enable
                       ? float_traits<float>::exp_mask + 1
@@ -882,7 +883,7 @@ struct data {
         int bin_exp = raw_exp - float_traits<float>::exp_offset;
         if (raw_exp == 0) ++bin_exp;
         t.data[raw_exp] =
-            zmij::detail::compute_pow10(-compute_dec_exp(bin_exp) - 1).hi;
+            zmij::detail::compute_pow10(-compute_dec_exp(bin_exp) - 1).hi + 1;
       }
       return t;
     }
@@ -1391,11 +1392,11 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     // multiply.
     const uint64_t* pow10s = d.float_pow10s.data;
     if (ZMIJ_AARCH64) ZMIJ_ASM(("" : "+r"(pow10s)));
-    uint64_t pow10_hi = exp_shift_table::enable
-                            ? pow10s[raw_exp]
-                            : d.pow10_significands[-dec_exp - 1].hi;
+    uint64_t pow10_factor = exp_shift_table::enable
+                                ? pow10s[raw_exp]
+                                : d.pow10_significands[-dec_exp - 1].hi + 1;
     uint64_t p =
-        umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << (shift & 63));
+        umul128_hi64(pow10_factor, uint64_t(bin_sig) << (shift & 63));
 
     uint64_t integral = p >> float_extra_shift;
     // The fraction is the low half of p, so the rounding checks and the digit
@@ -1407,7 +1408,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     uint32_t half_ulp = uint32_t(
         (exp_shift_table::enable
              ? shift_entry >> data::float_shift_table::half_ulp_pos
-             : pow10_hi >> ((65 - shift) & 63)) +
+             : (pow10_factor - 1) >> ((65 - shift) & 63)) +
         even);
     bool round_up = uint32_t(fractional + half_ulp) < fractional;
     bool round_down = half_ulp > fractional;
