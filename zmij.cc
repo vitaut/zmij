@@ -538,11 +538,12 @@ struct float_shuffle_table {
            code % 3;
   }
 
+  // The row with a last digit comes first in a pair.
   ZMIJ_CONSTEXPR auto get_row(unsigned row_pair,
-                              bool has_last_digit) const noexcept
+                              bool no_last_digit) const noexcept
       -> const unsigned char* {
     return data +
-           size_t(row_pair * 2 + has_last_digit) * (num_bcd_digits * 16);
+           size_t(row_pair * 2 + no_last_digit) * (num_bcd_digits * 16);
   }
 
   // `bcd_ctz` is ctz of the nonzero unshuffled BCD.
@@ -582,7 +583,7 @@ struct float_shuffle_table {
       int slot = row / 6;
       sig_shuffle s =
           make_sig_shuffle(num_bcd_digits - idx % num_bcd_digits,
-                           (row & 1) != 0, row / 2 % 3 - 1);
+                           (row & 1) == 0, row / 2 % 3 - 1);
       unsigned char* out = &t.data[idx * 16];
       // Shuffle high bit: output 0.
       for (int i = 0; i < 16; ++i) out[i] = 0x80;
@@ -1212,7 +1213,7 @@ ZMIJ_INLINE void write_digits(char* buffer, uint64_t digits,
 }
 
 ZMIJ_INLINE auto write_float_simd(char* buffer, const dec_digits<32>& dig,
-                                  int last_digit, bool has_last_digit,
+                                  int last_digit, bool no_last_digit,
                                   unsigned exp_code, const data& d) noexcept
     -> char* {
   // The entry and the last digit are inserted into lane 1: the sign and the
@@ -1230,7 +1231,7 @@ ZMIJ_INLINE auto write_float_simd(char* buffer, const dec_digits<32>& dig,
 #endif
   uint32_t exp_data = d.float_exp_strings.data[exp_code];
   const unsigned char* row =
-      d.float_shuffles.get_row(exp_data & 0xff, has_last_digit);
+      d.float_shuffles.get_row(exp_data & 0xff, no_last_digit);
   // Keeps the row address in a register so the trailing-zero offset is the
   // only addition left before the load.
   ZMIJ_ASM(("" : "+r"(row)));
@@ -1306,7 +1307,9 @@ struct shortest_decimal {
   uint64_t sig;
   int exp;
   int last_digit ZMIJ_DEFAULT(0);
-  bool has_last_digit ZMIJ_DEFAULT(false);
+  // True if sig was rounded, which leaves no last digit. It is the rounding
+  // flag as computed, so neither to_decimal nor the row index negates it.
+  bool no_last_digit ZMIJ_DEFAULT(true);
   unsigned exp_code ZMIJ_DEFAULT(0);  // A float_exp_table code, float only.
 };
 
@@ -1356,7 +1359,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
           dec_exp + float_traits<float>::max_digits10 - 2,
           float_exp_table::num_extra_digits(integral));
     }
-    return {integral, dec_exp, digit, (round_up + round_down) == 0, exp_code};
+    return {integral, dec_exp, digit, (round_up + round_down) != 0, exp_code};
   }
 
   // dec_exp is compute_dec_exp(bin_exp) and shift is
@@ -1428,7 +1431,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
           float_exp_table::encode(dec_exp + traits::max_digits10 - 2,
                                   float_exp_table::num_extra_digits(integral));
     }
-    return {integral, dec_exp, digit, (round_up + round_down) == 0, exp_code};
+    return {integral, dec_exp, digit, (round_up + round_down) != 0, exp_code};
   }
 
   // An optimization by Xiang JunBo:
@@ -1472,7 +1475,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   static_assert(extra_shift >= 4, "top four bits of fractional all in p.hi");
   size_t cell = (p.hi >> (extra_shift - 4)) & 15;
   int digit = int((fractional + d.digit_offsets[cell]) >> 60);
-  return {integral, dec_exp, digit, (round_up + round_down) == 0};
+  return {integral, dec_exp, digit, (round_up + round_down) != 0};
 }
 
 struct scaled_value {
@@ -1582,7 +1585,7 @@ template <typename Float> auto to_decimal(Float value) noexcept -> dec_fp<> {
   }
   auto dec = ::to_decimal<Float>(bin_sig ^ traits::implicit_bit, bin_exp,
                                  bin_sig != 0, static_data);
-  auto last_digit = -int(dec.has_last_digit) & dec.last_digit;
+  auto last_digit = (int(dec.no_last_digit) - 1) & dec.last_digit;
   return {dec.sig * 10 + uint64_t(last_digit), dec.exp, negative};
 }
 
@@ -1617,9 +1620,9 @@ auto write(char* buffer, Float value) noexcept -> char* {
     int num_zeros = traits::max_digits10 - 3 - num_digits;
     if (num_zeros >= 0) {
       // Padding dec_sig, a digit longer than dec.sig, absorbs the last digit.
-      uint64_t dec_sig =
-          dec.sig * 10 + uint64_t(-int(dec.has_last_digit) & dec.last_digit);
-      dec = {dec_sig * pow10s[num_zeros], dec.exp - num_zeros - 1, 0, false};
+      int last_digit = (int(dec.no_last_digit) - 1) & dec.last_digit;
+      uint64_t dec_sig = dec.sig * 10 + uint64_t(last_digit);
+      dec = {dec_sig * pow10s[num_zeros], dec.exp - num_zeros - 1, 0, true};
     }
     if (traits::num_bits == 32) {
       dec.exp_code = float_exp_table::encode(
@@ -1630,21 +1633,22 @@ auto write(char* buffer, Float value) noexcept -> char* {
     dec = ::to_decimal<Float>(bin_sig | traits::implicit_bit, bin_exp,
                               bin_sig != 0, *d);
   }
-  bool has_last_digit = dec.has_last_digit;
+  bool no_last_digit = dec.no_last_digit;
   bool has_extra_digit = dec.sig >= threshold;
   int dec_exp = dec.exp + traits::max_digits10 - 2 + has_extra_digit;
   // The shuffle table has rows for 6-digit significands.
   if ZMIJ_UNLIKELY (traits::num_bits == 32 && !float_shuffle_table::enable &&
                     dec.sig < uint32_t(1e6)) {
-    dec.sig = 10 * dec.sig + uint64_t(-int(has_last_digit) & dec.last_digit);
-    has_last_digit = false;
+    dec.sig =
+        10 * dec.sig + uint64_t((int(no_last_digit) - 1) & dec.last_digit);
+    no_last_digit = true;
     --dec_exp;
   }
 
   auto dig = to_digits<traits::num_bits>(dec.sig, *d);
 
   if (traits::num_bits == 32 && float_shuffle_table::enable) {
-    return write_float_simd(buffer, dig, dec.last_digit, has_last_digit,
+    return write_float_simd(buffer, dig, dec.last_digit, no_last_digit,
                             dec.exp_code, *d);
   }
 
@@ -1654,8 +1658,8 @@ auto write(char* buffer, Float value) noexcept -> char* {
   if (dec_exp >= traits::min_fixed_dec_exp &&
       dec_exp <= traits::max_fixed_dec_exp) {
     memcpy(start, &zeros, 8);  // For dec_exp < 0.
-    char last_digit = char('0' + (-int(has_last_digit) & dec.last_digit));
-    int num_digits = int(select(has_last_digit, bcd_size, dig.num_digits - 1));
+    char last_digit = char('0' + ((int(no_last_digit) - 1) & dec.last_digit));
+    int num_digits = int(select(no_last_digit, dig.num_digits - 1, bcd_size));
 
     // Materialize the base early so the entry address is `base + idx*32`;
     // otherwise Clang folds the offset in and adds a cycle to the idx chain.
@@ -1690,7 +1694,7 @@ auto write(char* buffer, Float value) noexcept -> char* {
   buffer += has_extra_digit;
   memcpy(buffer, &dig.digits, bcd_size);
   buffer[bcd_size] = char('0' + dec.last_digit);
-  buffer += select(has_last_digit, bcd_size + 1, dig.num_digits);
+  buffer += select(no_last_digit, dig.num_digits, bcd_size + 1);
   start[0] = start[1];
   start[1] = '.';
   buffer -= (buffer - 1 == start + 1);  // Remove trailing point.
