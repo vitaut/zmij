@@ -63,7 +63,7 @@ static_assert(!ZMIJ_USE_FMA || ZMIJ_USE_SSE4_1, "FMA requires SSE4.1");
 
 namespace {
 
-using zmij::detail::bswap64;
+using zmij::detail::byteswap;
 using zmij::detail::clz;
 using zmij::detail::is_big_endian;
 using zmij::detail::uint128;
@@ -551,7 +551,7 @@ ZMIJ_INLINE auto to_bcd8_split(uint32_t abcdefgh, uint32_t abcd) noexcept
     uint64_t a_b_c_d_e_f_g_h =
         ab_cd_ef_gh +
         neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
-    return is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
+    return is_big_endian ? a_b_c_d_e_f_g_h : byteswap(a_b_c_d_e_f_g_h);
   }
 #if ZMIJ_USE_SSE && !ZMIJ_USE_SSE4_1
   const auto* d = &static_data;

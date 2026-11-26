@@ -152,7 +152,7 @@ static const bool is_big_endian = true;
 static const bool is_big_endian = false;
 #endif
 
-static inline uint64_t bswap64(uint64_t x) {
+static inline uint64_t byteswap(uint64_t x) {
 #if ZMIJ_HAS_BUILTIN(__builtin_bswap64)
   return __builtin_bswap64(x);
 #elif ZMIJ_MSC_VER
@@ -448,7 +448,7 @@ static inline int count_trailing_nonzeros(uint64_t x) {
   // high bit is unused we can avoid the zero check by shifting the
   // datum left by one and inserting a sentinel bit at the end. This can
   // be faster than the automatically inserted range check.
-  if (is_big_endian) x = bswap64(x);
+  if (is_big_endian) x = byteswap(x);
   return ((size_t)70 - clz((x << 1) | 1)) / 8;  // size_t for native arithmetic
 }
 
@@ -1871,7 +1871,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
     uint64_t a_b_c_d_e_f_g_h =
         ab_cd_ef_gh +
         neg10 * (((ab_cd_ef_gh * div10_sig) >> div10_exp) & 0xf000f000f000f);
-    uint64_t bcd = is_big_endian ? a_b_c_d_e_f_g_h : bswap64(a_b_c_d_e_f_g_h);
+    uint64_t bcd = is_big_endian ? a_b_c_d_e_f_g_h : byteswap(a_b_c_d_e_f_g_h);
     bcd_result result = {bcd, count_trailing_nonzeros(bcd)};
     return result;
   }
@@ -1892,7 +1892,7 @@ static ZMIJ_INLINE bcd_result to_bcd8(uint64_t abcdefgh, const zmij_data* d) {
   uint64_t unshuffled_bcd =
       _mm_cvtsi128_si64(to_bcd_4x4(_mm_set_epi64x(0, abcd_efgh), d));
   int len = unshuffled_bcd ? 8 - ctz(unshuffled_bcd) / 8 : 0;
-  bcd_result result = {bswap64(unshuffled_bcd), len};
+  bcd_result result = {byteswap(unshuffled_bcd), len};
   return result;
 #elif ZMIJ_USE_SSE
   // Evaluate the 4-digit limbs and arrange them such that we get a result
@@ -2968,7 +2968,7 @@ static ZMIJ_INLINE char* do_write(uint64_t bin_sig, int64_t bin_exp,
 #if ZMIJ_USE_EXP_STRING_TABLE
   uint64_t exp_data = d->exp_strings[dec_exp + exp_string_offset];
   int len = (int)(exp_data >> 48);
-  if (is_big_endian) exp_data = bswap64(exp_data);
+  if (is_big_endian) exp_data = byteswap(exp_data);
   memcpy(buffer, &exp_data, num_bits == 64 ? 8 : 4);
   return buffer + len;
 #else
