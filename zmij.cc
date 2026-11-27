@@ -609,31 +609,21 @@ struct data {
   exp_shift_table exp_shifts =
       exp_shift_table::enable ? exp_shift_table::make() : exp_shift_table();
 
-  // Extra digit as (fractional + digit_offsets[i]) >> 60 (mod 2**64) for the
-  // top 4 bits i = fractional >> 60. Fractions with the same i straddle at most
-  // one rounding boundary t, below which the digit is b, so
-  // digit_offsets[i] = ((b + 1) << 60) - t (t = i << 60 if none) carries into
-  // bit 60 exactly from t on and leaves the digit in the top 4 bits.
-  // The boundaries are where (fractional * 10 + 2**63 + 6) >> 64 steps up,
-  // except that the 2.5 tie at fractional = 2**62 rounds to even. Zmij.lean
-  // proves that this gives the nearest digit and, in table_digit_eq, that the
-  // table computes it.
+  // Compute the rounded extra digit as (fractional + digit_offsets[i]) >> 60
+  // for the top 4 bits i = fractional >> 60. Fractions with the same i span at
+  // most one rounding boundary t, below which the digit is b, and the entry
+  // ((b + 1) << 60) - t makes the sum carry into the top 4 bits from t on
+  // (t = i << 60 if none). Equivalent to (fractional * 10 + 2**63 + 6) >> 64
+  // with 2.5 rounded to even, as proved by table_digit_eq in Zmij.lean.
   uint64_t digit_offsets[16] = {
       0x0333333333333333, 0, 0xf99999999999999a, 0xf000000000000000,
       0xefffffffffffffff, 0xe666666666666667, 0xe000000000000000,
       0xdccccccccccccccd, 0xd333333333333333, 0xd000000000000000,
       0xc99999999999999a, 0xc000000000000000, 0xc000000000000000,
       0xb666666666666667, 0xb000000000000000, 0xaccccccccccccccd};
-  // Like digit_offsets above but for the 32-bit float fraction. The extra digit
-  // is evaluated as
-  // (fractional + float_digit_offsets[fractional >> 28]) >> 28 (mod 2**32).
-  // Entry i contains the upper 32 bits of digit_offsets[i], which moves its
-  // boundary t up to ceil(t / 2**32), except in entry 2, where t is one
-  // lower because of fractional 0x26666666: 2.0679402e+29 (likewise e+30 to
-  // e+33) is 2067940.15000000008 * 10**23, so its extra digit is 2, but its
-  // fraction truncates to 0x26666666 in 32 bits, which is below the shifted
-  // t = 0x26666667 and would give digit 1 (confirmed by exhaustive test,
-  // float_test.extra_digit_boundary tests this).
+  // Upper 32 bits of digit_offsets, except entry 2, which is one more to
+  // compensate for truncating the fraction to 32 bits. float-check verifies
+  // the table on all floats; float_test.extra_digit_boundary covers entry 2.
   uint32_t float_digit_offsets[16] = {
       0x03333333, 0x00000000, 0xf999999a, 0xf0000000, 0xefffffff, 0xe6666666,
       0xe0000000, 0xdccccccc, 0xd3333333, 0xd0000000, 0xc9999999, 0xc0000000,
@@ -1117,9 +1107,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     uint64_t p = umul128_hi64(pow10_hi + 1, uint64_t(bin_sig) << shift);
 
     uint64_t integral = p >> float_extra_shift;
-    // The fraction is the low half of p, so the rounding checks and the digit
-    // run on 32-bit values without shifting p. 32 bits are enough for the
-    // checks; the digit needs one adjusted boundary (float_digit_offsets).
+    // 32 bits suffice for the rounding checks, as float-check verifies.
     uint32_t fractional = uint32_t(p);
 
     // Fits: shift is at most 32, so pow10_hi >> (65 - shift) < 2**31.
