@@ -1532,45 +1532,21 @@ theorem table_digit_eq (f : ℕ) (e : ℤ) :
     (fractionalPart f e + digitOffset (scaledSignificand f e / 2 ^ 69 % 16))
         % 2 ^ 64 / 2 ^ 60
       = (toDecimalCandidates f e).digit := by
-  obtain ⟨φ, hφ⟩ : ∃ φ, fractionalPart f e = φ := ⟨_, rfl⟩
-  have hφlt : φ < 2 ^ 64 := by
-    rw [← hφ, fractionalPart]
-    exact Nat.mod_lt _ (by norm_num)
-  have htop : scaledSignificand f e / 2 ^ 69 % 16 = φ / 2 ^ 60 := by
-    rw [← hφ, fractionalPart]
+  have htop : scaledSignificand f e / 2 ^ 69 % 16
+      = fractionalPart f e / 2 ^ 60 := by
+    rw [fractionalPart]
     omega
-  have hdigit : (toDecimalCandidates f e).digit
-      = if φ = 2 ^ 62 then 2 else (φ * 10 + biasedHalf) / 2 ^ 64 := by
-    rw [toDecimalCandidates]
-    dsimp only
-    rw [hφ]
-  rw [hφ, htop, hdigit, biasedHalf]
-  obtain ⟨c, hc⟩ : ∃ c, φ / 2 ^ 60 = c := ⟨_, rfl⟩
-  have hc16 : c < 16 := by omega
-  have hK : digitOffset c < 2 ^ 64 := by
-    interval_cases c <;> simp only [digitOffset] <;> omega
-  rw [hc]
-  split_ifs with hq
-  · -- The quarter is the first fraction with top four bits 4, whose offset
-    -- leaves its digit at two.
-    subst hq
-    obtain rfl : c = 4 := by omega
-    decide
-  · -- Elsewhere, name the digit and split on the carry out of the sum: with
-    -- both fixed, what is left is linear in `φ`, as `omega` needs.
-    obtain ⟨d, hd⟩ : ∃ d, (φ * 10 + (2 ^ 63 + 6)) / 2 ^ 64 = d := ⟨_, rfl⟩
-    have hdlo : 2 ^ 64 * d ≤ φ * 10 + (2 ^ 63 + 6) := by omega
-    have hdhi : φ * 10 + (2 ^ 63 + 6) < 2 ^ 64 * d + 2 ^ 64 := by omega
-    have hd10 : d ≤ 10 := by omega
-    rw [hd]
-    clear hd
-    rcases Nat.lt_or_ge (φ + digitOffset c) (2 ^ 64) with hcarry | hcarry
-    · rw [Nat.mod_eq_of_lt hcarry]
-      interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
-        interval_cases d <;> omega
-    · rw [Nat.mod_eq_sub_mod hcarry, Nat.mod_eq_of_lt (by omega)]
-      interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
-        interval_cases d <;> omega
+  have hφ : fractionalPart f e < 2 ^ 64 := Nat.mod_lt _ (by norm_num)
+  dsimp only [toDecimalCandidates]
+  rw [htop, biasedHalf]
+  generalize fractionalPart f e = φ at hφ ⊢
+  -- Name the digit so that each case fixes it along with the table index:
+  -- `omega` cannot solve for the digit and the table's quotient together.
+  generalize hd : (φ * 10 + (2 ^ 63 + 6)) / 2 ^ 64 = d
+  have hc : φ / 2 ^ 60 < 16 := by omega
+  have hd10 : d ≤ 10 := by omega
+  interval_cases h : φ / 2 ^ 60 <;> simp only [digitOffset] <;> split_ifs <;>
+    interval_cases d <;> omega
 
 /-! ## The grid at k
 
