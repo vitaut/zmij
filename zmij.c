@@ -1994,7 +1994,7 @@ static ZMIJ_INLINE void write_digits_double(char* buffer,
   (void)d;  // Unused on the scalar path.
   if (!ZMIJ_USE_NEON && !ZMIJ_USE_SSE4_1) {
     memcpy(buffer, &digits, sizeof(digits));
-    memmove(buffer, buffer + drop_leading_zero, sizeof(digits));
+    memmove(buffer, buffer + drop_leading_zero, sizeof(digits)-1);
     return;
   }
 #if ZMIJ_USE_NEON
