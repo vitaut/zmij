@@ -29,7 +29,7 @@ That changes what has to be proved. Żmij's two coarse candidates are the
 integral part and its successor, one unit apart on the grid at `k+1`, and its
 two rounding flags say which of them lands within half a ULP. The fine
 candidate is not a truncation at all but a rounded digit, so the tie rule that
-yy wrote into a flag Żmij writes into its digit table.
+yy wrote into a flag Żmij writes into its digit offset table.
 
 Throughout this file:
 * `f`, `e`: binary significand and exponent, denoting `f·2^e`;
@@ -81,7 +81,6 @@ two grids is all of `## The grid at k`.
 
     fine_output_nearest
       ← digit_nearest
-          ← table_digit_eq
 
 `ulp_scaled_bounds` is the other thing `exact_candidate_correct` asks for: at
 Żmij's exponent one ULP spans between one and ten grid steps, so the fine case
@@ -131,38 +130,10 @@ def halfUlp (f : ℕ) (e : ℤ) : ℕ :=
       / 2 ^ (10 - exponentShift e)
     + (1 - f % 2)
 
-/-- The table's digit as a division: ten times the fraction plus half of
-    `2^64`, biased by `+7` on `(2^62, 3·2^62]` and by `-1` elsewhere. This is
-    not round-to-nearest of the fraction: the biases stand in for the
-    truncation in `fractionalPart`, and `digit_nearest` shows the result is the
-    nearest digit to the exact value, ties to even. Żmij computes the digit
-    from `digitOffset`, and `table_digit_eq` shows the two agree. -/
-def roundedDigit (frac : ℕ) : ℕ :=
-  if 2 ^ 62 < frac ∧ frac ≤ 3 * 2 ^ 62 then (frac * 10 + (2 ^ 63 + 7)) / 2 ^ 64
-  else (frac * 10 + (2 ^ 63 - 1)) / 2 ^ 64
-
-/-- Żmij's `digit_offsets`: the digit is the top four bits of the fraction plus
-    the offset of its cell, the top four bits of the fraction itself. Each cell
-    holds at most one digit boundary, and its offset carries into the top four
-    bits exactly from that boundary on. -/
-def digitOffset : ℕ → ℕ
-  | 0 => 0x0333333333333333
-  | 1 => 0
-  | 2 => 0xf999999999999999
-  | 3 => 0xf000000000000000
-  | 4 => 0xefffffffffffffff
-  | 5 => 0xe666666666666667
-  | 6 => 0xe000000000000000
-  | 7 => 0xdccccccccccccccd
-  | 8 => 0xd333333333333333
-  | 9 => 0xd000000000000000
-  | 10 => 0xc99999999999999a
-  | 11 => 0xc000000000000000
-  | 12 => 0xc000000000000000
-  | 13 => 0xb666666666666666
-  | 14 => 0xb000000000000000
-  | 15 => 0xaccccccccccccccc
-  | _ => 0
+/-- Rounding constant for the derived digit: half of `2^64`, nudged up by six.
+    The nudge covers the truncation in `fractionalPart`; it moves the digit
+    boundary by less than one of its units. -/
+def biasedHalf : ℕ := 2 ^ 63 + 6
 
 structure DecimalCandidates where
   k : ℤ
@@ -180,11 +151,9 @@ def toDecimalCandidates (f : ℕ) (e : ℤ) : DecimalCandidates :=
   let roundUp : Bool := 2 ^ 64 ≤ frac + half
   let roundDown : Bool := frac < half
 
-  -- The digit from the fraction's cell, its top four bits, which Żmij reads
-  -- from the high word of the product alone: the four bits below the integral
-  -- part.
-  let cell := scaledSignificand f e / 2 ^ 69 % 16
-  let digit : ℕ := (frac + digitOffset cell) % 2 ^ 64 / 2 ^ 60
+  -- Ten times the fraction, rounded. The one exact half that survives
+  -- truncation is a quarter, whose digit 2.5 has to go to even.
+  let digit : ℕ := if frac = 2 ^ 62 then 2 else (frac * 10 + biasedHalf) / 2 ^ 64
 
   { k := binary64.decimalExponent e
     integral := integralPart f e + (if roundUp then 1 else 0)
@@ -1090,28 +1059,28 @@ theorem round_up_iff_roundtrips (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) 
 
 /-! ## The derived digit
 
-Ten times the fraction, rounded, is Żmij's last digit, and the bias of
-`roundedDigit`, `+7` or `-1`, is the rest of the error budget: it stands in for
-the part of the gap the fraction dropped, which is worth up to ten of the units
-the digit is decided in. So the digit is a nearest one except within ten units
-of a digit boundary, where the bias can be wrong either way.
+Ten times the fraction, rounded, is Żmij's last digit, and the `+6` in
+`biasedHalf` is the rest of the error budget: it stands in for the part of the
+gap the fraction dropped, which is worth up to ten of the units the digit
+is decided in. So the digit is a nearest one except within ten units of a digit
+boundary, where a `+6` can be wrong by six either way.
 
 What closes those cases is how rigid they are. Reaching a boundary asks twenty
 times the fraction to come within twenty of a multiple of `2^64`, and since the
 fraction also fixes the digit, that leaves eleven possible fractions in all,
-each an explicit constant. Each one fixes how much of the truncation the bias
+each an explicit constant. Each one fixes how much of the truncation the `+6`
 would have to have got right, which is a bound on the remainder below one
 fraction unit, and the certificates below say no significand meets it. Of these
 eleven exceptional fractions, only the exact midpoint at a quarter survives,
-where the truncation vanishes and the digit is two: that is the tie, and the
-`-1` rounds it to even.
+where the truncation vanishes and the digit is two: that is the tie, and Żmij's
+digit offset table rounds it to even.
 -/
 
 /-! ### The digit error
 
 The digit's distance from the value splits the way `res_split` splits the
 residue: into the fraction, which the digit is computed from, and the
-remainder below one fraction unit, which the bias stands in for. That remainder
+remainder below one fraction unit, which the `+6` stands in for. That remainder
 is what the boundary cases below turn on, so it is bounded first, at twenty of
 it under twenty-one units, the twenty being the ten of the base-ten multiply
 doubled.
@@ -1213,50 +1182,39 @@ one band around the digit boundary, the ambiguity has occupants at six
 exponents, and each would have to be named and discharged separately.
 -/
 
-/-- The three fractions that can reach a digit boundary from below, each with
+/-- The six fractions that can reach a digit boundary from below, each with
     how far the truncation would have to reach for it to happen, in fifths of a
-    fraction unit. All three are rounded up by the `+7`. -/
+    fraction unit. -/
 private def digitLowEdges : List (ℕ × ℕ) :=
-  [(8301034833169298227, 1), (11990383647911208550, 2),
-    (6456360425798343065, 3)]
+  [(8301034833169298227, 1), (17524406870024074035, 1),
+    (2767011611056432742, 2), (11990383647911208550, 2),
+    (6456360425798343065, 3), (15679732462653118873, 3)]
 
-/-- And five that can reach one from above. The first is the quarter,
-    where the reach needed is nothing at all: only the exact midpoint survives,
-    so only a vanishing truncation does. -/
+/-- And the five that can reach one from above. The first is the quarter
+    Żmij's table rounds to even, where the reach needed is nothing at all:
+    only the exact midpoint survives, so only a vanishing truncation does. -/
 private def digitHighEdges : List (ℕ × ℕ) :=
   [(4611686018427387904, 0), (922337203685477580, 4),
     (10145709240540253388, 4), (4611686018427387903, 5),
     (13835058055282163711, 5)]
-
-/-- The other three from above, the ones the `-1` rounds down from under
-    three fifths of a unit short of the boundary. Their windows span most of
-    a cell, and no one multiplier dodges them and the five above together at
-    every exponent, so they carry a certificate of their own. -/
-private def digitWideEdges : List (ℕ × ℕ) :=
-  [(17524406870024074035, 1), (2767011611056432742, 2),
-    (15679732462653118873, 3)]
 
 private def digitLowWindows (e : ℤ) : ModWindows :=
   binary64.regularWindows (p10 e) (unit e * 2 ^ 64) e <|
     digitLowEdges.map fun p =>
       ((unit e : ℤ) * p.1, (unit e : ℤ) * p.1 + p.2 * (unit e : ℤ) / 5)
 
-private def digitHighWindows (edges : List (ℕ × ℕ)) (e : ℤ) : ModWindows :=
+private def digitHighWindows (e : ℤ) : ModWindows :=
   binary64.regularWindows (p10 e) (unit e * 2 ^ 64) e <|
-    edges.map fun p =>
+    digitHighEdges.map fun p =>
       ((unit e : ℤ) * p.1
           + max (p.2 * (unit e : ℤ) / 5 - 2 ^ 53)
               (if num e % den e = 0 then 1 else 0),
         (unit e : ℤ) * p.1 + unit e - 1)
 
-/-- Close the three digit certificates for a literal exponent. -/
+/-- Close the two digit certificates for a literal exponent. -/
 elab "digit_low_cert" : tactic => modCertTactic fun e => (digitLowWindows e).search
 
-elab "digit_high_cert" : tactic =>
-  modCertTactic fun e => (digitHighWindows digitHighEdges e).search
-
-elab "digit_wide_cert" : tactic =>
-  modCertTactic fun e => (digitHighWindows digitWideEdges e).search
+elab "digit_high_cert" : tactic => modCertTactic fun e => (digitHighWindows e).search
 
 private theorem digit_low_refuted (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
     ∃ q, (digitLowWindows e).refutedBy q = true := by
@@ -1264,14 +1222,9 @@ private theorem digit_low_refuted (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
   interval_cases e <;> digit_low_cert
 
 private theorem digit_high_refuted (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
-    ∃ q, (digitHighWindows digitHighEdges e).refutedBy q = true := by
+    ∃ q, (digitHighWindows e).refutedBy q = true := by
   obtain ⟨hlo, hhi⟩ := he
   interval_cases e <;> digit_high_cert
-
-private theorem digit_wide_refuted (e : ℤ) (he : -1074 ≤ e ∧ e ≤ 971) :
-    ∃ q, (digitHighWindows digitWideEdges e).refutedBy q = true := by
-  obtain ⟨hlo, hhi⟩ := he
-  interval_cases e <;> digit_wide_cert
 
 /-- A fraction together with a bound on the remainder below the unit is a
     point of `res`, which is the residue of `f·p10` modulo one coarse step, so
@@ -1285,7 +1238,7 @@ private theorem no_res_hit {rmin rmax q : ℤ} {windows : List (ℤ × ℤ)} (f 
   binary64.regular_not_hit f hr (by have := unit_pos e; positivity) hcert hmem
     (by rw [res, Nat.mul_comm]) hrmin hrmax
 
-/-- No significand pairs one of the three low fractions with a truncation
+/-- No significand pairs one of the six low fractions with a truncation
     that reaches the boundary. -/
 private theorem no_digit_low (f : ℕ) (e : ℤ)
     (hr : binary64.Regular f e) {w j : ℕ}
@@ -1309,15 +1262,14 @@ private theorem no_digit_low (f : ℕ) (e : ℤ)
   exact no_res_hit f e hr hcert hmem'
     (by rw [hres]; omega) (by rw [hres]; omega)
 
-/-- Nor with a high fraction of a refuted family, the quarter included: there
-    the truncation has to vanish, and it does not. -/
-private theorem no_digit_high_of (f : ℕ) (e : ℤ)
-    (hr : binary64.Regular f e) {edges : List (ℕ × ℕ)}
-    (hcert : ∃ q, (digitHighWindows edges e).refutedBy q = true) {w j : ℕ}
-    (hmem : (w, j) ∈ edges) (hφ : fractionalPart f e = w)
+/-- Nor with one of the five high fractions, the quarter included: there the
+    truncation has to vanish, and it does not. -/
+private theorem no_digit_high (f : ℕ) (e : ℤ)
+    (hr : binary64.Regular f e) {w j : ℕ}
+    (hmem : (w, j) ∈ digitHighEdges) (hφ : fractionalPart f e = w)
     (hb : 4 * j * unit e ≤ 20 * (f * p10 e % unit e) + 20 * 2 ^ 53)
     (hpos : 0 < err f e) : False := by
-  obtain ⟨q, hcert⟩ := hcert
+  obtain ⟨q, hcert⟩ := digit_high_refuted e hr.range
   have hres : (res f e : ℤ)
       = (unit e : ℤ) * w + (f * p10 e % unit e : ℕ) := by
     rw [res_split f e (exponent_shift_range e hr.range).2, hφ]
@@ -1349,8 +1301,8 @@ private theorem no_digit_high_of (f : ℕ) (e : ℤ)
   have hmem' : ((unit e : ℤ) * w
         + max ((j : ℤ) * (unit e : ℤ) / 5 - 2 ^ 53)
             (if num e % den e = 0 then 1 else 0),
-      (unit e : ℤ) * w + unit e - 1) ∈ (digitHighWindows edges e).windows :=
-    List.mem_map_of_mem (l := edges) (f := fun p : ℕ × ℕ =>
+      (unit e : ℤ) * w + unit e - 1) ∈ (digitHighWindows e).windows :=
+    List.mem_map_of_mem (l := digitHighEdges) (f := fun p : ℕ × ℕ =>
       ((unit e : ℤ) * p.1
           + max (p.2 * (unit e : ℤ) / 5 - 2 ^ 53)
               (if num e % den e = 0 then 1 else 0),
@@ -1362,159 +1314,65 @@ private theorem no_digit_high_of (f : ℕ) (e : ℤ)
           rw [h] <;> omega)
     (by rw [hres]; omega)
 
-/-- The eight high fractions, each sent to its family's certificate. -/
-private theorem no_digit_high (f : ℕ) (e : ℤ)
-    (hr : binary64.Regular f e) {w j : ℕ}
-    (hmem : (w, j) ∈ digitHighEdges ++ digitWideEdges)
-    (hφ : fractionalPart f e = w)
-    (hb : 4 * j * unit e ≤ 20 * (f * p10 e % unit e) + 20 * 2 ^ 53)
-    (hpos : 0 < err f e) : False := by
-  rcases List.mem_append.mp hmem with hmem | hmem
-  · exact no_digit_high_of f e hr (digit_high_refuted e hr.range) hmem hφ hb hpos
-  · exact no_digit_high_of f e hr (digit_wide_refuted e hr.range) hmem hφ hb hpos
-
-/-! ### The table
-
-Żmij reads the digit from `digitOffset` rather than computing `roundedDigit`,
-but the two are the same function of the fraction. The table places the
-boundaries after the digits 0, 1, 2, 8 and 9 where `(frac·10 + 2^63 - 1) / 2^64`
-steps up, which rounds the quarter's 2.5 to even by itself, and those after 3
-to 7 where `(frac·10 + 2^63 + 7) / 2^64` does, which rounds 7.5 to eight.
-`roundedDigit` is exactly that division, so `table_digit_eq` holds at every
-fraction, with no exceptions to refute.
--/
-
-/-- The cell read from the high word is the top four bits of the fraction. -/
-theorem cell_eq (f : ℕ) (e : ℤ) :
-    scaledSignificand f e / 2 ^ 69 % 16 = fractionalPart f e / 2 ^ 60 := by
-  rw [fractionalPart]
-  omega
-
-/-- `roundedDigit` without the division: the biased product lies within one
-    `2^64` above the digit. -/
-private theorem rounded_digit_spec (φ : ℕ) :
-    (2 ^ 62 < φ ∧ φ ≤ 3 * 2 ^ 62
-        ∧ 2 ^ 64 * roundedDigit φ ≤ φ * 10 + 2 ^ 63 + 7
-        ∧ φ * 10 + 2 ^ 63 + 7 < 2 ^ 64 * roundedDigit φ + 2 ^ 64)
-      ∨ ((φ ≤ 2 ^ 62 ∨ 3 * 2 ^ 62 < φ)
-        ∧ 2 ^ 64 * roundedDigit φ + 1 ≤ φ * 10 + 2 ^ 63
-        ∧ φ * 10 + 2 ^ 63 < 2 ^ 64 * roundedDigit φ + 2 ^ 64 + 1) := by
-  rw [roundedDigit]
-  split_ifs with h
-  · left; omega
-  · right; omega
-
-/-- The table's digit is `roundedDigit` at every fraction. -/
-private theorem table_digit_eq_rounded {φ : ℕ} (hφ : φ < 2 ^ 64) :
-    (φ + digitOffset (φ / 2 ^ 60)) % 2 ^ 64 / 2 ^ 60 = roundedDigit φ := by
-  obtain ⟨c, hc⟩ : ∃ c, φ / 2 ^ 60 = c := ⟨_, rfl⟩
-  have hc16 : c < 16 := by omega
-  -- Name the reference digit and split on the carry out of the table's sum:
-  -- with both fixed, every comparison left is linear in `φ`, which `omega`
-  -- needs, having no dark shadow to reason across two divisions.
-  have hspec := rounded_digit_spec φ
-  obtain ⟨d, hd⟩ : ∃ d, roundedDigit φ = d := ⟨_, rfl⟩
-  rw [hd] at hspec
-  have hd10 : d ≤ 10 := by omega
-  have hK : digitOffset c < 2 ^ 64 := by
-    interval_cases c <;> simp only [digitOffset] <;> omega
-  rw [hc, hd]
-  rcases Nat.lt_or_ge (φ + digitOffset c) (2 ^ 64) with hcarry | hcarry
-  · rw [Nat.mod_eq_of_lt hcarry]
-    interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
-      interval_cases d <;> omega
-  · rw [Nat.mod_eq_sub_mod hcarry, Nat.mod_eq_of_lt (by omega)]
-    interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
-      interval_cases d <;> omega
-
-/-- Żmij's table digit is `roundedDigit`. -/
-theorem table_digit_eq (f : ℕ) (e : ℤ) :
-    (toDecimalCandidates f e).digit = roundedDigit (fractionalPart f e) := by
-  have hφ : fractionalPart f e < 2 ^ 64 := by
-    rw [fractionalPart]
-    exact Nat.mod_lt _ (by norm_num)
-  have hdigit : (toDecimalCandidates f e).digit
-      = (fractionalPart f e
-          + digitOffset (scaledSignificand f e / 2 ^ 69 % 16)) % 2 ^ 64
-        / 2 ^ 60 := rfl
-  rw [hdigit, cell_eq]
-  exact table_digit_eq_rounded hφ
-
 /-! ### Nearest at the digit
 
 What is left is finite arithmetic on the fraction and the digit it
 produces. The biased quotient bounds how far the two can be out of step;
 reaching either boundary pins the fraction to an entry of the tables above,
-where the certificates rule it out; and the two exact midpoints have even
-digits. `digit_nearest` assembles these.
+where the certificates rule it out; and the one exact midpoint besides the
+quarter has an even digit. `digit_nearest` assembles these.
 -/
 
 /-- The biased quotient bounds the offset of twenty times the fraction from
-    the digit boundary below it. The `+7` is worth fourteen of those units, so
-    the offset can fall short of that boundary by at most fourteen and of the
-    one above by at least fifteen; the `-1` is worth two, so the offset clears
-    the boundary below by at least two and can pass the one above by one. -/
-private theorem digit_offset_bounds {φ d : ℕ} {v : ℤ} (hφ : φ < 2 ^ 64)
-    (hd : d = roundedDigit φ) (hv : v = 20 * φ + 2 ^ 64 - 2 * d * 2 ^ 64) :
-    d ≤ 10
-      ∧ ((2 ^ 62 < φ ∧ φ ≤ 3 * 2 ^ 62 ∧ -14 ≤ v ∧ v ≤ 2 ^ 65 - 15)
-        ∨ ((φ ≤ 2 ^ 62 ∨ 3 * 2 ^ 62 < φ) ∧ 2 ≤ v ∧ v ≤ 2 ^ 65 + 1)) := by
-  have hspec := rounded_digit_spec φ
-  rw [← hd] at hspec
+    the digit boundary below it: the `+6` is worth twelve of those units, so the
+    offset can fall short of that boundary by at most twelve and of the one
+    above by at least thirteen. -/
+private theorem digit_offset_bounds {φ d m : ℕ} {v : ℤ} (hφ : φ < 2 ^ 64)
+    (hfloor : 2 ^ 64 * d + m = φ * 10 + (2 ^ 63 + 6)) (hm : m < 2 ^ 64)
+    (hv : v = 20 * φ + 2 ^ 64 - 2 * d * 2 ^ 64) :
+    d ≤ 10 ∧ -12 ≤ v ∧ v ≤ 2 ^ 65 - 13 := by
   omega
 
 /-- Falling short of the boundary below makes the offset a negative multiple of
     four, and since the fraction fixes the digit too, each of its three
-    values leaves one possible fraction. -/
+    values leaves two possible fractions. -/
 private theorem digit_low_cases {φ d : ℕ} {v : ℤ} (hφ : φ < 2 ^ 64)
     (hd : d ≤ 10) (hv : v = 20 * φ + 2 ^ 64 - 2 * d * 2 ^ 64)
-    (hb : (2 ^ 62 < φ ∧ φ ≤ 3 * 2 ^ 62 ∧ -14 ≤ v ∧ v ≤ 2 ^ 65 - 15)
-      ∨ ((φ ≤ 2 ^ 62 ∨ 3 * 2 ^ 62 < φ) ∧ 2 ≤ v ∧ v ≤ 2 ^ 65 + 1))
-    (hhi : v < 0) :
+    (hlo : -12 ≤ v) (hhi : v < 0) :
     ∃ w j : ℕ, (w, j) ∈ digitLowEdges ∧ (φ : ℤ) = w ∧ v = -(4 * (j : ℤ)) := by
   interval_cases d <;>
     first
       | omega
       | exact ⟨8301034833169298227, 1, by decide, by omega, by omega⟩
+      | exact ⟨17524406870024074035, 1, by decide, by omega, by omega⟩
+      | exact ⟨2767011611056432742, 2, by decide, by omega, by omega⟩
       | exact ⟨11990383647911208550, 2, by decide, by omega, by omega⟩
       | exact ⟨6456360425798343065, 3, by decide, by omega, by omega⟩
+      | exact ⟨15679732462653118873, 3, by decide, by omega, by omega⟩
 
-/-- Reaching the boundary above leaves eight, the quarter among them. The
-    quarter shares its digit with the fraction just below it, which reaches
-    the same boundary with the whole truncation, so that digit splits in two. -/
+/-- Reaching past the boundary above leaves four, the quarter aside. -/
 private theorem digit_high_cases {φ d : ℕ} {v : ℤ} (hφ : φ < 2 ^ 64)
     (hd : d ≤ 10) (hv : v = 20 * φ + 2 ^ 64 - 2 * d * 2 ^ 64)
-    (hb : (2 ^ 62 < φ ∧ φ ≤ 3 * 2 ^ 62 ∧ -14 ≤ v ∧ v ≤ 2 ^ 65 - 15)
-      ∨ ((φ ≤ 2 ^ 62 ∨ 3 * 2 ^ 62 < φ) ∧ 2 ≤ v ∧ v ≤ 2 ^ 65 + 1))
-    (hlo : 2 ^ 65 - 20 ≤ v) :
-    ∃ w j : ℕ, (w, j) ∈ digitHighEdges ++ digitWideEdges ∧ (φ : ℤ) = w
+    (hlo : 2 ^ 65 - 20 ≤ v) (hhi : v ≤ 2 ^ 65 - 13) :
+    ∃ w j : ℕ, (w, j) ∈ digitHighEdges ∧ (φ : ℤ) = w
       ∧ v = 2 ^ 65 - 4 * (j : ℤ) := by
   interval_cases d <;>
     first
       | omega
-      | exact ⟨17524406870024074035, 1, by decide, by omega, by omega⟩
-      | exact ⟨2767011611056432742, 2, by decide, by omega, by omega⟩
-      | exact ⟨15679732462653118873, 3, by decide, by omega, by omega⟩
       | exact ⟨922337203685477580, 4, by decide, by omega, by omega⟩
       | exact ⟨10145709240540253388, 4, by decide, by omega, by omega⟩
+      | exact ⟨4611686018427387903, 5, by decide, by omega, by omega⟩
       | exact ⟨13835058055282163711, 5, by decide, by omega, by omega⟩
-      | (rcases eq_or_ne (φ : ℤ) 4611686018427387904 with hq | hq
-         · exact ⟨4611686018427387904, 0, by decide, hq, by omega⟩
-         · exact ⟨4611686018427387903, 5, by decide, by omega, by omega⟩)
 
-/-- An offset at either boundary with nothing to spare is an exact midpoint,
-    and there are two: the quarter, whose `-1` keeps the digit at two, and
-    three quarters, whose `+7` takes it to eight. -/
-private theorem digit_mid_even {φ d : ℕ} {v : ℤ} (hd : d ≤ 10)
-    (hv : v = 20 * φ + 2 ^ 64 - 2 * d * 2 ^ 64)
-    (hb : (2 ^ 62 < φ ∧ φ ≤ 3 * 2 ^ 62 ∧ -14 ≤ v ∧ v ≤ 2 ^ 65 - 15)
-      ∨ ((φ ≤ 2 ^ 62 ∨ 3 * 2 ^ 62 < φ) ∧ 2 ≤ v ∧ v ≤ 2 ^ 65 + 1))
-    (hmid : v = 0 ∨ v = 2 ^ 65) :
+/-- A vanishing offset is an exact midpoint, and the only one besides the
+    quarter is three quarters, whose digit is eight. -/
+private theorem digit_mid_even {φ d : ℕ} (hφ : φ < 2 ^ 64) (hd : d ≤ 10)
+    (hsp : φ ≠ 2 ^ 62) (hv : (0 : ℤ) = 20 * φ + 2 ^ 64 - 2 * d * 2 ^ 64) :
     d % 2 = 0 := by
   interval_cases d <;> omega
 
 /-- Żmij's digit is a nearest one on the grid at `k`, ties to even. Away from a
-    boundary the bias cannot matter; at one the fraction is one of eleven
+    boundary the `+6` cannot matter; at one the fraction is one of eleven
     constants, and all but the quarter are refuted. -/
 theorem digit_nearest (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) :
     (-(step e : ℤ) ≤ digitDist f e ∧ digitDist f e ≤ step e)
@@ -1551,13 +1409,38 @@ theorem digit_nearest (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) :
   rw [← hB] at hidhi
   have hmulpos : (0 : ℤ) < step e := by exact_mod_cast step_pos e
   rw [hd]
-  -- The digit is the biased quotient, which bounds the offset both ways.
-  have hdq : d = roundedDigit φ := by rw [← hd, table_digit_eq, hφ]
-  obtain ⟨hd10, hvb⟩ := digit_offset_bounds hφlt hdq hv
+  by_cases hsp : φ = 2 ^ 62
+  · -- The quarter: the one exact midpoint, whose digit Żmij rounds to even.
+    have hd2 : d = 2 := by
+      rw [← hd, toDecimalCandidates]
+      dsimp only
+      rw [hφ]
+      simp only [hsp, ite_true]
+    have hv2 : v = 2 ^ 65 := by rw [hv, hsp, hd2]; ring
+    have hzero : err f e = 0 := by
+      by_contra hne
+      exact no_digit_high f e hr (w := 4611686018427387904) (j := 0) (by decide)
+        (hφ.trans hsp) (by omega) (by omega)
+    have hB0 : B = 0 := by
+      rw [hB, hv2, show ((err f e : ℕ) : ℤ) = 0 from by rw [hzero]; rfl]
+      ring
+    exact ⟨⟨by omega, by omega⟩, fun _ => by omega⟩
+  -- Away from it the digit is the biased quotient, which bounds the offset both
+  -- ways: the `+6` is worth twelve of the doubled units, so the offset misses
+  -- the boundary below by at most that and the one above by at least it.
+  have hdq : d = (φ * 10 + biasedHalf) / 2 ^ 64 := by
+    rw [← hd, toDecimalCandidates]
+    dsimp only
+    rw [hφ]
+    simp only [hsp, ite_false]
+  rw [biasedHalf] at hdq
+  obtain ⟨hd10, hvlo, hvhi⟩ :=
+    digit_offset_bounds (m := (φ * 10 + (2 ^ 63 + 6)) % 2 ^ 64) hφlt
+      (by rw [hdq]; exact Nat.div_add_mod _ _) (Nat.mod_lt _ (by norm_num)) hv
   clear hdq
   by_cases hneg : v < 0
   · -- Below the boundary.
-    obtain ⟨w, j, hmem, hw, hvj⟩ := digit_low_cases hφlt hd10 hv hvb hneg
+    obtain ⟨w, j, hmem, hw, hvj⟩ := digit_low_cases hφlt hd10 hv hvlo hneg
     have hfar : 0 < A := by
       by_contra hcon0
       have hcon := not_lt.mp hcon0
@@ -1572,42 +1455,26 @@ theorem digit_nearest (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) :
       linarith
     exact ⟨⟨by omega, by omega⟩, fun h => by omega⟩
   by_cases hpos : 2 ^ 65 - 20 ≤ v
-  · -- At or above it. Reaching it asks for a truncation the certificates deny
-    -- unless the reach needed is nothing, which leaves the quarter, exactly.
-    obtain ⟨w, j, hmem, hw, hvj⟩ := digit_high_cases hφlt hd10 hv hvb hpos
-    have hzero : 0 ≤ B → err f e = 0 := by
-      intro hcon
-      by_contra hne
+  · -- Above it.
+    obtain ⟨w, j, hmem, hw, hvj⟩ := digit_high_cases hφlt hd10 hv hpos hvhi
+    have hj : 4 ≤ j := by omega
+    have hfar : B < 0 := by
+      by_contra hcon0
+      have hcon := not_lt.mp hcon0
       rw [hB, hvj] at hcon
       have hreach : 4 * j * edge e ≤ 20 * err f e := by
         have h : (4 * j * edge e : ℤ) ≤ 20 * (err f e : ℤ) := by linarith
         exact_mod_cast h
+      have hjpos : 0 < 4 * j * edge e :=
+        Nat.mul_pos (Nat.mul_pos (by norm_num) (by omega)) (edge_pos e)
       exact no_digit_high f e hr hmem (by omega)
-        (res_ge_of_err f e hr hreach) (Nat.pos_of_ne_zero hne)
-    -- `omega` would split `hzero` and the offset bound into cases and
-    -- eliminate over the whole context in each, which does not terminate in
-    -- reasonable time; what is left is linear in `A` and `B`.
-    have hreach : edge e * (v - 2 ^ 65) ≤ 0 :=
-      mul_nonpos_of_nonneg_of_nonpos (le_of_lt hedge)
-        (by linarith [Int.natCast_nonneg j])
-    have hfar : B ≤ 0 := by
-      by_contra hcon
-      have h0 : (err f e : ℤ) = 0 := by
-        exact_mod_cast hzero (le_of_lt (not_le.mp hcon))
-      linarith
+        (res_ge_of_err f e hr hreach) (by omega)
     have habove : 0 < A := by
       have h : edge e * (2 ^ 65 - 20) ≤ edge e * v :=
         mul_le_mul_of_nonneg_left hpos (le_of_lt hedge)
       rw [hA]
       linarith
-    refine ⟨⟨by linarith, by linarith⟩, fun h => ?_⟩
-    have hB0 : B = 0 := by rcases h with h | h <;> linarith
-    have h0 : (err f e : ℤ) = 0 := by exact_mod_cast hzero (le_of_eq hB0.symm)
-    have hv2 : v = 2 ^ 65 := by
-      have hz : edge e * (v - 2 ^ 65) = 0 := by
-        linear_combination -hB + hB0 - 20 * h0
-      rcases mul_eq_zero.mp hz with h' | h' <;> linarith
-    exact digit_mid_even hd10 hv hvb (Or.inr hv2)
+    exact ⟨⟨by omega, by omega⟩, fun h => by omega⟩
   -- Everywhere else the offset clears the truncation on both sides. The one
   -- exception is a vanishing offset, which is an exact midpoint: there the
   -- fraction is three quarters and the digit is eight.
@@ -1619,13 +1486,91 @@ theorem digit_nearest (f : ℕ) (e : ℤ) (hr : binary64.Regular f e) :
     linarith
   have habove : 0 ≤ A := by rw [hA]; omega
   refine ⟨⟨by omega, by omega⟩, fun h => ?_⟩
-  -- A midpoint forces the offset to vanish.
+  -- A midpoint forces the offset to vanish, and only one fraction does.
   have hv0 : v = 0 := by
     have hz : edge e * v = 0 := by rw [hA] at habove hidlo; omega
     rcases mul_eq_zero.mp hz with h' | h'
     · omega
     · exact h'
-  exact digit_mid_even hd10 hv hvb (Or.inl hv0)
+  exact digit_mid_even hφlt hd10 hsp (by rw [← hv0]; exact hv)
+
+/-! ### The digit offset table
+
+Żmij reads the digit from a table instead of multiplying by ten: the top four
+bits of the fraction select an offset, the offset is added to the fraction
+modulo `2^64`, and the top four bits of the sum are the digit. Fractions that
+share their top four bits straddle at most one digit boundary, and their offset
+makes the sum carry into its top four bits exactly from that boundary on. So
+the table can put every boundary where `toDecimalCandidates` rounds, the
+quarter's included, and `table_digit_eq` shows that it does.
+-/
+
+/-- Żmij's `digit_offsets`, indexed by the top four bits of the fraction. -/
+def digitOffset : ℕ → ℕ
+  | 0 => 0x0333333333333333
+  | 1 => 0
+  | 2 => 0xf99999999999999a
+  | 3 => 0xf000000000000000
+  | 4 => 0xefffffffffffffff
+  | 5 => 0xe666666666666667
+  | 6 => 0xe000000000000000
+  | 7 => 0xdccccccccccccccd
+  | 8 => 0xd333333333333333
+  | 9 => 0xd000000000000000
+  | 10 => 0xc99999999999999a
+  | 11 => 0xc000000000000000
+  | 12 => 0xc000000000000000
+  | 13 => 0xb666666666666667
+  | 14 => 0xb000000000000000
+  | 15 => 0xaccccccccccccccd
+  | _ => 0
+
+/-- The digit Żmij reads from the table is that of `toDecimalCandidates`, at
+    every fraction. Żmij takes the top four bits of the fraction from the high
+    word of the product, the four below the integral part. -/
+theorem table_digit_eq (f : ℕ) (e : ℤ) :
+    (fractionalPart f e + digitOffset (scaledSignificand f e / 2 ^ 69 % 16))
+        % 2 ^ 64 / 2 ^ 60
+      = (toDecimalCandidates f e).digit := by
+  obtain ⟨φ, hφ⟩ : ∃ φ, fractionalPart f e = φ := ⟨_, rfl⟩
+  have hφlt : φ < 2 ^ 64 := by
+    rw [← hφ, fractionalPart]
+    exact Nat.mod_lt _ (by norm_num)
+  have htop : scaledSignificand f e / 2 ^ 69 % 16 = φ / 2 ^ 60 := by
+    rw [← hφ, fractionalPart]
+    omega
+  have hdigit : (toDecimalCandidates f e).digit
+      = if φ = 2 ^ 62 then 2 else (φ * 10 + biasedHalf) / 2 ^ 64 := by
+    rw [toDecimalCandidates]
+    dsimp only
+    rw [hφ]
+  rw [hφ, htop, hdigit, biasedHalf]
+  obtain ⟨c, hc⟩ : ∃ c, φ / 2 ^ 60 = c := ⟨_, rfl⟩
+  have hc16 : c < 16 := by omega
+  have hK : digitOffset c < 2 ^ 64 := by
+    interval_cases c <;> simp only [digitOffset] <;> omega
+  rw [hc]
+  split_ifs with hq
+  · -- The quarter is the first fraction with top four bits 4, whose offset
+    -- leaves its digit at two.
+    subst hq
+    obtain rfl : c = 4 := by omega
+    decide
+  · -- Elsewhere, name the digit and split on the carry out of the sum: with
+    -- both fixed, what is left is linear in `φ`, as `omega` needs.
+    obtain ⟨d, hd⟩ : ∃ d, (φ * 10 + (2 ^ 63 + 6)) / 2 ^ 64 = d := ⟨_, rfl⟩
+    have hdlo : 2 ^ 64 * d ≤ φ * 10 + (2 ^ 63 + 6) := by omega
+    have hdhi : φ * 10 + (2 ^ 63 + 6) < 2 ^ 64 * d + 2 ^ 64 := by omega
+    have hd10 : d ≤ 10 := by omega
+    rw [hd]
+    clear hd
+    rcases Nat.lt_or_ge (φ + digitOffset c) (2 ^ 64) with hcarry | hcarry
+    · rw [Nat.mod_eq_of_lt hcarry]
+      interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
+        interval_cases d <;> omega
+    · rw [Nat.mod_eq_sub_mod hcarry, Nat.mod_eq_of_lt (by omega)]
+      interval_cases c <;> simp only [digitOffset] at hcarry ⊢ <;>
+        interval_cases d <;> omega
 
 /-! ## The grid at k
 
@@ -1825,8 +1770,8 @@ Nothing above is needed beyond `ulp_scaled_bounds` and the three semantic
 obligations `coarse_output_roundtrips`, `fine_output_nearest`, and
 `trim_of_coarse_roundtrip`. In particular no claim is made that Żmij's packed
 decisions agree with the exact ones: its truncated comparisons are matched to
-the existence of an exact coarse candidate, not to any exact comparison, and
-its digit is rounded from the packed fraction, exact midpoints included.
+the existence of an exact coarse candidate, not to any exact comparison, and the
+tie its digit offset table breaks is a packed midpoint rather than an exact one.
 -/
 
 /-- Żmij implements the exact method: it trims exactly when an exact coarse
