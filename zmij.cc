@@ -739,7 +739,7 @@ ZMIJ_INLINE auto to_bcd_4x4(__m128i y, const data& d) noexcept -> __m128i {
   const __m128i neg10 = _mm_load_si128(m128ptr(&d.neg10));
 
   // _mm_mullo_epi32 is SSE 4.1
-  __m128i z = _mm_add_epi64(
+  __m128i z = _mm_add_epi32(
       y,
       _mm_mullo_epi32(neg100, _mm_srli_epi32(_mm_mulhi_epu16(y, div100), 3)));
   return _mm_add_epi16(z, _mm_mullo_epi16(neg10, _mm_mulhi_epu16(z, div10)));
