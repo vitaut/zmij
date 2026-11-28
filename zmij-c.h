@@ -7,6 +7,10 @@
 #ifndef ZMIJ_C_H_
 #define ZMIJ_C_H_
 
+#ifndef ZMIJ_API
+#define ZMIJ_API static inline
+#endif
+
 #include <stddef.h>  // size_t
 #include <string.h>  // memcpy
 
@@ -49,7 +53,7 @@ enum {
 /// `out` without a null terminator. Returns a pointer past the last character
 /// written; if the representation exceeds `n` characters, only the first `n`
 /// are written.
-static inline char* zmij_write(char* out, size_t n, double value) {
+ZMIJ_API char* zmij_write(char* out, size_t n, double value) {
   if (n >= zmij_double_buffer_size) return zmij_detail_write(value, out);
   char buffer[zmij_double_buffer_size];
   size_t size = zmij_detail_write(value, buffer) - buffer;
@@ -58,7 +62,7 @@ static inline char* zmij_write(char* out, size_t n, double value) {
   return out + size;
 }
 
-static inline char* zmij_write_f(char* out, size_t n, float value) {
+ZMIJ_API char* zmij_write_f(char* out, size_t n, float value) {
   if (n >= zmij_float_buffer_size) return zmij_detail_write_f(value, out);
   char buffer[zmij_float_buffer_size];
   size_t size = zmij_detail_write_f(value, buffer) - buffer;
@@ -73,7 +77,7 @@ static inline char* zmij_write_f(char* out, size_t n, float value) {
 ///
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written.
-static inline char* zmij_write_scientific(char* out, size_t n, double value,
+ZMIJ_API char* zmij_write_scientific(char* out, size_t n, double value,
                                           int precision) {
   if (precision < 0) precision = 6;
   if (precision >= 18) {
@@ -90,7 +94,7 @@ static inline char* zmij_write_scientific(char* out, size_t n, double value,
   return out + size;
 }
 
-static inline char* zmij_write_scientific_f(char* out, size_t n, float value,
+ZMIJ_API char* zmij_write_scientific_f(char* out, size_t n, float value,
                                             int precision) {
   if (precision < 0) precision = 6;
   if (precision >= 18) {
@@ -117,7 +121,7 @@ static inline char* zmij_write_scientific_f(char* out, size_t n, float value,
 ///
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written.
-static inline char* zmij_write_general(char* out, size_t n, double value,
+ZMIJ_API char* zmij_write_general(char* out, size_t n, double value,
                                        int precision) {
   if (precision <= 1) precision = precision < 0 ? 6 : 1;
   if (precision > 18) {
@@ -133,7 +137,7 @@ static inline char* zmij_write_general(char* out, size_t n, double value,
   return out + size;
 }
 
-static inline char* zmij_write_general_f(char* out, size_t n, float value,
+ZMIJ_API char* zmij_write_general_f(char* out, size_t n, float value,
                                          int precision) {
   if (precision <= 1) precision = precision < 0 ? 6 : 1;
   if (precision > 18) {
@@ -158,7 +162,7 @@ static inline char* zmij_write_general_f(char* out, size_t n, float value,
 ///
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written.
-static inline char* zmij_write_fixed(char* out, size_t n, double value,
+ZMIJ_API char* zmij_write_fixed(char* out, size_t n, double value,
                                      int precision) {
   if (precision < 0) precision = 6;
   if (precision > 18) {
@@ -174,7 +178,7 @@ static inline char* zmij_write_fixed(char* out, size_t n, double value,
   return out + size;
 }
 
-static inline char* zmij_write_fixed_f(char* out, size_t n, float value,
+ZMIJ_API char* zmij_write_fixed_f(char* out, size_t n, float value,
                                        int precision) {
   if (precision < 0) precision = 6;
   if (precision > 18) {
@@ -196,7 +200,7 @@ static inline char* zmij_write_fixed_f(char* out, size_t n, float value,
 ///
 /// Returns a pointer past the last character written; if the representation
 /// exceeds `n` characters, only the first `n` are written.
-static inline char* zmij_write_hex(char* out, size_t n, double value) {
+ZMIJ_API char* zmij_write_hex(char* out, size_t n, double value) {
   if (n >= zmij_double_hex_buffer_size)
     return zmij_detail_write_hex(value, out);
   char buffer[zmij_double_hex_buffer_size];
@@ -206,7 +210,7 @@ static inline char* zmij_write_hex(char* out, size_t n, double value) {
   return out + size;
 }
 
-static inline char* zmij_write_hex_f(char* out, size_t n, float value) {
+ZMIJ_API char* zmij_write_hex_f(char* out, size_t n, float value) {
   if (n >= zmij_float_hex_buffer_size)
     return zmij_detail_write_hex((double)value, out);
   char buffer[zmij_float_hex_buffer_size];
