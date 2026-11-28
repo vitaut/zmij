@@ -286,7 +286,8 @@ struct pow10_significand_table {
 
 struct exp_shift_table {
   static constexpr bool enable = ZMIJ_OPTIMIZE_SIZE == 0 && ZMIJ_USE_CONSTEXPR;
-  // extra_shift in [3, 10]: >= 3 keeps shift non-negative, <= 10 keeps
+  // extra_shift in [4, 10]: >= 4 keeps the top four bits of the fraction in
+  // p.hi for the digit lookup (and shift non-negative), <= 10 keeps
   // bin_sig << shift in 64 bits (11 overflows the irregular 2**52 << 12).
   // 9 is fastest: extra_shift + 1 == 10 reuses the base-10 digit constant.
   static constexpr int extra_shift = 9;
@@ -1157,7 +1158,6 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
 
   // Derive the extra digit from the fractional part (parallel with rounding),
   // indexing digit_offsets by its top 4 bits, read from p.hi alone.
-  static_assert(extra_shift >= 4, "top four bits of fractional all in p.hi");
   uint64_t offset = d.digit_offsets[(p.hi >> (extra_shift - 4)) & 15];
   int digit = int((fractional + offset) >> 60);
   return {integral, dec_exp, digit, (round_up + round_down) == 0};
