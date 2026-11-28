@@ -624,7 +624,7 @@ struct data {
       0xb666666666666667, 0xb000000000000000, 0xaccccccccccccccd};
   // Upper 32 bits of digit_offsets, except entry 2, which is one more to
   // compensate for truncating the fraction to 32 bits. float-check verifies
-  // the table on all floats; float_test.extra_digit_boundary covers entry 2.
+  // the table on all floats.
   uint32_t float_digit_offsets[16] = {
       0x03333333, 0x00000000, 0xf999999a, 0xf0000000, 0xefffffff, 0xe6666666,
       0xe0000000, 0xdccccccc, 0xd3333333, 0xd0000000, 0xc9999999, 0xc0000000,
@@ -1068,8 +1068,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
     // the integral and fractional parts directly.
     unsigned char frac_shift = uint8_t(exp_shift + traits::num_sig_bits);
     uint64_t fractional = pow10.hi << frac_shift;
-    // For float, pow10.hi alone gives fractional 40+ bits, enough for all
-    // powers of two.
+    // For float, pow10.hi alone suffices, as checked for every power of two.
     if (num_bits == 64) fractional |= pow10.lo >> (64 - frac_shift);
 
     uint64_t half_ulp = pow10.hi >> (1 - exp_shift);
