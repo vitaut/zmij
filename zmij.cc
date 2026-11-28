@@ -1060,7 +1060,7 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   if ZMIJ_UNLIKELY (!regular) {
     int dec_exp = compute_dec_exp(int(bin_exp), false);
     signed char exp_shift =
-        compute_exp_shift(int(bin_exp), dec_exp + 1);  // [-3, 1]
+        compute_exp_shift(int(bin_exp), dec_exp + 1);  // [-2, 1]
     uint128 pow10 = d.pow10_significands[-dec_exp - 1];
     // The significand only contains the implicit bit, so the product
     // pow10 * bin_sig reduces to a single shift and we can extract
