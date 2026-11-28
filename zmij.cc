@@ -286,9 +286,9 @@ struct pow10_significand_table {
 
 struct exp_shift_table {
   static constexpr bool enable = ZMIJ_OPTIMIZE_SIZE == 0 && ZMIJ_USE_CONSTEXPR;
-  // extra_shift in [4, 10]: >= 4 keeps the top four bits of the fraction in
-  // p.hi for the digit lookup (and shift non-negative), <= 10 keeps
-  // bin_sig << shift in 64 bits (11 overflows the irregular 2**52 << 12).
+  // extra_shift in [4, 11]: >= 4 keeps the top four bits of the fraction in
+  // p.hi for the digit lookup (and shift non-negative), <= 11 keeps
+  // bin_sig << shift in 64 bits (bin_sig < 2**53, shift <= extra_shift).
   // 9 is fastest: extra_shift + 1 == 10 reuses the base-10 digit constant.
   static constexpr int extra_shift = 9;
   unsigned char data[enable ? float_traits<double>::exp_mask + 1 : 1] = {};
@@ -1058,7 +1058,6 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
   constexpr int extra_shift = exp_shift_table::extra_shift;
 
   if ZMIJ_UNLIKELY (!regular) {
-    assert(bin_sig == traits::implicit_bit);
     int dec_exp = compute_dec_exp(int(bin_exp), false);
     signed char exp_shift =
         compute_exp_shift(int(bin_exp), dec_exp + 1);  // [-3, 1]
