@@ -1092,7 +1092,9 @@ ZMIJ_INLINE auto to_decimal(UInt bin_sig, int64_t raw_exp, bool regular,
                     ? int(umul128_hi64(uint64_t(bin_exp),
                                        log10_2_sig << (64 - log10_2_exp)))
                     : compute_dec_exp(int(bin_exp));
-  ZMIJ_ASM(("" : "+r"(dec_exp)));  // Force 32-bit reg for sxtw addressing.
+  // Force 32-bit reg for sxtw addressing. GCC on AArch64 does it unforced
+  // and is faster without the barrier.
+  if (ZMIJ_CLANG || !ZMIJ_AARCH64) ZMIJ_ASM(("" : "+r"(dec_exp)));
   unsigned char shift = uint8_t(
       exp_shift_table::enable
           ? d.exp_shifts.data[bin_exp + float_traits<double>::exp_offset]
